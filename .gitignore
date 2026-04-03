@@ -1,6 +1,5 @@
 # package manager
 bun.lock
-package.json
 
 # build output
 dist/
