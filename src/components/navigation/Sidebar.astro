@@ -9,11 +9,13 @@ import Profile from "./Profile.astro";
   }
 </style>
 
-<section class="sidebar">
-  <main id="menu">
+<section class="sidebar col">
+  <main class="flex-max" id="menu">
     <div id="spaces-list"></div>
     <div id="overview"></div>
   </main>
 
-  <Profile />
+  <aside class="p-sm">
+    <Profile />
+  </aside>
 </section>

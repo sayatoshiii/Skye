@@ -1,9 +1,16 @@
+@import url("https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap");
+
 :root {
   /* Colours */
   --colours-background: hsl(242deg, 9%, 7%);
   --colours-foreground: hsl(240deg, 7%, 5.5%);
 
   --colours-outline-light: hsla(0, 0%, 100%, 0.15);
+
+  --colours-text: hsl(220deg, 11.5%, 80%);
+
+  --text-sm: 12px;
+  --text-md: 14px;
 }
 
 body {
@@ -12,6 +19,12 @@ body {
 
   display: flex;
   flex-flow: row nowrap;
+
+  font-family: "Montserrat", sans-serif;
+  font-optical-sizing: auto;
+  font-style: normal;
+
+  color: var(--colours-text);
 
   margin: 0 auto;
 }

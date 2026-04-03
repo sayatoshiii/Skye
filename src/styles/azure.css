@@ -1,12 +1,16 @@
 :root {
-  --azure-gap-sm: 5px;
-  --azure-gap-md: 10px;
-  --azure-gap-lg: 15px;
+  --azure-spacing-sm: 5px;
+  --azure-spacing-md: 10px;
+  --azure-spacing-lg: 15px;
 }
 
 /*
   * Flex Layout Utilities
 */
+
+.flex-max {
+  flex: 1 1;
+}
 
 .col {
   display: flex;
@@ -24,15 +28,15 @@
 }
 
 .gap-sm {
-  gap: var(--azure-gap-sm);
+  gap: var(--azure-spacing-sm);
 }
 
 .gap-md {
-  gap: var(--azure-gap-md);
+  gap: var(--azure-spacing-md);
 }
 
 .gap-lg {
-  gap: var(--azure-gap-lg);
+  gap: var(--azure-spacing-lg);
 }
 
 .centre {
@@ -46,4 +50,27 @@
 
 .align-centre {
   align-items: center;
+}
+
+/* Text Styling */
+
+.bold {
+  font-weight: 600;
+}
+
+.sm {
+  font-size: var(--text-sm);
+}
+
+.md {
+  font-size: var(--text-md);
+}
+
+/* Layout Styling */
+.p-sm {
+  padding: var(--azure-spacing-sm);
+}
+
+.mb-msm {
+  margin-bottom: calc(-1 * var(--azure-spacing-sm));
 }
