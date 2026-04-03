@@ -1,6 +1,17 @@
+:root {
+  /* Colours */
+  --colours-background: hsl(242deg, 9%, 7%);
+  --colours-foreground: hsl(240deg, 7%, 5.5%);
+
+  --colours-outline-light: hsla(0, 0%, 100%, 0.15);
+}
+
 body {
   width: 100%;
   min-height: 100vh;
+
+  display: flex;
+  flex-flow: row nowrap;
 
   margin: 0 auto;
 }

@@ -1,0 +1,19 @@
+---
+import Profile from "./Profile.astro";
+---
+
+<style>
+  .sidebar {
+    width: clamp(200px, 25vw, 350px);
+    background-color: var(--colours-foreground);
+  }
+</style>
+
+<section class="sidebar">
+  <main id="menu">
+    <div id="spaces-list"></div>
+    <div id="overview"></div>
+  </main>
+
+  <Profile />
+</section>

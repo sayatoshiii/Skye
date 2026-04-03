@@ -1,0 +1,49 @@
+:root {
+  --azure-gap-sm: 5px;
+  --azure-gap-md: 10px;
+  --azure-gap-lg: 15px;
+}
+
+/*
+  * Flex Layout Utilities
+*/
+
+.col {
+  display: flex;
+  flex-flow: column;
+}
+
+.row {
+  display: flex;
+  flex-flow: row;
+}
+
+.row-nw {
+  display: flex;
+  flex-flow: row nowrap;
+}
+
+.gap-sm {
+  gap: var(--azure-gap-sm);
+}
+
+.gap-md {
+  gap: var(--azure-gap-md);
+}
+
+.gap-lg {
+  gap: var(--azure-gap-lg);
+}
+
+.centre {
+  justify-content: center;
+  align-items: center;
+}
+
+.justify-centre {
+  justify-content: center;
+}
+
+.align-centre {
+  align-items: center;
+}

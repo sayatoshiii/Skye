@@ -1,5 +1,10 @@
 ---
+import Home from "../components/app/Home.astro";
+import Sidebar from "../components/navigation/Sidebar.astro";
 import App from "../layouts/App.astro";
 ---
 
-<App title={"whatever"} />
+<App title={"whatever"}>
+  <Sidebar />
+  <Home />
+</App>

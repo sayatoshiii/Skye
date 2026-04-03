@@ -1,0 +1,35 @@
+---
+const { size = "64px", url, alt, outline, id } = Astro.props;
+---
+
+<style>
+  .avatar {
+    width: var(--size);
+    height: var(--size);
+
+    border-radius: 25%;
+    overflow: hidden;
+  }
+
+  .avatar[data-outline="true"] {
+    --outline: calc(var(--size) * 0.055);
+    --outline-offset: calc(var(--outline) * 0.9);
+
+    outline: var(--outline) solid var(--colours-outline-light);
+    outline-offset: var(--outline-offset);
+
+    margin: calc(var(--outline) + var(--outline-offset));
+  }
+
+  .avatar img {
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+    object-position: center;
+  }
+</style>
+
+<div class="avatar" id={id} style=`--size: ${size}` data-outline={outline}>
+  <img src={url} alt={alt} />
+</div>
