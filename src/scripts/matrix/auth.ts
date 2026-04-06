@@ -24,3 +24,9 @@ export const login = async (user?: string, password?: string) => {
   localStorage.setItem("device_id", device_id);
   localStorage.setItem("user_id", user_id);
 };
+
+export const getAuthDetails = () => ({
+  access_token: localStorage.getItem("access_token"),
+  device_id: localStorage.getItem("device_id"),
+  user_id: localStorage.getItem("user_id"),
+});
