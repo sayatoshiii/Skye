@@ -1,0 +1,11 @@
+{
+  "locale": "en_gb",
+  "text": {
+    "profile": {
+      "placeholder": {
+        "display_name": "Loading...",
+        "user_id": "..."
+      }
+    }
+  }
+}
