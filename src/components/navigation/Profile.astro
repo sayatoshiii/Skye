@@ -1,4 +1,5 @@
 ---
+import { getLocalisedText } from "../../scripts/accessibility/language/translation";
 import Avatar from "../ui/Avatar.astro";
 ---
 
@@ -9,10 +10,42 @@ import Avatar from "../ui/Avatar.astro";
 </style>
 
 <section class="row-nw gap-md align-centre">
-  <Avatar size={"48px"} url={"/test/avatar/avatar_1.jpg"} outline />
+  <Avatar size={"48px"} url={"/test/avatar/avatar_1.jpg"} id="avatar" outline />
 
   <aside>
-    <p class="bold md mb-msm">Sayatoshi</p>
-    <span class="sm">@sayatoshi:matrix.org</span>
+    <p class="bold md mb-msm" id="display_name">
+      {getLocalisedText(undefined, "profile", "placeholder", "display_name")}
+    </p>
+    <span class="sm" id="user_id">
+      {getLocalisedText(undefined, "profile", "placeholder", "user_id")}
+    </span>
   </aside>
 </section>
+
+<script>
+  import { ClientEvent } from "matrix-js-sdk";
+  import { Client } from "../../scripts/matrix/client";
+  import { getUser, getUserAvatar } from "../../scripts/matrix/utilities/user";
+
+  const setupProfile = async () => {
+    const user = getUser();
+    if (!user) return;
+
+    const { displayName, userId, avatarUrl } = user;
+
+    const media = await getUserAvatar(userId!, avatarUrl!, {
+      width: 48,
+      height: 48,
+      method: "crop",
+    });
+
+    document.getElementById("display_name")!.innerText = displayName!;
+    document.getElementById("user_id")!.innerText = userId!;
+    // @ts-ignore: 'wah wah wah' whiny bitch. stfu.
+    document.getElementById("avatar")!.firstElementChild!.src = media!;
+  };
+
+  Client.on(ClientEvent.Sync, () => {
+    setupProfile();
+  });
+</script>

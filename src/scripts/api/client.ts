@@ -1,6 +1,8 @@
 export const baseURL = {
   MATRIX: (homeserver = "https://matrix.org") =>
     `${homeserver}/_matrix/client/v3/`,
+  CUSTOM: (url: string, trailing: boolean = false) =>
+    url + (trailing ? "/" : ""),
 };
 
 export const API = async ({
