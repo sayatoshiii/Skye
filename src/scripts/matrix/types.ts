@@ -157,13 +157,23 @@ export type CryptoHooks = {
     event: MatrixEvent,
     roomId: RoomId,
   ) => Promise<MatrixEvent | null> | MatrixEvent | null;
+  encryptEvent?: (
+    type: string,
+    content: Record<string, any>,
+    roomId: RoomId,
+  ) => Promise<MatrixEvent | null> | MatrixEvent | null;
 };
 
 export type SyncEvents = {
   sync: SyncResponse;
   state: SyncState;
   error: unknown;
-  room_timeline: { roomId: RoomId; events: MatrixEvent[]; limited: boolean; prevBatch?: string };
+  room_timeline: {
+    roomId: RoomId;
+    events: MatrixEvent[];
+    limited: boolean;
+    prevBatch?: string;
+  };
   account_data: MatrixEvent[];
 };
 
