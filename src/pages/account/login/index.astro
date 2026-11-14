@@ -1,5 +1,15 @@
 ---
-import LoginButton from "./_LoginButton.svelte";
+import App from "../../../layouts/App.astro";
+import Login from "./_Login.svelte";
 ---
 
-<LoginButton client:only />
+<App title="Sign in">
+  <script>
+    import { isLoggedIn } from "../../../scripts/matrix/session";
+    import { ROUTES } from "../../../scripts/settings/config";
+
+    if (isLoggedIn()) location.replace(ROUTES.app);
+  </script>
+  <Login client:only="svelte" />
+</App>
+

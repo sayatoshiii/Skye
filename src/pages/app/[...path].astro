@@ -8,6 +8,12 @@ export const getStaticPaths = () => [{ params: { path: undefined } }];
 ---
 
 <App title="App">
+  <script>
+    import { isLoggedIn } from "../../scripts/matrix/session";
+    import { ROUTES } from "../../scripts/settings/config";
+
+    if (!isLoggedIn()) location.replace(ROUTES.login);
+  </script>
   <Shell client:only="svelte">
     <div slot="footer" class="row-nw align-centre justify-between gap-sm">
       <Profile />
