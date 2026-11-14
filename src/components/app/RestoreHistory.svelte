@@ -104,7 +104,7 @@
     {#if verifying && flow}
       <header class="col gap-sm">
         <h2 id="restore-title" class="lg bold">
-          {text("encryption", "verify", flow.phase === "incoming" ? "incoming_title" : "title")}
+          {text("encryption", "verify", flow.role === "other" ? "other_title" : flow.phase === "incoming" ? "incoming_title" : "title")}
         </h2>
         {#if flow.deviceId}
           <p class="xs muted mono">{text("encryption", "verify", "device").replace("{device}", flow.deviceId)}</p>
@@ -112,7 +112,7 @@
       </header>
 
       {#if flow.phase === "incoming"}
-        <p class="sm">{text("encryption", "verify", "incoming")}</p>
+        <p class="sm">{text("encryption", "verify", flow.role === "other" ? "other_incoming" : "incoming")}</p>
         <div class="actions col gap-sm">
           <button type="button" class="primary press" onclick={acceptVerification}>{text("encryption", "verify", "accept")}</button>
           <button type="button" class="secondary press" onclick={cancelVerification}>{text("encryption", "verify", "decline")}</button>
@@ -144,6 +144,9 @@
         {:else}
           <button type="button" class="secondary press" onclick={close}>{text("encryption", "close")}</button>
         {/if}
+      {:else if flow.phase === "verified"}
+        <p class="sm" role="status">{text("encryption", "verify", "verified")}</p>
+        <button type="button" class="primary press" onclick={close}>{text("encryption", "close")}</button>
       {:else if flow.phase === "restored"}
         <p class="sm" role="status">{fill(text("encryption", "done"), flow.progress)}</p>
         <button type="button" class="primary press" onclick={close}>{text("encryption", "close")}</button>

@@ -22,8 +22,11 @@ export type VerificationPhase =
   | "syncing"
   | "restoring"
   | "restored"
+  | "verified"
   | "cancelled"
   | "failed";
+
+export type VerificationRole = "self" | "other";
 
 export type VerificationEmoji = { symbol: string; description: string };
 
@@ -31,6 +34,7 @@ export type VerificationProgress = { imported: number; total: number };
 
 export type VerificationState = {
   phase: VerificationPhase;
+  role: VerificationRole;
   deviceId: string | null;
   emoji: VerificationEmoji[];
   progress: VerificationProgress;
@@ -54,10 +58,11 @@ export type VerificationContext = {
 export const BACKUP_SECRET_NAME = "m.megolm_backup.v1";
 
 const METHODS = [VerificationMethod.SasV1];
-const SETTLED: VerificationPhase[] = ["idle", "restored", "cancelled", "failed"];
+const SETTLED: VerificationPhase[] = ["idle", "restored", "verified", "cancelled", "failed"];
 
 export const initialVerification: VerificationState = {
   phase: "idle",
+  role: "self",
   deviceId: null,
   emoji: [],
   progress: { imported: 0, total: 0 },
@@ -157,6 +162,10 @@ export const createVerification = (context: VerificationContext) => {
   const onVerified = async () => {
     if (verified) return;
     verified = true;
+
+    if (state.role === "other")
+      return emit({ phase: "verified", emoji: [], error: null });
+
     emit({ phase: "syncing", emoji: [], error: null });
 
     const machine = await context.ready;
@@ -238,8 +247,10 @@ export const createVerification = (context: VerificationContext) => {
       );
     if (!incoming) return;
 
+    const trusted = (await machine.crossSigningStatus()).hasSelfSigning;
+
     adopt(incoming);
-    emit({ ...initialVerification, phase: "incoming" });
+    emit({ ...initialVerification, phase: "incoming", role: trusted ? "other" : "self" });
     await refresh();
   };
 

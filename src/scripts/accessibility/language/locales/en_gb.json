@@ -192,7 +192,10 @@
         "restoring": "Unlocking your messages...",
         "cancelled": "Verification was cancelled.",
         "retry": "Try again",
-        "back": "Back"
+        "back": "Back",
+        "other_title": "Verify your new device",
+        "other_incoming": "One of your devices is asking to be verified. Only accept if you just started this on a device you own.",
+        "verified": "Device verified. It can now read your messages."
       },
       "errors": {
         "no_backup": "There's no key backup on your account yet.",
