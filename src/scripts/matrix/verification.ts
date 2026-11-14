@@ -183,7 +183,7 @@ export const createVerification = (context: VerificationContext) => {
     if (phase === VerificationRequestPhase.Requested && !request.weStarted())
       return emit({ phase: "incoming", deviceId });
 
-    if (phase === VerificationRequestPhase.Ready && !starting) {
+    if (phase === VerificationRequestPhase.Ready && request.weStarted() && !starting) {
       starting = true;
       const started = await request.startSas();
       if (started) {
