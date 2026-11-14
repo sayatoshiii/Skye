@@ -78,6 +78,10 @@ const getPassphrase = (session: Session) => {
   return created;
 };
 
+const isKeyConflict = (outgoing: { type: RequestType }, error: unknown) =>
+  outgoing.type === RequestType.KeysUpload &&
+  String((error as Error)?.message ?? error).includes("already exists");
+
 const deleteDatabase = (name: string) =>
   new Promise<void>((resolve) => {
     const request = indexedDB.deleteDatabase(name);
@@ -242,9 +246,10 @@ export const createCrypto = (context: CryptoContext) => {
 
       await Promise.all(
         requests.map((outgoing) =>
-          sendAndMark(machine, outgoing).catch((error) =>
-            console.warn("Skye crypto request failed", outgoing.type, error),
-          ),
+          sendAndMark(machine, outgoing).catch((error) => {
+            console.warn("Skye crypto request failed", outgoing.type, error);
+            if (isKeyConflict(outgoing, error)) context.onStoreLocked();
+          }),
         ),
       );
 

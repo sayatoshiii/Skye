@@ -213,15 +213,19 @@ const startCrypto = (activeSession: Session) => {
 
 let cryptoClosing: Promise<void> = Promise.resolve();
 
+let resettingStore = false;
+
 const resetLockedStore = async () => {
   const active = get(session);
-  if (!active) return;
+  if (!active || resettingStore) return;
+  resettingStore = true;
 
   await stopCrypto();
   stopMatrix();
   await Promise.all([logout(active), clearCryptoStore(active)]);
   clearSyncToken();
   sessionExpired.set(true);
+  resettingStore = false;
 };
 
 const stopCrypto = () => {
