@@ -1,0 +1,17 @@
+---
+import AccentPicker from "../../components/navigation/AccentPicker.svelte";
+import Profile from "../../components/navigation/Profile.astro";
+import App from "../../layouts/App.astro";
+import Shell from "./_Shell.svelte";
+
+export const getStaticPaths = () => [{ params: { path: undefined } }];
+---
+
+<App title="App">
+  <Shell client:only="svelte">
+    <div slot="footer" class="row-nw align-centre justify-between gap-sm">
+      <Profile />
+      <AccentPicker client:only="svelte" />
+    </div>
+  </Shell>
+</App>
