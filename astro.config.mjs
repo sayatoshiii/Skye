@@ -31,6 +31,7 @@ const appFallback = () => {
 // https://astro.build/config
 export default defineConfig({
   integrations: [svelte()],
+  devToolbar: { enabled: false },
   vite: {
     plugins: [appFallback()],
     optimizeDeps: {

@@ -583,6 +583,8 @@
   }
 
   textarea {
+    min-width: 0;
+    width: 0;
     max-height: 40vh;
     padding: 9px 0;
     resize: none;
@@ -597,6 +599,9 @@
 
   textarea::placeholder {
     color: var(--colours-text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .send,
