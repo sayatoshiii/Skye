@@ -1,6 +1,7 @@
 ---
 import "../styles/global.css";
 import "../styles/azure.css";
+import { ACCENT_STORAGE_KEY } from "../scripts/settings/accent";
 
 const { title } = Astro.props;
 ---
@@ -9,9 +10,20 @@ const { title } = Astro.props;
   <head>
     <meta charset="utf-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
+    <meta name="theme-color" content="hsl(240, 7%, 5.5%)" />
     <meta name="generator" content={Astro.generator} />
     <title>Skye{title && ` | ${title}`}</title>
+    <script is:inline define:vars={{ key: ACCENT_STORAGE_KEY }}>
+      try {
+        const colour = localStorage.getItem(key);
+        if (colour && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(colour))
+          document.documentElement.style.setProperty("--colours-accent", colour);
+      } catch {}
+    </script>
   </head>
   <body>
     <slot />

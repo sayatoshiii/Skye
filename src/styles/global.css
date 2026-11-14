@@ -1,21 +1,55 @@
 @import url("https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap");
 
 :root {
+  color-scheme: dark;
+
   /* Colours */
   --colours-background: hsl(242deg, 9%, 7%);
   --colours-foreground: hsl(240deg, 7%, 5.5%);
+  --colours-surface: hsl(242deg, 8%, 9.5%);
+  --colours-surface-raised: hsl(242deg, 8%, 12%);
+  --colours-surface-hover: hsla(0, 0%, 100%, 0.045);
+  --colours-surface-active: hsla(0, 0%, 100%, 0.08);
+  --colours-scrim: hsla(240, 10%, 2%, 0.6);
 
   --colours-outline-light: hsla(0, 0%, 100%, 0.15);
+  --colours-outline-hairline: hsla(0, 0%, 100%, 0.07);
+  --colours-outline-strong: hsla(0, 0%, 100%, 0.22);
 
   --colours-text: hsl(220deg, 11.5%, 80%);
+  --colours-text-strong: hsl(220deg, 15%, 94%);
+  --colours-text-muted: hsla(220, 11.5%, 80%, 0.62);
+  --colours-text-faint: hsla(220, 11.5%, 80%, 0.38);
 
+  --colours-accent: #3aa0ff;
+  --colours-accent-strong: color-mix(in oklab, var(--colours-accent) 82%, white);
+  --colours-accent-weak: color-mix(in oklab, var(--colours-accent) 70%, black);
+  --colours-accent-soft: color-mix(in oklab, var(--colours-accent) 16%, transparent);
+  --colours-accent-faint: color-mix(in oklab, var(--colours-accent) 8%, transparent);
+  --colours-accent-glow: color-mix(in oklab, var(--colours-accent) 38%, transparent);
+  --colours-on-accent: hsl(240deg, 10%, 6%);
+
+  --colours-success: hsl(150deg, 60%, 50%);
+  --colours-danger: hsl(355deg, 78%, 62%);
+  --colours-danger-soft: color-mix(in oklab, var(--colours-danger) 16%, transparent);
+
+  --text-xs: 11px;
   --text-sm: 12px;
   --text-md: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 body {
   width: 100%;
   min-height: 100vh;
+  min-height: 100dvh;
 
   display: flex;
   flex-flow: row nowrap;
@@ -25,6 +59,16 @@ body {
   font-style: normal;
 
   color: var(--colours-text);
+  background-color: var(--colours-background);
 
   margin: 0 auto;
+}
+
+::selection {
+  background-color: var(--colours-accent-soft);
+}
+
+:focus-visible {
+  outline: 2px solid var(--colours-accent);
+  outline-offset: 2px;
 }
