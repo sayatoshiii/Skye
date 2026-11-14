@@ -97,7 +97,7 @@
     if (axis !== "x") return;
 
     const atEdge = (dx > 0 && index === 0) || (dx < 0 && index === panes.length - 1);
-    offset = atEdge ? dx * 0.25 : dx;
+    offset = atEdge ? 0 : dx;
   };
 
   const onpointerup = (event: PointerEvent) => {
