@@ -201,6 +201,7 @@ const startCrypto = (activeSession: Session) => {
     getRoom: (roomId) => get(rooms)[roomId],
     getMembers: getEncryptionMembers,
     onKeysReceived: retryDecryption,
+    onStoreLocked: () => queueMicrotask(resetLockedStore),
     onVerification: (state) => {
       verification.set(state);
       if (state.phase === "incoming") restoreOpen.set(true);
@@ -211,6 +212,17 @@ const startCrypto = (activeSession: Session) => {
 };
 
 let cryptoClosing: Promise<void> = Promise.resolve();
+
+const resetLockedStore = async () => {
+  const active = get(session);
+  if (!active) return;
+
+  await stopCrypto();
+  stopMatrix();
+  await Promise.all([logout(active), clearCryptoStore(active)]);
+  clearSyncToken();
+  sessionExpired.set(true);
+};
 
 const stopCrypto = () => {
   const handle = cryptoHandle;

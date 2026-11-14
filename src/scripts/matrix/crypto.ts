@@ -43,6 +43,7 @@ export type CryptoContext = {
   getMembers: (roomId: RoomId) => Promise<UserId[]>;
   onKeysReceived: (roomIds: RoomId[]) => void;
   onVerification: (state: VerificationState) => void;
+  onStoreLocked: () => void;
 };
 
 export type RestoreProgress = { imported: number; total: number };
@@ -165,6 +166,7 @@ export const createCrypto = (context: CryptoContext) => {
     })
     .catch((error) => {
       console.error("Skye crypto failed to start", error);
+      if (String(error).includes("aead")) context.onStoreLocked();
       return null;
     });
 
