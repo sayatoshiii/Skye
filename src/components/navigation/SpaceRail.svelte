@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
-  import { spaces } from "../../scripts/stores/mock";
+  import { spaces } from "../../scripts/stores/placeholder";
   import { HOME, navigation, openRoom } from "../../scripts/stores/navigation.svelte";
   import Avatar from "../ui/Avatar.svelte";
 

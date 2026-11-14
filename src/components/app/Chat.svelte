@@ -6,8 +6,8 @@
     getRoom,
     getRoomMessages,
     members,
-    type MockMessage,
-  } from "../../scripts/stores/mock";
+    type PlaceholderMessage,
+  } from "../../scripts/stores/placeholder";
   import { navigation } from "../../scripts/stores/navigation.svelte";
   import Avatar from "../ui/Avatar.svelte";
 
@@ -21,7 +21,7 @@
   const text = (...path: string[]) =>
     getLocalisedText(undefined, ...path) as string;
 
-  let sent = $state<MockMessage[]>([]);
+  let sent = $state<PlaceholderMessage[]>([]);
   let draft = $state("");
   let timeline: HTMLElement | undefined = $state();
   let composer: HTMLTextAreaElement | undefined = $state();

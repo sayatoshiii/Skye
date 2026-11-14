@@ -1,6 +1,6 @@
 import { serverNameFromUserId } from "../matrix/discovery";
 import { loadSession } from "../matrix/session";
-import { getDirectRooms, getSpace, getSpaceRoomIds, homeServerName, rooms, spaces } from "./mock";
+import { getDirectRooms, getSpace, getSpaceRoomIds, homeServerName, rooms, spaces } from "./placeholder";
 
 export const HOME = "home";
 export const APP_BASE = "/app";

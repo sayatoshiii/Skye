@@ -1,4 +1,4 @@
-export type MockRoom = {
+export type PlaceholderRoom = {
   id: string;
   alias?: string;
   name: string;
@@ -12,16 +12,16 @@ export type MockRoom = {
   mentions?: number;
 };
 
-export type MockSpace = {
+export type PlaceholderSpace = {
   id: string;
   alias?: string;
   name: string;
   topic?: string;
   avatar?: string;
-  children: (MockSpace | string)[];
+  children: (PlaceholderSpace | string)[];
 };
 
-export type MockMember = {
+export type PlaceholderMember = {
   userId: string;
   displayName: string;
   avatar?: string;
@@ -29,7 +29,7 @@ export type MockMember = {
   powerLevel: number;
 };
 
-export type MockMessage = {
+export type PlaceholderMessage = {
   id: string;
   roomId: string;
   sender: string;
@@ -40,7 +40,7 @@ export type MockMessage = {
 const minutes = (count: number) => count * 60 * 1000;
 const now = Date.now();
 
-export const members: MockMember[] = [
+export const members: PlaceholderMember[] = [
   {
     userId: "@yumeko:skye.chat",
     displayName: "Yumeko",
@@ -80,7 +80,7 @@ export const members: MockMember[] = [
   },
 ];
 
-export const rooms: MockRoom[] = [
+export const rooms: PlaceholderRoom[] = [
   {
     id: "!welcome:skye.chat", alias: "#welcome:skye.chat",
     name: "welcome",
@@ -115,7 +115,7 @@ export const rooms: MockRoom[] = [
   { id: "!dm-mary:skye.chat", name: "Mary", isDirect: true, directUserId: "@mary:skye.chat" },
 ];
 
-export const spaces: MockSpace[] = [
+export const spaces: PlaceholderSpace[] = [
   {
     id: "!skye:skye.chat", alias: "#skye:skye.chat",
     name: "Skye",
@@ -165,7 +165,7 @@ const script: [string, string, number][] = [
   ["@ryota:skye.chat", "cyan supremacy, no further questions", 3],
 ];
 
-export const messages: MockMessage[] = rooms.flatMap((room) =>
+export const messages: PlaceholderMessage[] = rooms.flatMap((room) =>
   script.map(([sender, body, ago], index) => ({
     id: `${room.id}-${index}`,
     roomId: room.id,
@@ -188,7 +188,7 @@ export const getMember = (userId: string) =>
 export const getRoomMessages = (roomId?: string) =>
   messages.filter((message) => message.roomId === roomId);
 
-export const getSpaceRoomIds = (space: MockSpace): string[] =>
+export const getSpaceRoomIds = (space: PlaceholderSpace): string[] =>
   space.children.flatMap((child) =>
     typeof child === "string" ? [child] : getSpaceRoomIds(child),
   );

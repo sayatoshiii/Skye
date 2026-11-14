@@ -5,8 +5,8 @@
     getRoom,
     getSpace,
     getSpaceRoomIds,
-    type MockRoom,
-  } from "../../scripts/stores/mock";
+    type PlaceholderRoom,
+  } from "../../scripts/stores/placeholder";
   import { HOME, navigation, openRoom } from "../../scripts/stores/navigation.svelte";
   import Avatar from "../ui/Avatar.svelte";
 
@@ -32,7 +32,7 @@
   };
 
   const resolveRooms = (ids: string[]) =>
-    ids.map(getRoom).filter(Boolean) as MockRoom[];
+    ids.map(getRoom).filter(Boolean) as PlaceholderRoom[];
 
   const space = $derived(getSpace(navigation.spaceId));
 

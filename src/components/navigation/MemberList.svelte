@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
-  import { members } from "../../scripts/stores/mock";
+  import { members } from "../../scripts/stores/placeholder";
   import Avatar from "../ui/Avatar.svelte";
 
   let { onclose }: { onclose?: () => void } = $props();
