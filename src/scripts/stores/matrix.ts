@@ -30,6 +30,14 @@ import type {
 
 export type Presence = "online" | "unavailable" | "offline";
 
+export type PresenceDetails = {
+  presence: Presence;
+  statusMessage?: string;
+  lastActiveAgo?: number;
+  receivedAt: number;
+  currentlyActive?: boolean;
+};
+
 export type Profile = {
   userId: UserId;
   displayName?: string;
@@ -45,6 +53,7 @@ export const currentSpaceId = writable<RoomId | null>(null);
 export const synced = writable(false);
 export const sessionExpired = writable(false);
 export const presence = writable<Record<UserId, Presence>>({});
+export const presenceDetails = writable<Record<UserId, PresenceDetails>>({});
 export const joinedMembers = writable<Record<RoomId, Record<UserId, RoomMember>>>(
   {},
 );
@@ -83,6 +92,26 @@ const applyPresence = (events: { sender?: UserId; content: any }[]) => {
       events
         .filter((event) => event.sender && event.content?.presence)
         .map((event) => [event.sender, event.content.presence as Presence]),
+    ),
+  }));
+
+  const receivedAt = Date.now();
+
+  presenceDetails.update((current) => ({
+    ...current,
+    ...Object.fromEntries(
+      events
+        .filter((event) => event.sender && event.content?.presence)
+        .map((event) => [
+          event.sender,
+          {
+            presence: event.content.presence as Presence,
+            statusMessage: typeof event.content.status_msg === "string" ? event.content.status_msg : undefined,
+            lastActiveAgo: typeof event.content.last_active_ago === "number" ? event.content.last_active_ago : undefined,
+            currentlyActive: event.content.currently_active,
+            receivedAt,
+          } satisfies PresenceDetails,
+        ]),
     ),
   }));
 };
@@ -193,6 +222,7 @@ export const stopMatrix = () => {
   currentRoomId.set(null);
   joinedMembers.set({});
   presence.set({});
+  presenceDetails.set({});
   ownProfile.set(null);
   synced.set(false);
   session.set(null);

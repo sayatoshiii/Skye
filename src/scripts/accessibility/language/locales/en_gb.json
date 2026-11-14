@@ -24,6 +24,19 @@
       "empty_home": "No conversations yet.",
       "empty_space": "This space has no rooms you can see yet."
     },
+    "user_profile": {
+      "label": "Profile",
+      "copy": "Copy user ID",
+      "copied": "Copied",
+      "about": "About me",
+      "status": "Status",
+      "left": "Left this conversation",
+      "online": "Online",
+      "unavailable": "Away",
+      "offline": "Offline",
+      "active_now": "Active now",
+      "last_active": "Last active {time}"
+    },
     "chat": {
       "empty": "Pick a room to start chatting.",
       "beginning": "This is the start of {room}.",

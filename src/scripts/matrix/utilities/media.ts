@@ -72,3 +72,13 @@ export const getMediaLink = (url: string, size = 96) =>
         true,
       ) as Promise<string>,
   ).catch(() => undefined));
+
+export const getWideMediaLink = (url: string, width = 640, height = 240) =>
+  (mediaCache[`${url}:${width}x${height}`] ??= queueMedia(
+    () =>
+      getAuthenticatedMedia(
+        url,
+        { width, height, method: "scale" },
+        true,
+      ) as Promise<string>,
+  ).catch(() => undefined));

@@ -4,9 +4,10 @@
   import Loading from "../../components/app/Loading.svelte";
   import ChannelList from "../../components/navigation/ChannelList.svelte";
   import MemberList from "../../components/navigation/MemberList.svelte";
+  import UserProfile from "../../components/navigation/UserProfile.svelte";
   import SpaceRail from "../../components/navigation/SpaceRail.svelte";
   import { ROUTES } from "../../scripts/settings/config";
-  import { selectRoom, sessionExpired, startMatrix, synced } from "../../scripts/stores/matrix";
+  import { currentRoom, joinedMembers, selectRoom, sessionExpired, startMatrix, synced } from "../../scripts/stores/matrix";
   import {
     navigation,
     syncFromLocation,
@@ -33,6 +34,18 @@
   let axis: "x" | "y" | undefined;
   let pointerId: number | undefined;
   let routed = $state(false);
+  let room: import("../../scripts/matrix/types").RoomSummary | null = $state.raw(null);
+
+  $effect(() => currentRoom.subscribe((value) => (room = value)));
+
+  const directProfile = $derived.by(() => {
+    if (!room?.isDirect || !room.directUserId) return false;
+    const loaded = $joinedMembers[room.roomId];
+    const count = loaded
+      ? Object.keys(loaded).length
+      : (room.joinedMemberCount ?? Object.values(room.members).filter(({ membership }) => membership === "join").length);
+    return count <= 2;
+  });
 
   $effect(() => {
     if (!$synced || routed) return;
@@ -131,6 +144,7 @@
   class:mobile
   class:dragging
   class:members-hidden={!membersOpen}
+  class:profile={directProfile}
   bind:clientWidth={width}
   style:--offset={`${offset}px`}
   style:--index={index}
@@ -162,7 +176,11 @@
     </div>
 
     <div class="pane right" inert={mobile && navigation.pane !== "members"}>
-      <MemberList onclose={mobile ? () => go("chat") : undefined} />
+      {#if directProfile}
+        <UserProfile onclose={mobile ? () => go("chat") : undefined} />
+      {:else}
+        <MemberList onclose={mobile ? () => go("chat") : undefined} />
+      {/if}
     </div>
   </div>
 </div>
@@ -171,6 +189,7 @@
   .shell {
     --left: 308px;
     --right: 240px;
+    --right-profile: 300px;
 
     width: 100%;
     height: 100dvh;
@@ -208,6 +227,10 @@
   .right {
     display: flex;
     justify-content: flex-end;
+  }
+
+  .profile {
+    --right: var(--right-profile);
   }
 
   .shell:not(.mobile) .right > :global(*) {
