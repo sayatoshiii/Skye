@@ -1,14 +1,20 @@
 <script lang="ts">
-  import { tick } from "svelte";
+  import { tick, untrack } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
+  import { getPowerLevel } from "../../scripts/matrix/rooms";
+  import type { TimelineEvent } from "../../scripts/matrix/types";
+  import { toEntity } from "../../scripts/stores/entities";
   import {
-    getMember,
-    getRoom,
-    getRoomMessages,
-    members,
-    type PlaceholderMessage,
-  } from "../../scripts/stores/placeholder";
-  import { navigation } from "../../scripts/stores/navigation.svelte";
+    canLoadOlder,
+    currentRoom,
+    currentTimeline,
+    joinedMembers,
+    loadOlderMessages,
+    markRoomRead,
+    retryMessage,
+    sendMessage,
+    session,
+  } from "../../scripts/stores/matrix";
   import Avatar from "../ui/Avatar.svelte";
 
   let {
@@ -17,28 +23,67 @@
   }: { onchannels?: () => void; onmembers?: () => void } = $props();
 
   const GROUP_WINDOW = 5 * 60 * 1000;
+  const LOAD_THRESHOLD = 240;
+  const STICK_THRESHOLD = 120;
+  const VISIBLE_TYPES = ["m.room.message", "m.room.encrypted", "m.sticker"];
 
   const text = (...path: string[]) =>
     getLocalisedText(undefined, ...path) as string;
 
-  let sent = $state<PlaceholderMessage[]>([]);
   let draft = $state("");
   let timeline: HTMLElement | undefined = $state();
   let composer: HTMLTextAreaElement | undefined = $state();
+  let loadingOlder = $state(false);
+  let stuck = true;
+  let renderedRoomId: string | undefined;
 
-  const room = $derived(getRoom(navigation.roomId));
+  const room = $derived($currentRoom && toEntity($currentRoom, $session?.userId));
+
+  const getSender = (userId: string) => {
+    const member = $currentRoom?.members[userId] ?? $joinedMembers[$currentRoom?.roomId ?? ""]?.[userId];
+
+    return {
+      name: member?.displayName ?? userId,
+      avatar: member?.avatarUrl,
+      powerLevel: $currentRoom ? getPowerLevel($currentRoom, userId) : 0,
+    };
+  };
 
   const isChained = (previous?: { sender: string; ts: number }, message?: { sender: string; ts: number }) =>
     !!previous && !!message && previous.sender === message.sender && message.ts - previous.ts < GROUP_WINDOW;
 
+  const describe = (event: TimelineEvent) => {
+    if (event.redacted) return { kind: "redacted", body: text("chat", "redacted") };
+    if (event.decryptionFailed || event.type === "m.room.encrypted")
+      return { kind: "fallback", body: text("chat", "encrypted") };
+    if (event.type === "m.sticker") return { kind: "fallback", body: text("chat", "unsupported").replace("{type}", event.type) };
+
+    const { msgtype, body } = event.content;
+    if (typeof body !== "string") return { kind: "fallback", body: text("chat", "unsupported").replace("{type}", String(msgtype ?? event.type)) };
+    if (msgtype === "m.text") return { kind: "text", body };
+    if (msgtype === "m.notice") return { kind: "notice", body };
+    if (msgtype === "m.emote") return { kind: "emote", body };
+
+    return { kind: "fallback", body: text("chat", "unsupported").replace("{type}", String(msgtype)) };
+  };
+
   const timelineMessages = $derived(
-    [...getRoomMessages(navigation.roomId), ...sent.filter(({ roomId }) => roomId === navigation.roomId)].map(
-      (message, index, all) => ({
+    $currentTimeline
+      .filter((event) => VISIBLE_TYPES.includes(event.type))
+      .map((event) => ({
+        id: event.txnId ?? event.event_id,
+        sender: event.sender,
+        ts: event.origin_server_ts,
+        edited: event.edited && !event.redacted,
+        status: event.localStatus,
+        txnId: event.txnId,
+        ...describe(event),
+      }))
+      .map((message, index, all) => ({
         ...message,
         grouped: isChained(all[index - 1], message),
         last: !isChained(message, all[index + 1]),
-      }),
-    ),
+      })),
   );
 
   const formatTime = (ts: number) =>
@@ -49,10 +94,53 @@
     timeline?.scrollTo({ top: timeline.scrollHeight });
   };
 
+  const fillViewport = async () => {
+    await tick();
+    if (timeline && $canLoadOlder && timeline.scrollHeight <= timeline.clientHeight) loadOlder();
+  };
+
+  const loadOlder = async () => {
+    if (!timeline || loadingOlder || !$canLoadOlder) return;
+
+    loadingOlder = true;
+    const fromBottom = timeline.scrollHeight - timeline.scrollTop;
+
+    const loaded = await loadOlderMessages();
+    await tick();
+
+    if (timeline) timeline.scrollTop = timeline.scrollHeight - fromBottom;
+    loadingOlder = false;
+    if (loaded) fillViewport();
+  };
+
+  const onscroll = () => {
+    if (!timeline) return;
+
+    stuck = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < STICK_THRESHOLD;
+    if (timeline.scrollTop < LOAD_THRESHOLD) loadOlder();
+    if (stuck && document.visibilityState === "visible") markRoomRead();
+  };
+
   $effect(() => {
-    navigation.roomId;
-    timelineMessages.length;
-    scrollToBottom();
+    const roomId = $currentRoom?.roomId;
+    const latest = timelineMessages.at(-1)?.id;
+    if (!roomId || !latest) return;
+
+    if (renderedRoomId !== roomId) {
+      renderedRoomId = roomId;
+      stuck = true;
+    }
+
+    if (loadingOlder || !stuck) return;
+
+    scrollToBottom().then(fillViewport);
+    if (document.visibilityState === "visible") queueMicrotask(() => markRoomRead(roomId));
+  });
+
+  $effect(() => {
+    const read = () => document.visibilityState === "visible" && stuck && markRoomRead();
+    document.addEventListener("visibilitychange", read);
+    return () => document.removeEventListener("visibilitychange", read);
   });
 
   const resize = () => {
@@ -63,18 +151,17 @@
 
   const send = () => {
     const body = draft.trim();
-    if (!body || !navigation.roomId) return;
+    if (!body || !room) return;
 
-    sent.push({
-      id: `local-${Date.now()}`,
-      roomId: navigation.roomId,
-      sender: members[0].userId,
-      body,
-      ts: Date.now(),
-    });
+    stuck = true;
+    sendMessage(body).catch(() => undefined);
 
     draft = "";
     tick().then(resize);
+  };
+
+  const retry = (txnId?: string) => {
+    if (txnId) retryMessage(txnId)?.catch(() => undefined);
   };
 
   const onkeydown = (event: KeyboardEvent) => {
@@ -112,34 +199,55 @@
   </header>
 
   {#if room}
-    <ol class="timeline col flex-max min-0" bind:this={timeline}>
-      <li class="beginning">
-        <span class="hero row centre glow"><Avatar name={room.name} url={room.avatar} size="56px" radius="30%" /></span>
-        <p class="lg bold">{text("chat", "beginning").replace("{room}", roomLabel)}</p>
-        {#if room.topic}<p class="sm muted">{room.topic}</p>{/if}
-      </li>
+    {#key room.roomId}
+    <ol class="timeline col flex-max min-0" bind:this={timeline} {onscroll}>
+      {#if $canLoadOlder}
+        <li class="history row centre" aria-busy="true">
+          <span class="dots row-nw gap-sm" aria-label={text("chat", "loading_history")}><span></span><span></span><span></span></span>
+        </li>
+      {:else}
+        <li class="beginning">
+          <span class="hero row centre glow"><Avatar name={room.name} url={room.avatar} size="56px" radius="30%" /></span>
+          <p class="lg bold">{text("chat", "beginning").replace("{room}", roomLabel)}</p>
+          {#if room.topic}<p class="sm muted">{room.topic}</p>{/if}
+          {#if !timelineMessages.length}<p class="sm faint">{text("chat", "no_messages")}</p>{/if}
+        </li>
+      {/if}
       {#each timelineMessages as message (message.id)}
-        {@const sender = getMember(message.sender)}
-        <li class="message row-nw" class:grouped={message.grouped} class:last={message.last}>
+        {@const sender = getSender(message.sender)}
+        <li
+          class="message row-nw"
+          class:grouped={message.grouped}
+          class:last={message.last}
+          class:sending={message.status === "sending"}
+          class:failed={message.status === "failed"}
+        >
           <div class="gutter">
             {#if message.grouped}
               <time class="hover-time xs faint" datetime={new Date(message.ts).toISOString()}>{formatTime(message.ts)}</time>
             {:else}
-              <Avatar name={sender?.displayName ?? message.sender} url={sender?.avatar} size="38px" radius="50%" />
+              <Avatar name={sender.name} url={sender.avatar} size="38px" radius="50%" />
             {/if}
           </div>
           <div class="content col min-0">
             {#if !message.grouped}
               <div class="meta row-nw align-centre gap-sm">
-                <span class="sender md bold" class:admin={(sender?.powerLevel ?? 0) >= 100}>{sender?.displayName ?? message.sender}</span>
+                <span class="sender md bold" class:admin={sender.powerLevel >= 100}>{sender.name}</span>
                 <time class="xs faint" datetime={new Date(message.ts).toISOString()}>{formatTime(message.ts)}</time>
               </div>
             {/if}
-            <p class="body selectable">{message.body}</p>
+            <p class="body selectable {message.kind}">{#if message.kind === "emote"}<span class="emote-sender">* {sender.name}</span> {/if}{message.body}{#if message.edited}<span class="edited xs faint"> {text("chat", "edited")}</span>{/if}</p>
+            {#if message.status === "failed"}
+              <p class="failure xs row-nw align-centre gap-sm">
+                <span>{text("chat", "failed")}</span>
+                <button type="button" class="retry ghost press xs bold" onclick={() => retry(message.txnId)}>{text("chat", "retry")}</button>
+              </p>
+            {/if}
           </div>
         </li>
       {/each}
     </ol>
+    {/key}
 
     <form class="composer" onsubmit={(event) => { event.preventDefault(); send(); }}>
       <div class="field row-nw align-centre gap-sm">
@@ -302,6 +410,71 @@
     line-height: 22px;
     overflow-wrap: anywhere;
     white-space: pre-wrap;
+  }
+
+  .history {
+    margin-top: auto;
+    padding: var(--azure-spacing-xl);
+  }
+
+  .dots span {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background-color: var(--colours-text-faint);
+    animation: pulse var(--azure-duration-glide) var(--azure-ease-in-out) infinite alternate;
+  }
+
+  .dots span:nth-child(2) {
+    animation-delay: var(--azure-duration-fast);
+  }
+
+  .dots span:nth-child(3) {
+    animation-delay: calc(var(--azure-duration-fast) * 2);
+  }
+
+  @keyframes pulse {
+    to {
+      opacity: 0.25;
+      transform: scale(0.7);
+    }
+  }
+
+  .message.sending .content {
+    opacity: 0.5;
+  }
+
+  .notice {
+    color: var(--colours-text-muted);
+  }
+
+  .emote {
+    font-style: italic;
+  }
+
+  .emote-sender {
+    font-weight: 600;
+    color: var(--colours-text-strong);
+  }
+
+  .redacted,
+  .fallback {
+    font-style: italic;
+    color: var(--colours-text-faint);
+  }
+
+  .failure {
+    margin: 0;
+    color: var(--colours-danger);
+  }
+
+  .retry {
+    color: var(--colours-danger);
+    text-decoration: underline;
+  }
+
+  .retry:hover {
+    color: var(--colours-text-strong);
   }
 
   .composer {

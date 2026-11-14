@@ -1,0 +1,26 @@
+---
+import AccentPicker from "../../components/navigation/AccentPicker.svelte";
+import Profile from "../../components/navigation/Profile.svelte";
+import SignOut from "../../components/navigation/SignOut.svelte";
+import App from "../../layouts/App.astro";
+import Shell from "./_Shell.svelte";
+---
+
+<App title="App">
+  <script>
+    import { isLoggedIn } from "../../scripts/matrix/session";
+    import { ROUTES } from "../../scripts/settings/config";
+
+    if (!location.pathname.startsWith(ROUTES.app)) location.replace(ROUTES.app);
+    else if (!isLoggedIn()) location.replace(ROUTES.login);
+  </script>
+  <Shell client:only="svelte">
+    <div slot="footer" class="row-nw align-centre justify-between gap-sm">
+      <Profile client:only="svelte" />
+      <div class="row-nw align-centre gap-xs">
+        <SignOut client:only="svelte" />
+        <AccentPicker client:only="svelte" />
+      </div>
+    </div>
+  </Shell>
+</App>

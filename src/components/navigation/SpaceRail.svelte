@@ -1,12 +1,16 @@
 <script lang="ts">
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
-  import { spaces } from "../../scripts/stores/placeholder";
+  import { spaces } from "../../scripts/stores/matrix";
   import { HOME, navigation, openRoom } from "../../scripts/stores/navigation.svelte";
   import Avatar from "../ui/Avatar.svelte";
 
   const entries = $derived([
     { id: HOME, name: getLocalisedText(undefined, "navigation", "home") as string, avatar: undefined },
-    ...spaces,
+    ...$spaces.map(({ space }) => ({
+      id: space.roomId,
+      name: space.name ?? space.roomId,
+      avatar: space.avatarUrl,
+    })),
   ]);
 </script>
 

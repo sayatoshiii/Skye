@@ -1,9 +1,12 @@
 <script lang="ts">
   import { onMount, type Snippet } from "svelte";
   import Chat from "../../components/app/Chat.svelte";
+  import Loading from "../../components/app/Loading.svelte";
   import ChannelList from "../../components/navigation/ChannelList.svelte";
   import MemberList from "../../components/navigation/MemberList.svelte";
   import SpaceRail from "../../components/navigation/SpaceRail.svelte";
+  import { ROUTES } from "../../scripts/settings/config";
+  import { selectRoom, sessionExpired, startMatrix, synced } from "../../scripts/stores/matrix";
   import {
     navigation,
     syncFromLocation,
@@ -29,6 +32,23 @@
   let start = { x: 0, y: 0, t: 0 };
   let axis: "x" | "y" | undefined;
   let pointerId: number | undefined;
+  let routed = $state(false);
+
+  $effect(() => {
+    if (!$synced || routed) return;
+    syncFromLocation();
+    routed = true;
+  });
+
+  $effect(() => {
+    if (!routed) return;
+    const roomId = navigation.roomId ?? null;
+    queueMicrotask(() => selectRoom(roomId));
+  });
+
+  $effect(() => {
+    if ($sessionExpired) location.replace(ROUTES.login);
+  });
 
   const index = $derived(panes.indexOf(navigation.pane));
 
@@ -90,17 +110,21 @@
     const update = () => (mobile = query.matches);
 
     update();
-    syncFromLocation();
+    if (!startMatrix()) location.replace(ROUTES.login);
+
+    const onpopstate = () => routed && syncFromLocation();
 
     query.addEventListener("change", update);
-    addEventListener("popstate", syncFromLocation);
+    addEventListener("popstate", onpopstate);
 
     return () => {
       query.removeEventListener("change", update);
-      removeEventListener("popstate", syncFromLocation);
+      removeEventListener("popstate", onpopstate);
     };
   });
 </script>
+
+<Loading visible={!routed} />
 
 <div
   class="shell"

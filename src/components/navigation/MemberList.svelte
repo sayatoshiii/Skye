@@ -1,22 +1,84 @@
 <script lang="ts">
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
-  import { members } from "../../scripts/stores/placeholder";
+  import { getPowerLevel } from "../../scripts/matrix/rooms";
+  import { currentRoom, joinedMembers, presence } from "../../scripts/stores/matrix";
   import Avatar from "../ui/Avatar.svelte";
 
   let { onclose }: { onclose?: () => void } = $props();
 
-  const groups = $derived([
-    {
-      id: "online",
-      name: getLocalisedText(undefined, "navigation", "online") as string,
-      members: members.filter(({ presence }) => presence !== "offline"),
-    },
-    {
-      id: "offline",
-      name: getLocalisedText(undefined, "navigation", "offline") as string,
-      members: members.filter(({ presence }) => presence === "offline"),
-    },
-  ]);
+  let room: import("../../scripts/matrix/types").RoomSummary | null = $state.raw(null);
+
+  $effect(() => currentRoom.subscribe((value) => (room = value)));
+
+  const text = (...path: string[]) =>
+    getLocalisedText(undefined, ...path) as string;
+
+  const members = $derived.by(() => {
+    if (!room) return [];
+
+    const fromState = Object.values(room.members).filter(({ membership }) => membership === "join");
+    const merged = { ...Object.fromEntries(fromState.map((member) => [member.userId, member])), ...$joinedMembers[room.roomId] };
+
+    return Object.values(merged)
+      .map((member) => ({
+        userId: member.userId,
+        displayName: member.displayName ?? room.members[member.userId]?.displayName ?? member.userId,
+        avatar: member.avatarUrl ?? room.members[member.userId]?.avatarUrl,
+        presence: $presence[member.userId],
+        powerLevel: getPowerLevel(room, member.userId),
+      }))
+      .sort((a, b) => b.powerLevel - a.powerLevel || a.displayName.localeCompare(b.displayName));
+  });
+
+  const MEMBER_PAGE = 80;
+
+  let limit = $state(MEMBER_PAGE);
+  let sentinel: HTMLDivElement | undefined = $state();
+
+  $effect(() => {
+    room?.roomId;
+    limit = MEMBER_PAGE;
+  });
+
+  $effect(() => {
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) limit += MEMBER_PAGE;
+    }, { rootMargin: "400px" });
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  });
+
+  const hasPresence = $derived(members.some((member) => member.presence));
+
+  const groups = $derived(
+    hasPresence
+      ? [
+          {
+            id: "online",
+            name: text("navigation", "online"),
+            members: members.filter((member) => member.presence && member.presence !== "offline"),
+          },
+          {
+            id: "offline",
+            name: text("navigation", "offline"),
+            members: members.filter((member) => !member.presence || member.presence === "offline"),
+          },
+        ].filter((group) => group.members.length)
+      : [{ id: "all", name: text("navigation", "members"), members }],
+  );
+
+  const shown = $derived.by(() => {
+    let budget = limit;
+
+    return groups.map((group) => {
+      const visible = group.members.slice(0, Math.max(0, budget));
+      budget -= visible.length;
+      return { ...group, visible };
+    });
+  });
 </script>
 
 <aside class="members col" aria-label={getLocalisedText(undefined, "navigation", "members")}>
@@ -30,22 +92,33 @@
       <h1 class="md bold">{getLocalisedText(undefined, "navigation", "members")}</h1>
     </header>
   {/if}
-  {#each groups as group (group.id)}
+  {#key room?.roomId}
+  {#each shown as group (group.id)}
     <h2 class="heading xs bold">{group.name} — {group.members.length}</h2>
     <ul class="col gap-xs">
-      {#each group.members as member (member.userId)}
-        <li class="member item press row-nw align-centre gap-md" class:offline={member.presence === "offline"} title={member.userId}>
-          <span class="presence-wrap" data-presence={member.presence}>
+      {#each group.visible as member (member.userId)}
+        <li class="member item press row-nw align-centre gap-md" class:offline={hasPresence && (!member.presence || member.presence === "offline")} title={member.userId}>
+          <span class="presence-wrap" data-presence={hasPresence ? (member.presence ?? "offline") : undefined}>
             <Avatar name={member.displayName} url={member.avatar} size="32px" radius="50%" />
           </span>
-          <span class="md truncate" class:admin={member.powerLevel >= 100}>{member.displayName}</span>
+          <span class="md truncate" class:admin={member.powerLevel >= 100}
+            class:moderator={member.powerLevel >= 50 && member.powerLevel < 100}>{member.displayName}</span>
         </li>
       {/each}
     </ul>
   {/each}
+  {/key}
+  {#if limit < members.length}
+    <div class="sentinel" bind:this={sentinel}></div>
+  {/if}
 </aside>
 
 <style>
+  .sentinel {
+    height: 1px;
+    flex: none;
+  }
+
   .top {
     padding-bottom: var(--azure-spacing-sm);
   }
@@ -107,12 +180,16 @@
     color: var(--colours-accent-strong);
   }
 
+  .moderator {
+    color: var(--colours-text-strong);
+  }
+
   .presence-wrap {
     position: relative;
     display: flex;
   }
 
-  .presence-wrap::after {
+  [data-presence]::after {
     content: "";
     position: absolute;
     right: -2px;

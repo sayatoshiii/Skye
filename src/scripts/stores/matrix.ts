@@ -1,4 +1,5 @@
 import { derived, get, writable } from "svelte/store";
+import { isMatrixError } from "../api/client";
 import {
   createRoomStore,
   getDirectMessages,
@@ -7,17 +8,33 @@ import {
   getUnreadTotals,
   type RoomStore,
 } from "../matrix/rooms";
-import { loadSession } from "../matrix/session";
-import { createSync, type SyncHandle, type SyncOptions } from "../matrix/sync";
+import { clearSession, loadSession, logout, sessionRequest } from "../matrix/session";
+import {
+  clearSyncToken,
+  createSync,
+  type SyncHandle,
+  type SyncOptions,
+} from "../matrix/sync";
 import { createTimeline, type TimelineHandle } from "../matrix/timeline";
 import type {
   CryptoHooks,
+  EventId,
   RoomId,
+  RoomMember,
   RoomSummary,
   Session,
   SyncState,
   TimelineEvent,
+  UserId,
 } from "../matrix/types";
+
+export type Presence = "online" | "unavailable" | "offline";
+
+export type Profile = {
+  userId: UserId;
+  displayName?: string;
+  avatarUrl?: string;
+};
 
 export const session = writable<Session | null>(null);
 export const syncState = writable<SyncState>("stopped");
@@ -25,6 +42,14 @@ export const rooms = writable<Record<RoomId, RoomSummary>>({});
 export const currentRoomId = writable<RoomId | null>(null);
 export const currentTimeline = writable<TimelineEvent[]>([]);
 export const currentSpaceId = writable<RoomId | null>(null);
+export const synced = writable(false);
+export const sessionExpired = writable(false);
+export const presence = writable<Record<UserId, Presence>>({});
+export const joinedMembers = writable<Record<RoomId, Record<UserId, RoomMember>>>(
+  {},
+);
+export const ownProfile = writable<Profile | null>(null);
+export const canLoadOlder = writable(true);
 
 export const spaces = derived(rooms, ($rooms) => getSpaceTrees($rooms));
 export const directMessages = derived(rooms, ($rooms) =>
@@ -47,6 +72,68 @@ let roomStore: RoomStore | null = null;
 let crypto: CryptoHooks = {};
 const timelines: Record<RoomId, TimelineHandle> = {};
 let unsubscribeTimeline: (() => void) | null = null;
+const receipts: Record<RoomId, EventId> = {};
+
+const applyPresence = (events: { sender?: UserId; content: any }[]) => {
+  if (!events.length) return;
+
+  presence.update((current) => ({
+    ...current,
+    ...Object.fromEntries(
+      events
+        .filter((event) => event.sender && event.content?.presence)
+        .map((event) => [event.sender, event.content.presence as Presence]),
+    ),
+  }));
+};
+
+const loadProfile = async (active: Session) => {
+  ownProfile.set({ userId: active.userId });
+
+  const profile = await sessionRequest<{
+    displayname?: string;
+    avatar_url?: string;
+  }>(active, {
+    endpoint: `profile/${encodeURIComponent(active.userId)}`,
+    method: "GET",
+  }).catch(() => null);
+
+  if (profile)
+    ownProfile.set({
+      userId: active.userId,
+      displayName: profile.displayname,
+      avatarUrl: profile.avatar_url,
+    });
+};
+
+const loadMembers = async (roomId: RoomId) => {
+  const active = get(session);
+  if (!active || get(joinedMembers)[roomId]) return;
+
+  const response = await sessionRequest<{
+    joined?: Record<UserId, { display_name?: string; avatar_url?: string }>;
+  }>(active, {
+    endpoint: `rooms/${encodeURIComponent(roomId)}/joined_members`,
+    method: "GET",
+  }).catch(() => null);
+
+  if (!response?.joined) return;
+
+  joinedMembers.update((current) => ({
+    ...current,
+    [roomId]: Object.fromEntries(
+      Object.entries(response.joined!).map(([userId, member]) => [
+        userId,
+        {
+          userId,
+          membership: "join",
+          displayName: member.display_name,
+          avatarUrl: member.avatar_url,
+        },
+      ]),
+    ),
+  }));
+};
 
 export const getTimeline = (roomId: RoomId) => {
   const active = get(session);
@@ -72,7 +159,17 @@ export const startMatrix = (
 
   sync = createSync({ ...options, session: activeSession });
   sync.on("state", (state) => syncState.set(state));
-  sync.on("sync", (response) => roomStore?.applySync(response));
+  sync.on("error", (error) => {
+    if (!isMatrixError(error, "M_UNKNOWN_TOKEN")) return;
+    clearSession();
+    clearSyncToken();
+    sessionExpired.set(true);
+  });
+  sync.on("sync", (response) => {
+    roomStore?.applySync(response);
+    applyPresence(response.presence?.events ?? []);
+    synced.set(true);
+  });
   sync.on("room_timeline", ({ roomId, events, limited, prevBatch }) => {
     const timeline =
       timelines[roomId] ??
@@ -80,6 +177,7 @@ export const startMatrix = (
     timeline?.appendLive(events, limited, prevBatch);
   });
   sync.start();
+  loadProfile(activeSession);
 
   return sync;
 };
@@ -93,7 +191,18 @@ export const stopMatrix = () => {
   rooms.set({});
   currentTimeline.set([]);
   currentRoomId.set(null);
+  joinedMembers.set({});
+  presence.set({});
+  ownProfile.set(null);
+  synced.set(false);
   session.set(null);
+};
+
+export const signOut = async () => {
+  const active = get(session) ?? loadSession();
+  stopMatrix();
+  clearSyncToken();
+  await logout(active);
 };
 
 export const selectRoom = async (roomId: RoomId | null) => {
@@ -105,13 +214,45 @@ export const selectRoom = async (roomId: RoomId | null) => {
 
   const timeline = getTimeline(roomId);
   currentTimeline.set(timeline.getEvents());
-  unsubscribeTimeline = timeline.on("change", (events) =>
-    currentTimeline.set(events),
-  );
-  roomStore?.markRead(roomId);
+  canLoadOlder.set(timeline.canPaginate());
+  unsubscribeTimeline = timeline.on("change", (events) => {
+    currentTimeline.set(events);
+    canLoadOlder.set(timeline.canPaginate());
+  });
+  loadMembers(roomId);
 
   if (timeline.getEvents().length === 0 && timeline.canPaginate())
-    await timeline.paginateBackwards();
+    await timeline.paginateBackwards().catch(() => false);
+
+  canLoadOlder.set(timeline.canPaginate());
+  markRoomRead(roomId);
+};
+
+export const markRoomRead = (roomId: RoomId | null = get(currentRoomId)) => {
+  if (!roomId) return;
+
+  roomStore?.markRead(roomId);
+
+  const latest = getTimeline(roomId)
+    .getEvents()
+    .findLast((event) => !event.txnId || event.localStatus === "sent");
+
+  if (
+    !latest ||
+    latest.event_id.startsWith("~") ||
+    receipts[roomId] === latest.event_id
+  )
+    return;
+
+  receipts[roomId] = latest.event_id;
+  getTimeline(roomId)
+    .sendReadReceipt(latest.event_id)
+    .catch(() => delete receipts[roomId]);
+};
+
+export const retryMessage = (txnId: string) => {
+  const roomId = get(currentRoomId);
+  return roomId ? getTimeline(roomId).retry(txnId) : undefined;
 };
 
 export const selectSpace = (spaceId: RoomId | null) =>
@@ -119,9 +260,13 @@ export const selectSpace = (spaceId: RoomId | null) =>
 
 export const loadOlderMessages = () => {
   const roomId = get(currentRoomId);
-  return roomId
-    ? getTimeline(roomId).paginateBackwards()
-    : Promise.resolve(false);
+  if (!roomId) return Promise.resolve(false);
+
+  const timeline = getTimeline(roomId);
+  return timeline
+    .paginateBackwards()
+    .catch(() => false)
+    .finally(() => canLoadOlder.set(timeline.canPaginate()));
 };
 
 export const sendMessage = (body: string) => {

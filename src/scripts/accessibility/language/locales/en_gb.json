@@ -5,7 +5,8 @@
       "placeholder": {
         "display_name": "Loading...",
         "user_id": "..."
-      }
+      },
+      "sign_out": "Sign out"
     },
     "navigation": {
       "home": "Direct messages",
@@ -18,14 +19,25 @@
       "offline": "Offline",
       "open_channels": "Open channels",
       "open_members": "Open members",
-      "back": "Back"
+      "back": "Back",
+      "rooms": "Rooms",
+      "empty_home": "No conversations yet.",
+      "empty_space": "This space has no rooms you can see yet."
     },
     "chat": {
       "empty": "Pick a room to start chatting.",
       "beginning": "This is the start of {room}.",
       "composer": "Message {room}",
       "send": "Send",
-      "attach": "Attach"
+      "attach": "Attach",
+      "loading_history": "Loading older messages",
+      "no_messages": "No messages yet. Say hello!",
+      "redacted": "Message deleted",
+      "encrypted": "Encrypted message that Skye cannot read yet.",
+      "unsupported": "Skye cannot show this message yet ({type}).",
+      "edited": "(edited)",
+      "failed": "Not sent.",
+      "retry": "Retry"
     },
     "settings": {
       "open": "Settings",
@@ -117,6 +129,16 @@
         "unknown": "an extra check"
       },
       "and": "and"
+    },
+    "loading": {
+      "label": "Loading",
+      "tips": [
+        "test 1",
+        "msg 2",
+        "test 3",
+        "msg 4",
+        "test 5"
+      ]
     }
   }
 }

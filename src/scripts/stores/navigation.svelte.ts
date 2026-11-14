@@ -1,6 +1,10 @@
+import { get } from "svelte/store";
 import { serverNameFromUserId } from "../matrix/discovery";
+import { getOrphanRooms } from "../matrix/rooms";
 import { loadSession } from "../matrix/session";
-import { getDirectRooms, getSpace, getSpaceRoomIds, homeServerName, rooms, spaces } from "./placeholder";
+import type { SpaceTree } from "../matrix/types";
+import { toEntity } from "./entities";
+import { directMessages, rooms, spaces } from "./matrix";
 
 export const HOME = "home";
 export const APP_BASE = "/app";
@@ -15,12 +19,25 @@ export const navigation = $state({
 
 const lastRoomPerSpace: Record<string, string> = {};
 
+export const getSpaceRoomIds = (tree: SpaceTree) => [
+  ...tree.rooms.map(({ roomId }) => roomId),
+  ...tree.categories.flatMap((category) => category.rooms.map(({ roomId }) => roomId)),
+];
+
+export const getHomeRoomIds = () => [
+  ...get(directMessages).map(({ roomId }) => roomId),
+  ...getOrphanRooms(get(rooms)).map(({ roomId }) => roomId),
+];
+
+const getSpaceTree = (spaceId: string) =>
+  get(spaces).find((tree) => tree.space.roomId === spaceId);
+
 export const getDefaultRoom = (spaceId: string) => {
   if (lastRoomPerSpace[spaceId]) return lastRoomPerSpace[spaceId];
-  if (spaceId === HOME) return getDirectRooms()[0]?.id;
+  if (spaceId === HOME) return getHomeRoomIds()[0];
 
-  const space = getSpace(spaceId);
-  return space ? getSpaceRoomIds(space)[0] : undefined;
+  const tree = getSpaceTree(spaceId);
+  return tree ? getSpaceRoomIds(tree)[0] : undefined;
 };
 
 type Routable = {
@@ -31,9 +48,14 @@ type Routable = {
   createdAt?: number;
 };
 
+const getEntities = (): Routable[] => {
+  const ownUserId = loadSession()?.userId;
+  return Object.values(get(rooms)).map((room) => toEntity(room, ownUserId));
+};
+
 const getHomeServerName = () => {
   const userId = loadSession()?.userId;
-  return userId ? serverNameFromUserId(userId) : homeServerName;
+  return userId ? serverNameFromUserId(userId) : "";
 };
 
 const encodeSegment = (segment: string) =>
@@ -81,30 +103,35 @@ export const fromSegment = (segment: string | undefined, entities: Routable[]) =
   return entities.find((entity) => entity.alias === alias)?.id;
 };
 
-export const serialisePath = (spaceId: string, roomId?: string) =>
-  [
+export const serialisePath = (spaceId: string, roomId?: string) => {
+  const entities = getEntities();
+
+  return [
     APP_BASE,
-    spaceId === HOME ? HOME : toSegment(spaceId, spaces),
-    roomId && toSegment(roomId, rooms),
+    spaceId === HOME ? HOME : toSegment(spaceId, entities),
+    roomId && toSegment(roomId, entities),
   ]
     .filter(Boolean)
     .join("/");
+};
 
 export const parsePath = (pathname: string) => {
+  const entities = getEntities();
   const [spaceSegment, roomSegment] = pathname
     .replace(APP_BASE, "")
     .split("/")
     .filter(Boolean);
 
-  const spaceId = spaceSegment === HOME ? HOME : fromSegment(spaceSegment, spaces);
-  const roomId = fromSegment(roomSegment, rooms);
+  const spaceId = spaceSegment === HOME ? HOME : fromSegment(spaceSegment, entities);
+  const roomId = fromSegment(roomSegment, entities);
 
-  const knownSpace = spaceId === HOME || spaces.some(({ id }) => id === spaceId);
+  const knownSpace = spaceId === HOME || (!!spaceId && !!getSpaceTree(spaceId));
   const resolvedSpace = knownSpace ? spaceId! : HOME;
+  const knownRoom = roomId && get(rooms)[roomId] ? roomId : undefined;
 
   return {
     spaceId: resolvedSpace,
-    roomId: roomId ?? getDefaultRoom(resolvedSpace),
+    roomId: knownRoom ?? getDefaultRoom(resolvedSpace),
   };
 };
 

@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { getMediaLink, isMxc } from "../../scripts/matrix/utilities/media";
+
   let {
     name = "",
     url,
@@ -8,6 +10,22 @@
     $props();
 
   let failed = $state(false);
+  let resolved = $state<string | undefined>();
+  let element: HTMLSpanElement | undefined = $state();
+  let visible = $state(false);
+
+  $effect(() => {
+    if (!element || visible) return;
+
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry.isIntersecting) return;
+      visible = true;
+      observer.disconnect();
+    }, { rootMargin: "200px" });
+
+    observer.observe(element);
+    return () => observer.disconnect();
+  });
 
   const initials = $derived(
     name
@@ -18,11 +36,27 @@
       .slice(0, 2)
       .toUpperCase(),
   );
+
+  $effect(() => {
+    const source = url;
+    failed = false;
+    resolved = isMxc(source) ? undefined : source;
+    if (!isMxc(source) || !visible) return;
+
+    let current = true;
+    getMediaLink(source).then((link) => {
+      if (current) resolved = link;
+    });
+
+    return () => {
+      current = false;
+    };
+  });
 </script>
 
-<span class="avatar" style:--size={size} style:--radius={radius}>
-  {#if url && !failed}
-    <img src={url} alt="" loading="lazy" onerror={() => (failed = true)} />
+<span class="avatar" bind:this={element} style:--size={size} style:--radius={radius}>
+  {#if resolved && !failed}
+    <img src={resolved} alt="" loading="lazy" onerror={() => (failed = true)} />
   {:else}
     <span aria-hidden="true">{initials}</span>
   {/if}

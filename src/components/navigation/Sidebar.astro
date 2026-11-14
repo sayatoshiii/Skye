@@ -1,5 +1,5 @@
 ---
-import Profile from "./Profile.astro";
+import Profile from "./Profile.svelte";
 ---
 
 <style>
@@ -16,6 +16,6 @@ import Profile from "./Profile.astro";
   </main>
 
   <aside class="p-sm">
-    <Profile />
+    <Profile client:only="svelte" />
   </aside>
 </section>

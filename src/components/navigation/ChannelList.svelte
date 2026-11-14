@@ -1,12 +1,9 @@
 <script lang="ts">
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
-  import {
-    getDirectRooms,
-    getRoom,
-    getSpace,
-    getSpaceRoomIds,
-    type PlaceholderRoom,
-  } from "../../scripts/stores/placeholder";
+  import { getOrphanRooms } from "../../scripts/matrix/rooms";
+  import type { RoomSummary } from "../../scripts/matrix/types";
+  import { toEntity } from "../../scripts/stores/entities";
+  import { directMessages, rooms, session, spaces } from "../../scripts/stores/matrix";
   import { HOME, navigation, openRoom } from "../../scripts/stores/navigation.svelte";
   import Avatar from "../ui/Avatar.svelte";
 
@@ -31,44 +28,62 @@
     } catch {}
   };
 
-  const resolveRooms = (ids: string[]) =>
-    ids.map(getRoom).filter(Boolean) as PlaceholderRoom[];
+  const text = (...path: string[]) =>
+    getLocalisedText(undefined, ...path) as string;
 
-  const space = $derived(getSpace(navigation.spaceId));
+  const resolveRooms = (list: RoomSummary[]) =>
+    list
+      .filter((room) => room.membership === "join")
+      .map((room) => toEntity(room, $session?.userId));
+
+  const tree = $derived($spaces.find(({ space }) => space.roomId === navigation.spaceId));
+  const space = $derived(tree && toEntity(tree.space, $session?.userId));
 
   const categories = $derived.by(() => {
-    if (!space)
+    if (!tree) {
+      const orphans = resolveRooms(getOrphanRooms($rooms));
+
       return [
         {
           id: HOME,
-          name: getLocalisedText(undefined, "navigation", "direct_messages") as string,
-          rooms: getDirectRooms(),
+          name: text("navigation", "direct_messages"),
+          rooms: resolveRooms($directMessages),
           collapsible: false,
         },
+        ...(orphans.length
+          ? [
+              {
+                id: `${HOME}:rooms`,
+                name: text("navigation", "rooms"),
+                rooms: orphans,
+                collapsible: true,
+              },
+            ]
+          : []),
       ];
-
-    const loose = space.children.filter((child) => typeof child === "string");
-    const nested = space.children.filter((child) => typeof child !== "string");
+    }
 
     return [
-      ...(loose.length
+      ...(tree.rooms.length
         ? [
             {
-              id: `${space.id}:loose`,
-              name: getLocalisedText(undefined, "navigation", "uncategorised") as string,
-              rooms: resolveRooms(loose),
+              id: `${tree.space.roomId}:loose`,
+              name: text("navigation", "uncategorised"),
+              rooms: resolveRooms(tree.rooms),
               collapsible: true,
             },
           ]
         : []),
-      ...nested.map((child) => ({
-        id: child.id,
-        name: child.name,
-        rooms: resolveRooms(getSpaceRoomIds(child)),
+      ...tree.categories.map((category) => ({
+        id: category.space.roomId,
+        name: toEntity(category.space, $session?.userId).name,
+        rooms: resolveRooms(category.rooms),
         collapsible: true,
       })),
     ];
   });
+
+  const empty = $derived(categories.every((category) => category.rooms.length === 0));
 
   const pick = (roomId: string) => {
     openRoom(navigation.spaceId, roomId);
@@ -79,12 +94,16 @@
 <section class="channels col min-0">
   <header class="header row-nw align-centre hairline-b">
     <h1 class="title bold md truncate">
-      {space?.name ?? getLocalisedText(undefined, "navigation", "direct_messages")}
+      {space?.name ?? text("navigation", "direct_messages")}
     </h1>
   </header>
 
   <div class="list col flex-max min-0">
+    {#if empty}
+      <p class="empty sm faint">{text("navigation", tree ? "empty_space" : "empty_home")}</p>
+    {/if}
     {#each categories as category (category.id)}
+      {#if category.rooms.length || category.collapsible}
       {@const collapsible = category.collapsible}
       {@const isCollapsed = collapsible && collapsed[category.id]}
       <div class="category col">
@@ -132,6 +151,7 @@
           </ul>
         </div>
       </div>
+      {/if}
     {/each}
   </div>
 </section>
@@ -227,6 +247,11 @@
     min-height: 0;
     overflow: hidden;
     padding-block: 3px;
+  }
+
+  .empty {
+    margin: 0;
+    padding: var(--azure-spacing-sm) var(--azure-spacing-md);
   }
 
   .hash {
