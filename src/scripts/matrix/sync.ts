@@ -66,7 +66,7 @@ export const createSync = ({
   const emitter = createEmitter<SyncEvents>();
   let controller: AbortController | null = null;
   let state: SyncState = "stopped";
-  let token = since ?? (persistToken ? readStorage(SINCE_KEY) : null);
+  let token = since ?? null;
   let filterId: string | null = persistToken ? readStorage(FILTER_KEY) : null;
 
   const setState = (next: SyncState) => {
@@ -127,7 +127,6 @@ export const createSync = ({
     });
 
     token = response.next_batch;
-    if (persistToken) writeStorage(SINCE_KEY, token);
   };
 
   const loop = async (signal: AbortSignal) => {

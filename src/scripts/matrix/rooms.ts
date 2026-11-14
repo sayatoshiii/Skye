@@ -204,7 +204,7 @@ export const createRoomStore = (ownUserId: UserId) => {
 
   const markRead = (roomId: RoomId) => {
     const room = rooms[roomId];
-    if (!room) return;
+    if (!room || (!room.notificationCount && !room.highlightCount)) return;
 
     room.notificationCount = 0;
     room.highlightCount = 0;

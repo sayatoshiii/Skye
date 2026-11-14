@@ -38,7 +38,7 @@ export const createTimeline = ({
   const emitter = createEmitter<TimelineEvents>();
   let events: TimelineEvent[] = [];
   let backToken: string | null | undefined;
-  let paginating = false;
+  let paginating: Promise<boolean> | null = null;
   const pendingEdits: Record<EventId, TimelineEvent> = {};
   const pendingRedactions = new Set<EventId>();
 
@@ -162,9 +162,14 @@ export const createTimeline = ({
   };
 
   const paginateBackwards = async (limit = pageSize) => {
-    if (paginating || backToken === null) return false;
-    paginating = true;
+    if (paginating) return paginating;
+    if (backToken === null) return false;
 
+    paginating = fetchOlder(limit);
+    return paginating;
+  };
+
+  const fetchOlder = async (limit: number) => {
     try {
       const response = await request<MessagesResponse>({
         endpoint: `${roomPath}/messages`,
@@ -180,12 +185,15 @@ export const createTimeline = ({
       }
 
       events = [...older, ...events];
-      backToken = response.end ?? null;
+      backToken =
+        !response.chunk.length || response.end === backToken
+          ? null
+          : (response.end ?? null);
       notify();
 
       return backToken !== null;
     } finally {
-      paginating = false;
+      paginating = null;
     }
   };
 
