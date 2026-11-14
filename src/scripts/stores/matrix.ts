@@ -15,6 +15,16 @@ import {
   type SyncHandle,
   type SyncOptions,
 } from "../matrix/sync";
+import {
+  clearCryptoStore,
+  createCrypto,
+  type CryptoHandle,
+  type RestoreProgress,
+} from "../matrix/crypto";
+import {
+  initialVerification,
+  type VerificationState,
+} from "../matrix/verification";
 import { createTimeline, type TimelineHandle } from "../matrix/timeline";
 import type {
   CryptoHooks,
@@ -59,6 +69,8 @@ export const joinedMembers = writable<Record<RoomId, Record<UserId, RoomMember>>
 );
 export const ownProfile = writable<Profile | null>(null);
 export const canLoadOlder = writable(true);
+export const restoreOpen = writable(false);
+export const verification = writable<VerificationState>(initialVerification);
 
 export const spaces = derived(rooms, ($rooms) => getSpaceTrees($rooms));
 export const directMessages = derived(rooms, ($rooms) =>
@@ -72,6 +84,9 @@ export const currentSpace = derived(
   [spaces, currentSpaceId],
   ([$spaces, $id]) => $spaces.find((tree) => tree.space.roomId === $id) ?? null,
 );
+export const undecryptable = derived(currentTimeline, ($timeline) =>
+  $timeline.some((event) => event.decryptionFailed),
+);
 export const directUnread = derived(directMessages, ($dms) =>
   getUnreadTotals($dms),
 );
@@ -79,6 +94,7 @@ export const directUnread = derived(directMessages, ($dms) =>
 let sync: SyncHandle | null = null;
 let roomStore: RoomStore | null = null;
 let crypto: CryptoHooks = {};
+let cryptoHandle: CryptoHandle | null = null;
 const timelines: Record<RoomId, TimelineHandle> = {};
 let unsubscribeTimeline: (() => void) | null = null;
 const receipts: Record<RoomId, EventId> = {};
@@ -137,7 +153,7 @@ const loadProfile = async (active: Session) => {
 
 const loadMembers = async (roomId: RoomId) => {
   const active = get(session);
-  if (!active || get(joinedMembers)[roomId]) return;
+  if (!active || get(joinedMembers)[roomId]) return get(joinedMembers)[roomId];
 
   const response = await sessionRequest<{
     joined?: Record<UserId, { display_name?: string; avatar_url?: string }>;
@@ -162,7 +178,66 @@ const loadMembers = async (roomId: RoomId) => {
       ]),
     ),
   }));
+
+  return get(joinedMembers)[roomId];
 };
+
+const getEncryptionMembers = async (roomId: RoomId) => {
+  const fetched = (await loadMembers(roomId)) ?? {};
+  const synced = get(rooms)[roomId]?.members ?? {};
+  const merged = { ...fetched, ...synced };
+
+  return Object.values(merged)
+    .filter((member) => member.membership === "join")
+    .map((member) => member.userId);
+};
+
+const retryDecryption = (roomIds: RoomId[]) =>
+  roomIds.forEach((roomId) => timelines[roomId]?.retryDecryption());
+
+const startCrypto = (activeSession: Session) => {
+  cryptoHandle = createCrypto({
+    session: activeSession,
+    getRoom: (roomId) => get(rooms)[roomId],
+    getMembers: getEncryptionMembers,
+    onKeysReceived: retryDecryption,
+    onVerification: (state) => {
+      verification.set(state);
+      if (state.phase === "incoming") restoreOpen.set(true);
+    },
+  });
+
+  return cryptoHandle.hooks;
+};
+
+let cryptoClosing: Promise<void> = Promise.resolve();
+
+const stopCrypto = () => {
+  const handle = cryptoHandle;
+  cryptoHandle = null;
+  crypto = {};
+  verification.set(initialVerification);
+  if (handle) cryptoClosing = handle.close().catch(() => undefined);
+  return cryptoClosing;
+};
+
+export const hasKeyBackup = async () =>
+  (await cryptoHandle?.hasBackup()) ?? false;
+
+export const restoreHistory = (
+  secret: string,
+  usePassphrase: boolean,
+  onProgress?: (progress: RestoreProgress) => void,
+) => {
+  if (!cryptoHandle) throw new Error("No active Matrix session.");
+  return cryptoHandle.restoreFromBackup(secret, usePassphrase, onProgress);
+};
+
+export const startVerification = () => cryptoHandle?.verification.start();
+export const acceptVerification = () => cryptoHandle?.verification.accept();
+export const confirmVerification = () => cryptoHandle?.verification.confirm();
+export const cancelVerification = () => cryptoHandle?.verification.cancel();
+export const clearVerification = () => cryptoHandle?.verification.clear();
 
 export const getTimeline = (roomId: RoomId) => {
   const active = get(session);
@@ -181,15 +256,19 @@ export const startMatrix = (
 ) => {
   if (!activeSession || sync) return sync;
 
-  crypto = options.crypto ?? {};
+  crypto = options.crypto ?? startCrypto(activeSession);
   session.set(activeSession);
   roomStore = createRoomStore(activeSession.userId);
   roomStore.on("change", (next) => rooms.set(next));
 
-  sync = createSync({ ...options, session: activeSession });
+  sync = createSync({ ...options, crypto, session: activeSession });
   sync.on("state", (state) => syncState.set(state));
   sync.on("error", (error) => {
     if (!isMatrixError(error, "M_UNKNOWN_TOKEN")) return;
+    const softLogout = error.body.soft_logout === true;
+    stopCrypto().then(() =>
+      softLogout ? undefined : clearCryptoStore(activeSession),
+    );
     clearSession();
     clearSyncToken();
     sessionExpired.set(true);
@@ -213,6 +292,7 @@ export const startMatrix = (
 
 export const stopMatrix = () => {
   sync?.stop();
+  stopCrypto();
   sync = null;
   unsubscribeTimeline?.();
   unsubscribeTimeline = null;
@@ -232,7 +312,8 @@ export const signOut = async () => {
   const active = get(session) ?? loadSession();
   stopMatrix();
   clearSyncToken();
-  await logout(active);
+  await stopCrypto();
+  await Promise.all([logout(active), clearCryptoStore(active)]);
 };
 
 export const selectRoom = async (roomId: RoomId | null) => {

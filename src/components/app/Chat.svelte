@@ -11,9 +11,11 @@
     joinedMembers,
     loadOlderMessages,
     markRoomRead,
+    restoreOpen,
     retryMessage,
     sendMessage,
     session,
+    undecryptable,
   } from "../../scripts/stores/matrix";
   import Avatar from "../ui/Avatar.svelte";
 
@@ -36,6 +38,10 @@
   let loadingOlder = $state(false);
   let stuck = true;
   let renderedRoomId: string | undefined;
+  let lockedOut = $state(false);
+  let dismissedRoom: string | undefined = $state();
+
+  $effect(() => undecryptable.subscribe((value) => (lockedOut = value)));
 
   const room = $derived($currentRoom && toEntity($currentRoom, $session?.userId));
 
@@ -199,6 +205,20 @@
   </header>
 
   {#if room}
+    {#if lockedOut && dismissedRoom !== room.roomId}
+      <div class="decrypt-banner row-nw align-centre gap-sm sm" role="status">
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z" />
+        </svg>
+        <span class="flex-max min-0 muted">{text("encryption", "banner")}</span>
+        <button type="button" class="banner-action ghost press bold" onclick={() => restoreOpen.set(true)}>{text("encryption", "banner_action")}</button>
+        <button type="button" class="banner-close ghost press" aria-label={text("encryption", "dismiss")} onclick={() => (dismissedRoom = room.roomId)}>
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" />
+          </svg>
+        </button>
+      </div>
+    {/if}
     {#key room.roomId}
     <ol class="timeline col flex-max min-0" bind:this={timeline} {onscroll}>
       {#if $canLoadOlder}
@@ -288,6 +308,66 @@
     height: 100%;
     position: relative;
     background-color: var(--colours-background);
+  }
+
+  .decrypt-banner {
+    flex: none;
+    margin: var(--azure-spacing-sm) var(--azure-spacing-md) 0;
+    padding: var(--azure-spacing-sm) var(--azure-spacing-sm) var(--azure-spacing-sm) var(--azure-spacing-md);
+    color: var(--colours-accent);
+    background-color: var(--colours-accent-faint);
+    border: 1px solid color-mix(in oklab, var(--colours-accent) 22%, transparent);
+    border-radius: var(--azure-radius-md);
+    box-shadow: 0 0 24px -12px var(--colours-accent-glow);
+    animation: banner-in var(--azure-duration-md) var(--azure-ease-out);
+  }
+
+  .banner-action {
+    flex: none;
+    min-height: 32px;
+    padding: 0 var(--azure-spacing-md);
+    color: var(--colours-accent);
+    border-radius: var(--azure-radius-pill);
+    background-color: color-mix(in oklab, var(--colours-accent) 10%, transparent);
+  }
+
+  .banner-action:hover {
+    color: var(--colours-text-strong);
+    background-color: color-mix(in oklab, var(--colours-accent) 18%, transparent);
+  }
+
+  .banner-close {
+    flex: none;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    color: var(--colours-text-muted);
+    border-radius: var(--azure-radius-sm);
+  }
+
+  .banner-close:hover {
+    color: var(--colours-text-strong);
+    background-color: var(--colours-surface-hover);
+  }
+
+  @keyframes banner-in {
+    from {
+      opacity: 0;
+      transform: translateY(-4px);
+    }
+  }
+
+  @media (max-width: 767px) {
+    .banner-action,
+    .banner-close {
+      min-height: var(--azure-touch);
+    }
+
+    .banner-close {
+      width: var(--azure-touch);
+      height: var(--azure-touch);
+    }
   }
 
   .header {

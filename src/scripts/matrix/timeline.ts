@@ -197,6 +197,47 @@ export const createTimeline = ({
     }
   };
 
+  let retrying: Promise<void> | null = null;
+  let retryAgain = false;
+
+  const redecrypt = async () => {
+    do {
+      retryAgain = false;
+      let changed = false;
+
+      for (const stale of events.filter((event) => event.decryptionFailed)) {
+        const event = await decrypt(
+          Object.assign({}, stale, { decryptionFailed: undefined }),
+        );
+        if (event.decryptionFailed) continue;
+
+        changed = true;
+        const index = events.findIndex(
+          (existing) => existing.event_id === stale.event_id,
+        );
+        if (index === -1) continue;
+
+        if (absorb(event)) events.splice(index, 1);
+        else events[index] = settle(event);
+      }
+
+      if (changed) notify();
+    } while (retryAgain);
+  };
+
+  const retryDecryption = () => {
+    if (!events.some((event) => event.decryptionFailed))
+      return Promise.resolve();
+
+    if (retrying) {
+      retryAgain = true;
+      return retrying;
+    }
+
+    retrying = redecrypt().finally(() => (retrying = null));
+    return retrying;
+  };
+
   const sendEvent = async (type: string, content: Record<string, any>) => {
     const txnId = createTxnId();
     const echo: TimelineEvent = {
@@ -213,13 +254,13 @@ export const createTimeline = ({
     events.push(echo);
     notify();
 
-    const encrypted =
-      (await crypto.encryptEvent?.(type, content, roomId)) ?? null;
-    const [sendType, sendContent] = encrypted
-      ? [encrypted.type, encrypted.content]
-      : [type, content];
-
     try {
+      const encrypted =
+        (await crypto.encryptEvent?.(type, content, roomId)) ?? null;
+      const [sendType, sendContent] = encrypted
+        ? [encrypted.type, encrypted.content]
+        : [type, content];
+
       const { event_id } = await request<{ event_id: EventId }>({
         endpoint: `${roomPath}/send/${encodeURIComponent(sendType)}/${encodeURIComponent(txnId)}`,
         method: "PUT",
@@ -295,6 +336,7 @@ export const createTimeline = ({
     retry,
     discard,
     sendReadReceipt,
+    retryDecryption,
     on: emitter.on,
     getEvents: () => [...events],
     canPaginate: () => backToken !== null,

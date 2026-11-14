@@ -61,7 +61,8 @@
         "pink": "Pink",
         "cyan": "Cyan",
         "turquoise": "Turquoise"
-      }
+      },
+      "restore": "Restore message history"
     },
     "login": {
       "wordmark": "Skye",
@@ -152,6 +153,56 @@
         "msg 4",
         "test 5"
       ]
+    },
+    "encryption": {
+      "banner": "Some messages can't be decrypted on this device.",
+      "banner_action": "Restore history",
+      "dismiss": "Dismiss",
+      "title": "Restore message history",
+      "description": "Unlock your encrypted messages from server-side key backup using your Security Key or Security Phrase.",
+      "mode_key": "Security Key",
+      "mode_phrase": "Security Phrase",
+      "key_label": "Security Key",
+      "key_hint": "Looks like EsTc 1234 abcd ...",
+      "phrase_label": "Security Phrase",
+      "submit": "Restore",
+      "restoring": "Restoring...",
+      "progress": "Imported {imported} of {total} keys",
+      "done": "Restored {imported} of {total} keys. Your messages should unlock shortly.",
+      "close": "Close",
+      "cancel": "Cancel",
+      "checking": "Checking for a backup...",
+      "verify": {
+        "title": "Verify this device",
+        "action": "Verify with another device",
+        "action_hint": "Approve Skye from Element, Commet or another app you're signed in to.",
+        "or": "or use your Security Key",
+        "requesting": "Sending a request to your other devices...",
+        "waiting": "Accept the request on your other device to continue.",
+        "incoming_title": "Verification request",
+        "incoming": "Another of your devices wants to verify Skye.",
+        "device": "Device {device}",
+        "accept": "Accept",
+        "decline": "Decline",
+        "compare": "Check that these emoji appear in the same order on your other device.",
+        "match": "They match",
+        "mismatch": "They don't match",
+        "confirming": "Waiting for your other device to confirm...",
+        "syncing": "Verified. Asking your other device for your keys...",
+        "restoring": "Unlocking your messages...",
+        "cancelled": "Verification was cancelled.",
+        "retry": "Try again",
+        "back": "Back"
+      },
+      "errors": {
+        "no_backup": "There's no key backup on your account yet.",
+        "unsupported": "This backup uses a format Skye doesn't support yet.",
+        "invalid_key": "That doesn't look like a valid Security Key.",
+        "wrong_key": "That key or phrase doesn't match your backup.",
+        "no_secret": "Your secret storage doesn't hold a backup key.",
+        "no_identity": "Cross-signing isn't set up on your account, so device verification isn't available. Use your Security Key instead.",
+        "generic": "Something went wrong. Please try again."
+      }
     }
   }
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
+  import { restoreOpen } from "../../scripts/stores/matrix";
   import {
     accentPresets,
     getAccent,
@@ -95,6 +96,18 @@
           else event.currentTarget.value = accent;
         }}
       />
+      <button
+        class="restore item press row-nw align-centre gap-sm sm"
+        onclick={() => {
+          open = false;
+          restoreOpen.set(true);
+        }}
+      >
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z" />
+        </svg>
+        <span>{text("settings", "restore")}</span>
+      </button>
     </div>
   {/if}
 </div>
@@ -182,6 +195,20 @@
     cursor: pointer;
   }
 
+  .restore {
+    font: inherit;
+    width: 100%;
+    min-height: 36px;
+    padding: 0 var(--azure-spacing-sm);
+    margin-top: calc(-1 * var(--azure-spacing-xs));
+    background: none;
+    border: 0;
+    border-top: 1px solid var(--colours-outline-hairline);
+    border-radius: 0 0 var(--azure-radius-sm) var(--azure-radius-sm);
+    padding-top: var(--azure-spacing-sm);
+    cursor: pointer;
+  }
+
   .hex {
     width: 100%;
     padding: var(--azure-spacing-sm) var(--azure-spacing-md);
@@ -199,6 +226,10 @@
     .trigger {
       width: var(--azure-touch);
       height: var(--azure-touch);
+    }
+
+    .restore {
+      min-height: var(--azure-touch);
     }
 
     .swatch {

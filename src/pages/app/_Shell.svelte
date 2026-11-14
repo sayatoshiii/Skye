@@ -2,6 +2,7 @@
   import { onMount, type Snippet } from "svelte";
   import Chat from "../../components/app/Chat.svelte";
   import Loading from "../../components/app/Loading.svelte";
+  import RestoreHistory from "../../components/app/RestoreHistory.svelte";
   import ChannelList from "../../components/navigation/ChannelList.svelte";
   import MemberList from "../../components/navigation/MemberList.svelte";
   import UserProfile from "../../components/navigation/UserProfile.svelte";
@@ -138,6 +139,7 @@
 </script>
 
 <Loading visible={!routed} />
+<RestoreHistory />
 
 <div
   class="shell"

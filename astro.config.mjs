@@ -33,5 +33,8 @@ export default defineConfig({
   integrations: [svelte()],
   vite: {
     plugins: [appFallback()],
+    optimizeDeps: {
+      exclude: ["@matrix-org/matrix-sdk-crypto-wasm"],
+    },
   },
 });
