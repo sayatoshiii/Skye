@@ -1,4 +1,5 @@
 <script lang="ts">
+  import EmojiText from "../ui/EmojiText.svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { getPowerLevel } from "../../scripts/matrix/rooms";
   import { currentRoom, joinedMembers, presence } from "../../scripts/stores/matrix";
@@ -102,7 +103,7 @@
             <Avatar name={member.displayName} url={member.avatar} size="32px" radius="50%" />
           </span>
           <span class="md truncate" class:admin={member.powerLevel >= 100}
-            class:moderator={member.powerLevel >= 50 && member.powerLevel < 100}>{member.displayName}</span>
+            class:moderator={member.powerLevel >= 50 && member.powerLevel < 100}><EmojiText text={member.displayName} /></span>
         </li>
       {/each}
     </ul>

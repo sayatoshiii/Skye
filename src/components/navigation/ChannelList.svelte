@@ -1,4 +1,5 @@
 <script lang="ts">
+  import EmojiText from "../ui/EmojiText.svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { getOrphanRooms } from "../../scripts/matrix/rooms";
   import type { RoomSummary } from "../../scripts/matrix/types";
@@ -140,7 +141,7 @@
                     {:else}
                       <span class="hash faint" aria-hidden="true">#</span>
                     {/if}
-                    <span class="truncate flex-max">{room.name}</span>
+                    <span class="truncate flex-max"><EmojiText text={room.name} /></span>
                     {#if room.mentions}
                       <span class="badge xs bold">{room.mentions}</span>
                     {/if}

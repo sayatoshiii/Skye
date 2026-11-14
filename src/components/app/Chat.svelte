@@ -1,4 +1,5 @@
 <script lang="ts">
+  import EmojiText from "../ui/EmojiText.svelte";
   import { tick, untrack } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { getPowerLevel } from "../../scripts/matrix/rooms";
@@ -190,7 +191,7 @@
     </button>
     {#if room}
       <h2 class="name md bold truncate">
-        <span class="faint">{room.isDirect ? "@" : "#"}</span>{room.name}
+        <span class="faint">{room.isDirect ? "@" : "#"}</span><EmojiText text={room.name} />
       </h2>
       {#if room.topic}
         <span class="topic sm muted truncate">{room.topic}</span>
@@ -252,11 +253,11 @@
           <div class="content col min-0">
             {#if !message.grouped}
               <div class="meta row-nw align-centre gap-sm">
-                <span class="sender md bold" class:admin={sender.powerLevel >= 100}>{sender.name}</span>
+                <span class="sender md bold" class:admin={sender.powerLevel >= 100}><EmojiText text={sender.name} /></span>
                 <time class="xs faint" datetime={new Date(message.ts).toISOString()}>{formatTime(message.ts)}</time>
               </div>
             {/if}
-            <p class="body selectable {message.kind}">{#if message.kind === "emote"}<span class="emote-sender">* {sender.name}</span> {/if}{message.body}{#if message.edited}<span class="edited xs faint"> {text("chat", "edited")}</span>{/if}</p>
+            <p class="body selectable {message.kind}">{#if message.kind === "emote"}<span class="emote-sender">* <EmojiText text={sender.name} /></span> {/if}<EmojiText text={message.body} />{#if message.edited}<span class="edited xs faint"> {text("chat", "edited")}</span>{/if}</p>
             {#if message.status === "failed"}
               <p class="failure xs row-nw align-centre gap-sm">
                 <span>{text("chat", "failed")}</span>

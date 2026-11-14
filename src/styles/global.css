@@ -123,3 +123,12 @@ textarea,
 ::-webkit-scrollbar-thumb:hover {
   background-color: var(--colours-scrollbar-hover);
 }
+
+img.emoji {
+  width: 1.25em;
+  height: 1.25em;
+  margin: 0 0.05em;
+  vertical-align: -0.25em;
+  user-select: text;
+  -webkit-user-select: text;
+}

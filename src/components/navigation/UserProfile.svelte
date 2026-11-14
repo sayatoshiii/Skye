@@ -1,4 +1,5 @@
 <script lang="ts">
+  import EmojiText from "../ui/EmojiText.svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { getWideMediaLink, isMxc } from "../../scripts/matrix/utilities/media";
   import { fetchProfile, type ExtendedProfile } from "../../scripts/matrix/utilities/profile";
@@ -95,7 +96,7 @@
           <Avatar name={displayName} url={avatar} size="84px" radius="50%" />
         </span>
 
-        <h2 class="name bold">{displayName}</h2>
+        <h2 class="name bold"><EmojiText text={displayName} /></h2>
         <div class="handle row-nw align-centre gap-xs">
           <span class="id sm truncate">{userId}</span>
           <button class="copy ghost press" class:copied aria-label={copied ? text("user_profile", "copied") : text("user_profile", "copy")} title={copied ? text("user_profile", "copied") : text("user_profile", "copy")} onclick={copy}>
