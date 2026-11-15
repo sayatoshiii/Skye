@@ -19,6 +19,7 @@
     resolveHomeserver,
     serverNameFromUserId,
   } from "../../../scripts/matrix/discovery";
+  import { SIGNOUT_REASON_KEY } from "../../../scripts/matrix/session";
   import type { IdentityProvider, LoginFlow } from "../../../scripts/matrix/types";
   import {
     DEFAULT_HOMESERVER,
@@ -54,6 +55,7 @@
   let username = $state("");
   let password = $state("");
   let error = $state("");
+  let notice = $state("");
   let busy = $state(false);
   let usernameField: HTMLInputElement | undefined = $state();
   let passwordField: HTMLInputElement | undefined = $state();
@@ -253,6 +255,11 @@
   };
 
   onMount(() => {
+    try {
+      const reason = sessionStorage.getItem(SIGNOUT_REASON_KEY);
+      sessionStorage.removeItem(SIGNOUT_REASON_KEY);
+      if (reason) notice = text("login", "notices", reason) ?? "";
+    } catch {}
     const token = getLoginTokenFromURL();
     if (token) completeSSO(token);
     else resolve(serverInput);
@@ -509,6 +516,12 @@
                 />
                 <span id="login-token-hint" class="hint faint">{text("login", "token_hint")}</span>
               </label>
+            </div>
+          {/if}
+
+          {#if notice}
+            <div class="slot" transition:reveal>
+              <p class="notice" role="status">{notice}</p>
             </div>
           {/if}
 
@@ -789,6 +802,15 @@
   .link:hover {
     background-color: var(--colours-accent-faint);
     color: var(--colours-accent);
+  }
+
+  .notice {
+    margin: 0;
+    padding: var(--azure-spacing-md) var(--azure-spacing-lg);
+    border-radius: var(--azure-radius-md);
+    background-color: var(--colours-accent-faint);
+    color: var(--colours-accent);
+    font-size: var(--text-sm);
   }
 
   .error {
