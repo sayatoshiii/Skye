@@ -32,6 +32,21 @@ const SPOILER = {
   },
 };
 
+const UNDERLINE = {
+  name: "underline",
+  level: "inline" as const,
+  start: (src: string) => src.indexOf("__"),
+  tokenizer(this: any, src: string) {
+    const match = /^(_{2,3})(?!_)(?=\S)([\s\S]*?\S)\1(?![_\p{L}\p{N}])/u.exec(src);
+    if (!match) return;
+    return { type: "underline", raw: match[0], italic: match[1].length === 3, tokens: this.lexer.inlineTokens(match[2]) };
+  },
+  renderer(this: any, token: any) {
+    const html = `<u>${this.parser.parseInline(token.tokens)}</u>`;
+    return token.italic ? `<em>${html}</em>` : html;
+  },
+};
+
 const marked = new Marked({
   gfm: true,
   breaks: true,
@@ -39,7 +54,7 @@ const marked = new Marked({
   renderer: {
     html: ({ text }: Tokens.HTML | Tokens.Tag) => escapeHTML(text),
   },
-  extensions: [SPOILER],
+  extensions: [SPOILER, UNDERLINE],
 });
 
 let purifier: ReturnType<typeof DOMPurify> | null = null;

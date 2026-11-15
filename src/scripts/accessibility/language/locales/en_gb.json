@@ -58,6 +58,20 @@
       "note": "Note",
       "note_hint": "Click to add a note"
     },
+    "format": {
+      "toolbar": "Formatting",
+      "bold": "Bold",
+      "italic": "Italic",
+      "underline": "Underline",
+      "strike": "Strikethrough",
+      "spoiler": "Spoiler",
+      "code": "Inline code",
+      "link": "Link",
+      "quote": "Quote",
+      "link_placeholder": "url",
+      "mod": "Ctrl",
+      "mod_mac": "⌘"
+    },
     "chat": {
       "empty": "Pick a room to start chatting.",
       "beginning": "This is the start of {room}.",
@@ -121,6 +135,8 @@
       "unpin_body": "This message will be unpinned for everyone in this room. Hold Shift to skip this next time.",
       "copy_coordinates": "Copy coordinates",
       "end_poll": "End poll",
+      "end_poll_title": "End poll",
+      "end_poll_body": "Voting will close for everyone and results will be shown. Hold Shift to skip this next time.",
       "bot": "Bot",
       "server_notice": "Server notice"
     },
