@@ -72,8 +72,8 @@
             style:--share={reveal ? `${share(answer.id)}%` : "0%"}
           >
             <span class="tick" class:square={poll.maxSelections > 1} aria-hidden="true"></span>
-            <span class="label sm flex-max min-0">{answer.text}</span>
-            {#if reveal}<span class="count xs faint">{votes(tally.counts[answer.id])} · {share(answer.id)}%</span>{/if}
+            <span class="label md flex-max min-0">{answer.text}</span>
+            {#if reveal}<span class="count sm faint">{votes(tally.counts[answer.id])} · {share(answer.id)}%</span>{/if}
           </button>
         </li>
       {/each}
@@ -111,7 +111,7 @@
   }
 
   .answers {
-    gap: var(--azure-spacing-xs);
+    gap: var(--azure-spacing-sm);
     margin: var(--azure-spacing-xs) 0;
     padding: 0;
     list-style: none;
@@ -120,7 +120,9 @@
   .answer {
     position: relative;
     width: 100%;
-    padding: var(--azure-spacing-sm) var(--azure-spacing-md);
+    min-height: 44px;
+    padding: var(--azure-spacing-md) var(--azure-spacing-lg);
+    font-size: var(--text-md);
     overflow: hidden;
     border-radius: var(--azure-radius-sm);
     border: 1px solid var(--colours-outline-hairline);
