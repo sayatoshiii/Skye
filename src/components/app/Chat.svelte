@@ -97,7 +97,24 @@
   let replying: (ReplyTarget & { name: string }) | null = $state(null);
   let editing: { eventId: string; draft: string } | null = $state(null);
   let menu: { message: Message; x: number; y: number } | null = $state(null);
-  let confirming: Message | null = $state(null);
+  type ConfirmKind = "delete" | "pin" | "unpin";
+  let confirming: { kind: ConfirmKind; eventId: string } | null = $state(null);
+
+  const CONFIRM_ACTIONS: Record<ConfirmKind, (eventId: string) => Promise<unknown>> = {
+    delete: (eventId) => redactMessage(eventId),
+    pin: (eventId) => pinMessage(eventId),
+    unpin: (eventId) => unpinMessage(eventId),
+  };
+
+  const ask = (kind: ConfirmKind, eventId: string, event?: MouseEvent | KeyboardEvent) => {
+    if (event?.shiftKey) return void CONFIRM_ACTIONS[kind](eventId).catch(() => undefined);
+    confirming = { kind, eventId };
+  };
+
+  const confirmAction = () => {
+    if (confirming) CONFIRM_ACTIONS[confirming.kind](confirming.eventId).catch(() => undefined);
+    confirming = null;
+  };
   let swipe: { id: string; dx: number } | null = $state(null);
   let pinsOpen = $state(false);
   let pinsButton: HTMLButtonElement | undefined = $state();
@@ -419,15 +436,7 @@
     }
   };
 
-  const remove = (message: Message, event?: MouseEvent | KeyboardEvent) => {
-    if (event?.shiftKey) return void redactMessage(message.eventId).catch(() => undefined);
-    confirming = message;
-  };
-
-  const confirmRemove = () => {
-    if (confirming) redactMessage(confirming.eventId).catch(() => undefined);
-    confirming = null;
-  };
+  const remove = (message: Message, event?: MouseEvent | KeyboardEvent) => ask("delete", message.eventId, event);
 
   const copy = (value: string) => navigator.clipboard?.writeText(value).catch(() => undefined);
 
@@ -470,8 +479,8 @@
     }
     if (!message.local && message.kind !== "redacted" && mayPin)
       pinnedSet.has(message.eventId)
-        ? add("unpin", text("chat", "unpin"), ICONS.unpin, () => unpinMessage(message.eventId).catch(() => undefined))
-        : add("pin", text("chat", "pin"), ICONS.pin, () => pinMessage(message.eventId).catch(() => undefined));
+        ? add("unpin", text("chat", "unpin"), ICONS.unpin, (event) => ask("unpin", message.eventId, event))
+        : add("pin", text("chat", "pin"), ICONS.pin, (event) => ask("pin", message.eventId, event));
     if (!message.local && message.kind !== "redacted" && $currentRoom && ownUserId && canRedact($currentRoom, ownUserId, message.sender))
       add("delete", text("chat", "delete"), ICONS.delete, (event) => remove(message, event), true);
 
@@ -976,7 +985,7 @@
       {ownUserId}
       {getSender}
       onjump={jumpToMessage}
-      onunpin={(eventId) => unpinMessage(eventId).catch(() => undefined)}
+      onunpin={(eventId, event) => ask("unpin", eventId, event)}
       onclose={() => (pinsOpen = false)}
     />
   {/if}
@@ -993,12 +1002,12 @@
     <div class="confirm-layer col centre" role="presentation" use:portal>
       <button type="button" class="confirm-scrim ghost" tabindex="-1" aria-hidden="true" onclick={() => (confirming = null)}></button>
       <div class="confirm col gap-md" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" tabindex="-1" onkeydown={(event) => event.key === "Escape" && (confirming = null)}>
-        <h3 id="confirm-title" class="md bold">{text("chat", "delete_title")}</h3>
-        <p class="sm muted">{text("chat", "delete_body")}</p>
+        <h3 id="confirm-title" class="md bold">{text("chat", `${confirming.kind}_title`)}</h3>
+        <p class="sm muted">{text("chat", `${confirming.kind}_body`)}</p>
         <div class="row-nw gap-sm justify-end">
           <button type="button" class="dialog-button ghost press sm bold" onclick={() => (confirming = null)}>{text("chat", "cancel")}</button>
           <!-- svelte-ignore a11y_autofocus -->
-          <button type="button" class="dialog-button danger ghost press sm bold" autofocus onclick={confirmRemove}>{text("chat", "delete")}</button>
+          <button type="button" class="dialog-button ghost press sm bold" class:danger={confirming.kind !== "pin"} autofocus onclick={confirmAction}>{text("chat", confirming.kind)}</button>
         </div>
       </div>
     </div>

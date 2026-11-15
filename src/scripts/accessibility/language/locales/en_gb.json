@@ -114,7 +114,11 @@
       "jump_short": "Jump",
       "viewing_older": "Viewing older messages",
       "new_message": "{count} new message",
-      "new_messages": "{count} new messages"
+      "new_messages": "{count} new messages",
+      "pin_title": "Pin message",
+      "pin_body": "This message will be pinned for everyone in this room. Hold Shift to skip this next time.",
+      "unpin_title": "Unpin message",
+      "unpin_body": "This message will be unpinned for everyone in this room. Hold Shift to skip this next time."
     },
     "settings": {
       "open": "Settings",
