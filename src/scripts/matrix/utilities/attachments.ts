@@ -244,7 +244,7 @@ const encryptBytes = async (bytes: Uint8Array) => {
   return { data, info: info as Omit<EncryptedFile, "url"> };
 };
 
-const uploadBytes = (
+export const uploadBytes = (
   session: Session,
   body: Blob,
   contentType: string,
