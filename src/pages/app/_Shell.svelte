@@ -7,6 +7,8 @@
   import ChannelList from "../../components/navigation/ChannelList.svelte";
   import MemberList from "../../components/navigation/MemberList.svelte";
   import UserProfile from "../../components/navigation/UserProfile.svelte";
+  import MiniProfile from "../../components/profile/MiniProfile.svelte";
+  import FullProfile from "../../components/profile/FullProfile.svelte";
   import SpaceRail from "../../components/navigation/SpaceRail.svelte";
   import { ROUTES } from "../../scripts/settings/config";
   import { currentRoom, joinedMembers, selectRoom, sessionExpired, startMatrix, synced } from "../../scripts/stores/matrix";
@@ -189,6 +191,8 @@
 </div>
 
 <Lightbox />
+<MiniProfile />
+<FullProfile />
 
 <style>
   .shell {

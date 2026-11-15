@@ -218,6 +218,7 @@ export type RoomSummary = {
   notificationCount: number;
   highlightCount: number;
   lastActivity: number;
+  pinned: EventId[];
   state: Record<string, Record<string, StateEvent>>;
 };
 

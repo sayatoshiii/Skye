@@ -1,10 +1,10 @@
 import { get } from "svelte/store";
 import { serverNameFromUserId } from "../matrix/discovery";
 import { getOrphanRooms } from "../matrix/rooms";
-import { loadSession } from "../matrix/session";
+import { loadSession, sessionRequest } from "../matrix/session";
 import type { SpaceTree } from "../matrix/types";
 import { toEntity } from "./entities";
-import { directMessages, rooms, spaces } from "./matrix";
+import { directMessages, getDirectRoomMap, rooms, spaces } from "./matrix";
 
 export const HOME = "home";
 export const APP_BASE = "/app";
@@ -149,4 +149,38 @@ export const syncFromLocation = () => {
   const { spaceId, roomId } = parsePath(location.pathname);
   openRoom(spaceId, roomId, false);
   history.replaceState(null, "", serialisePath(spaceId, roomId));
+};
+
+const createDirect = async (userId: string) => {
+  const session = loadSession();
+  if (!session) throw new Error("No active Matrix session.");
+
+  const { room_id } = await sessionRequest<{ room_id: string }>(session, {
+    endpoint: "createRoom",
+    method: "POST",
+    body: {
+      is_direct: true,
+      invite: [userId],
+      preset: "trusted_private_chat",
+      initial_state: [
+        { type: "m.room.encryption", state_key: "", content: { algorithm: "m.megolm.v1.aes-sha2" } },
+      ],
+    },
+  });
+
+  const direct = getDirectRoomMap();
+  await sessionRequest(session, {
+    endpoint: `user/${encodeURIComponent(session.userId)}/account_data/m.direct`,
+    method: "PUT",
+    body: { ...direct, [userId]: [...(direct[userId] ?? []), room_id] },
+  });
+
+  return room_id;
+};
+
+export const openDirect = async (userId: string) => {
+  const roomId = getPrimaryDirect(userId, getEntities())?.id ?? (await createDirect(userId));
+  openRoom(HOME, roomId);
+  navigation.pane = "chat";
+  return roomId;
 };

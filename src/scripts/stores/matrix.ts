@@ -71,7 +71,47 @@ export const joinedMembers = writable<Record<RoomId, Record<UserId, RoomMember>>
 export const ownProfile = writable<Profile | null>(null);
 export const canLoadOlder = writable(true);
 export const restoreOpen = writable(false);
+export const detached = writable(false);
+export const canLoadNewer = writable(false);
 export const verification = writable<VerificationState>(initialVerification);
+
+let notesHook: ((events: { type: string; content?: Record<string, unknown> }[]) => void) | null = null;
+
+export const registerNotesHook = (hook: typeof notesHook) => {
+  notesHook = hook;
+};
+
+const RESTORED_PREFIX = "history_restored";
+
+const restoredKey = () => {
+  const active = get(session);
+  return active ? `${RESTORED_PREFIX}:${active.userId}:${active.deviceId}` : null;
+};
+
+const readRestored = () => {
+  try {
+    const key = restoredKey();
+    return !!key && localStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+};
+
+export const historyRestored = writable(false);
+
+const markHistoryRestored = () => {
+  historyRestored.set(true);
+  try {
+    const key = restoredKey();
+    if (key) localStorage.setItem(key, "1");
+  } catch {}
+};
+
+verification.subscribe((state) => {
+  if (state.phase === "restored") queueMicrotask(markHistoryRestored);
+});
+
+session.subscribe(() => queueMicrotask(() => historyRestored.set(readRestored())));
 
 export const spaces = derived(rooms, ($rooms) => getSpaceTrees($rooms));
 export const directMessages = derived(rooms, ($rooms) =>
@@ -85,8 +125,10 @@ export const currentSpace = derived(
   [spaces, currentSpaceId],
   ([$spaces, $id]) => $spaces.find((tree) => tree.space.roomId === $id) ?? null,
 );
-export const undecryptable = derived(currentTimeline, ($timeline) =>
-  $timeline.some((event) => event.decryptionFailed),
+export const undecryptable = derived(
+  [currentTimeline, historyRestored],
+  ([$timeline, $restored]) =>
+    !$restored && $timeline.some((event) => event.decryptionFailed),
 );
 export const directUnread = derived(directMessages, ($dms) =>
   getUnreadTotals($dms),
@@ -98,6 +140,34 @@ let crypto: CryptoHooks = {};
 let cryptoHandle: CryptoHandle | null = null;
 const timelines: Record<RoomId, TimelineHandle> = {};
 let unsubscribeTimeline: (() => void) | null = null;
+
+type ContextView = {
+  roomId: RoomId;
+  events: TimelineEvent[];
+  start: string | null;
+  end: string | null;
+  busy: Promise<boolean> | null;
+};
+
+let context: ContextView | null = null;
+
+const showContext = (view: ContextView) => {
+  currentTimeline.set(view.events);
+  canLoadOlder.set(view.start !== null);
+  canLoadNewer.set(true);
+};
+
+const leaveContext = () => {
+  const view = context;
+  context = null;
+  detached.set(false);
+  canLoadNewer.set(false);
+  if (!view) return;
+  const timeline = timelines[view.roomId];
+  if (!timeline || view.roomId !== get(currentRoomId)) return;
+  currentTimeline.set(timeline.getEvents());
+  canLoadOlder.set(timeline.canPaginate());
+};
 const receipts: Record<RoomId, EventId> = {};
 
 const applyPresence = (events: { sender?: UserId; content: any }[]) => {
@@ -209,6 +279,12 @@ const startCrypto = (activeSession: Session) => {
     },
   });
 
+  cryptoHandle
+    .getMachine()
+    .then((machine) => machine?.getBackupKeys())
+    .then((keys) => keys?.decryptionKey && markHistoryRestored())
+    .catch(() => undefined);
+
   return cryptoHandle.hooks;
 };
 
@@ -247,7 +323,12 @@ export const restoreHistory = (
   onProgress?: (progress: RestoreProgress) => void,
 ) => {
   if (!cryptoHandle) throw new Error("No active Matrix session.");
-  return cryptoHandle.restoreFromBackup(secret, usePassphrase, onProgress);
+  return cryptoHandle
+    .restoreFromBackup(secret, usePassphrase, onProgress)
+    .then((result) => {
+      markHistoryRestored();
+      return result;
+    });
 };
 
 export const startVerification = () => cryptoHandle?.verification.start();
@@ -255,6 +336,8 @@ export const acceptVerification = () => cryptoHandle?.verification.accept();
 export const confirmVerification = () => cryptoHandle?.verification.confirm();
 export const cancelVerification = () => cryptoHandle?.verification.cancel();
 export const clearVerification = () => cryptoHandle?.verification.clear();
+
+export const getDirectRoomMap = () => roomStore?.getDirectRooms() ?? {};
 
 export const getTimeline = (roomId: RoomId) => {
   const active = get(session);
@@ -293,6 +376,7 @@ export const startMatrix = (
   sync.on("sync", (response) => {
     roomStore?.applySync(response);
     applyPresence(response.presence?.events ?? []);
+    notesHook?.(response.account_data?.events ?? []);
     synced.set(true);
   });
   sync.on("room_timeline", ({ roomId, events, limited, prevBatch }) => {
@@ -314,6 +398,9 @@ export const stopMatrix = () => {
   unsubscribeTimeline?.();
   unsubscribeTimeline = null;
   Object.keys(timelines).forEach((roomId) => delete timelines[roomId]);
+  context = null;
+  detached.set(false);
+  Object.keys(pinnedCache).forEach((roomId) => delete pinnedCache[roomId]);
   rooms.set({});
   currentTimeline.set([]);
   currentRoomId.set(null);
@@ -343,7 +430,11 @@ export const selectRoom = async (roomId: RoomId | null) => {
   const timeline = getTimeline(roomId);
   currentTimeline.set(timeline.getEvents());
   canLoadOlder.set(timeline.canPaginate());
+  context = null;
+  detached.set(false);
+  canLoadNewer.set(false);
   unsubscribeTimeline = timeline.on("change", (events) => {
+    if (context) return;
     currentTimeline.set(events);
     canLoadOlder.set(timeline.canPaginate());
   });
@@ -386,9 +477,103 @@ export const retryMessage = (txnId: string) => {
 export const selectSpace = (spaceId: RoomId | null) =>
   currentSpaceId.set(spaceId);
 
+const pageContext = (view: ContextView, dir: "b" | "f") => {
+  if (view.busy) return view.busy;
+  const from = dir === "b" ? view.start : view.end;
+  const timeline = getTimeline(view.roomId);
+
+  view.busy = (async () => {
+    if (from === null) {
+      if (dir === "f") mergeContext(view, view.events.length);
+      return false;
+    }
+
+    const page = await timeline.fetchPage(view.events, from, dir);
+    if (context !== view) return false;
+
+    if (dir === "b") {
+      view.events = page.events;
+      view.start = page.token;
+      showContext(view);
+      return page.token !== null;
+    }
+
+    const overlap = page.chunkIds.find((eventId) => timeline.hasEvent(eventId));
+    view.events = page.events;
+    view.end = page.token;
+
+    if (overlap || page.token === null) {
+      const cut = overlap ? view.events.findIndex((event) => event.event_id === overlap) : view.events.length;
+      mergeContext(view, cut === -1 ? view.events.length : cut);
+      return false;
+    }
+
+    showContext(view);
+    return true;
+  })()
+    .catch((error) => {
+      console.warn("Skye could not page the detached timeline", error);
+      return false;
+    })
+    .finally(() => (view.busy = null));
+
+  return view.busy;
+};
+
+const mergeContext = (view: ContextView, cut: number) => {
+  const timeline = getTimeline(view.roomId);
+  context = null;
+  timeline.adoptOlder(view.events.slice(0, cut), view.start);
+  detached.set(false);
+  canLoadNewer.set(false);
+  if (view.roomId !== get(currentRoomId)) return;
+  currentTimeline.set(timeline.getEvents());
+  canLoadOlder.set(timeline.canPaginate());
+};
+
+export const loadNewerMessages = () =>
+  context ? pageContext(context, "f") : Promise.resolve(false);
+
+export const returnToPresent = () => leaveContext();
+
+export const isDetached = () => context !== null;
+
+export const jumpToEvent = async (eventId: EventId) => {
+  const roomId = requireRoom();
+  const timeline = getTimeline(roomId);
+  if (context?.events.some((event) => event.event_id === eventId)) return true;
+  if (timeline.hasEvent(eventId)) {
+    leaveContext();
+    return true;
+  }
+
+  try {
+    const loaded = await timeline.loadContext(eventId);
+    if (get(currentRoomId) !== roomId) return false;
+
+    const overlap = loaded.events.findIndex((event) => timeline.hasEvent(event.event_id));
+    const view: ContextView = { roomId, ...loaded, busy: null };
+
+    if (overlap !== -1) {
+      context = view;
+      mergeContext(view, overlap);
+      return true;
+    }
+
+    context = view;
+    detached.set(true);
+    showContext(view);
+    return true;
+  } catch (error) {
+    console.warn("Skye could not load message context", eventId, error);
+    return false;
+  }
+};
+
 export const loadOlderMessages = () => {
   const roomId = get(currentRoomId);
   if (!roomId) return Promise.resolve(false);
+  if (context) return pageContext(context, "b");
 
   const timeline = getTimeline(roomId);
   return timeline
@@ -441,6 +626,62 @@ export const editRoomMessage = (eventId: EventId, body: string) => {
 
 export const redactMessage = (eventId: EventId) =>
   getTimeline(requireRoom()).redact(eventId);
+
+const pinnedCache: Record<RoomId, Record<EventId, Promise<TimelineEvent | null>>> = {};
+
+export const fetchPinnedEvent = (roomId: RoomId, eventId: EventId) => {
+  const cache = (pinnedCache[roomId] ??= {});
+
+  return (cache[eventId] ??= (async () => {
+    const timeline = getTimeline(roomId);
+    const loaded = timeline.getEvents().find((event) => event.event_id === eventId);
+    if (loaded && !loaded.decryptionFailed) return loaded;
+
+    const event = await timeline.fetchEvent(eventId);
+    if (event.decryptionFailed) {
+      console.warn("Skye could not decrypt pinned event", eventId);
+      delete cache[eventId];
+    }
+    return event;
+  })().catch((error) => {
+    console.warn("Skye could not load pinned event", eventId, error);
+    delete cache[eventId];
+    return null;
+  }));
+};
+
+const updatePins = async (roomId: RoomId, change: (pinned: EventId[]) => EventId[]) => {
+  const next = change(roomStore?.getRoom(roomId)?.pinned ?? []);
+
+  try {
+    await getTimeline(roomId).setPinned(next);
+  } catch (error) {
+    console.warn("Skye could not update pinned messages", roomId, error);
+    throw error;
+  }
+
+  roomStore?.setPinned(roomId, next);
+};
+
+export const pinMessage = (eventId: EventId, roomId: RoomId = requireRoom()) =>
+  updatePins(roomId, (pinned) => [...pinned.filter((id) => id !== eventId), eventId]);
+
+export const unpinMessage = (eventId: EventId, roomId: RoomId = requireRoom()) =>
+  updatePins(roomId, (pinned) => pinned.filter((id) => id !== eventId));
+
+export const findInHistory = async (eventId: EventId, maxPages = 10) => {
+  const roomId = requireRoom();
+  const timeline = getTimeline(roomId);
+  const has = () => timeline.getEvents().some((event) => event.event_id === eventId);
+
+  for (let page = 0; page < maxPages && !has(); page++) {
+    const more = await timeline.paginateBackwards().catch(() => false);
+    canLoadOlder.set(timeline.canPaginate());
+    if (!more && !has()) break;
+  }
+
+  return has();
+};
 
 export const discardMessage = (txnId: string) =>
   getTimeline(requireRoom()).discard(txnId);
