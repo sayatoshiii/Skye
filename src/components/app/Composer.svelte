@@ -3,11 +3,16 @@
 </script>
 
 <script lang="ts">
+  import { tooltip } from "../../scripts/misc/tooltip";
   import EmojiText from "../ui/EmojiText.svelte";
   import { portal } from "../../scripts/misc/portal";
+  import { getEmojiURL } from "../../scripts/misc/emoji";
+  import { loadEmojiIndex, peekEmojiIndex, searchEmoji, twemojiFile, type EmojiEntry } from "../../scripts/misc/emoji-data";
+  import { recentEmoji, useEmoji } from "../../scripts/settings/emoji";
+  import EmojiPicker from "./EmojiPicker.svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { formatBytes, sanitiseFilename } from "../../scripts/matrix/utilities/attachments";
-  import { FORMAT_KEYS, formatEdit, highlightMarkdown, type Edit, type FormatAction } from "../../scripts/misc/markdown-highlight";
+  import { FORMAT_KEYS, formatEdit, highlightMarkdown, insideFence, type Edit, type FormatAction } from "../../scripts/misc/markdown-highlight";
 
   type Props = {
     draft: string;
@@ -66,7 +71,29 @@
   let mirror: HTMLDivElement | undefined = $state();
   let toolbar: { x: number; y: number; below: boolean } | null = $state(null);
 
-  const highlighted = $derived(highlightMarkdown(draft));
+  const CODE_CACHE = 64;
+  const codeCache = new Map<string, string | null>();
+  let codeVersion = $state(0);
+
+  const highlightBlock = (source: string, language: string) => {
+    const key = `${language}\n${source}`;
+    if (codeCache.has(key)) return codeCache.get(key)!;
+    if (codeCache.size >= CODE_CACHE) codeCache.clear();
+    codeCache.set(key, null);
+    import("../../scripts/misc/highlight").then(async ({ highlightCode, resolveLanguage }) => {
+      if (!resolveLanguage(language)) return;
+      const html = await highlightCode(source, language).catch(() => null);
+      if (!html || codeCache.get(key) !== null) return;
+      codeCache.set(key, html);
+      codeVersion++;
+    });
+    return null;
+  };
+
+  const highlighted = $derived.by(() => {
+    codeVersion;
+    return highlightMarkdown(draft, highlightBlock);
+  });
   const hasJpeg = $derived(pending.some((item) => item.file.type === "image/jpeg"));
   const ready = $derived(!!draft.trim() || pending.some((item) => !item.error && item.progress === null));
   const replyParts = $derived(text("chat", "replying_to").split("{name}"));
@@ -127,6 +154,122 @@
     };
   };
 
+  const EMOJI_QUERY = /(?:^|\s):([\w+-]{2,})$/;
+  const EMOJI_CODE = /(?:^|\s):([\w+-]+):$/;
+
+  let recent: string[] = $state.raw([]);
+  let suggest: { start: number; end: number; items: { entry: EmojiEntry; code: string }[]; x: number; y: number } | null = $state.raw(null);
+  let active = $state(0);
+
+  $effect(() => recentEmoji.subscribe((value) => (recent = value)));
+
+  const twemojiSrc = (unicode: string) => getEmojiURL(twemojiFile(unicode));
+
+  const inCode = (before: string) => {
+    if ((before.match(/```/g)?.length ?? 0) % 2) return true;
+    const line = before.slice(before.lastIndexOf("\n") + 1).replace(/```/g, "");
+    return (line.match(/`/g)?.length ?? 0) % 2 === 1;
+  };
+
+  const closeSuggest = () => {
+    suggest = null;
+    active = 0;
+  };
+
+  const updateSuggest = () => {
+    if (!field || document.activeElement !== field || field.selectionStart !== field.selectionEnd) return closeSuggest();
+    const caret = field.selectionStart;
+    const before = field.value.slice(0, caret);
+    const match = before.match(EMOJI_QUERY);
+    if (!match || inCode(before)) return closeSuggest();
+    const index = peekEmojiIndex();
+    if (!index) {
+      loadEmojiIndex().then(updateSuggest).catch(() => {});
+      return;
+    }
+    const items = searchEmoji(index, match[1], recent);
+    if (!items.length) return closeSuggest();
+    const start = caret - match[1].length - 1;
+    const point = locate(start);
+    const bounds = field.closest(".field")?.getBoundingClientRect() ?? field.getBoundingClientRect();
+    let x = bounds.left;
+    if (point) {
+      const range = document.createRange();
+      range.setStart(...point);
+      range.setEnd(...point);
+      x = range.getBoundingClientRect().left || x;
+    }
+    if (suggest?.start !== start) active = 0;
+    suggest = {
+      start,
+      end: caret,
+      items,
+      x: Math.min(Math.max(x - 12, 12), innerWidth - 332),
+      y: innerHeight - bounds.top + 8,
+    };
+  };
+
+  const insertEmoji = (unicode: string, from: number, to: number) => {
+    const insert = `${unicode} `;
+    apply({ from, to, insert, start: from + insert.length, end: from + insert.length });
+    useEmoji(unicode);
+    closeSuggest();
+  };
+
+  const FACES = ["😀", "😄", "😁", "😆", "😊", "😉", "😎", "🤩", "🥳", "😺", "🙂", "🤗"];
+
+  let pickerButton: HTMLButtonElement | undefined = $state();
+  let pickerOpen = $state(false);
+  let emojiPicker: EmojiPicker | undefined = $state();
+  let face = $state(FACES[0]);
+
+  const shuffleFace = () => (face = FACES[Math.floor(Math.random() * FACES.length)]);
+
+  const insertPicked = (unicode: string, keepOpen: boolean) => {
+    if (!field) return;
+    const from = field.selectionStart;
+    const to = field.selectionEnd;
+    apply({ from, to, insert: unicode, start: from + unicode.length, end: from + unicode.length });
+    useEmoji(unicode);
+    if (keepOpen) pickerOpen = true;
+  };
+
+  const pickSuggestion = (position = active) => {
+    const item = suggest?.items[position];
+    if (suggest && item) insertEmoji(item.entry.unicode, suggest.start, suggest.end);
+  };
+
+  const oninput = (event: Event) => {
+    if (!field) return;
+    if ((event as InputEvent).inputType === "insertText" && field.value[field.selectionStart - 1] === ":" && field.selectionStart === field.selectionEnd) {
+      const caret = field.selectionStart;
+      const before = field.value.slice(0, caret);
+      const match = before.match(EMOJI_CODE);
+      const entry = match && !inCode(before) ? peekEmojiIndex()?.byShortcode.get(match[1].toLowerCase()) : null;
+      if (match && entry) {
+        insertEmoji(entry.unicode, caret - match[1].length - 2, caret);
+        return;
+      }
+    }
+    updateSuggest();
+  };
+
+  const suggestKeys = (event: KeyboardEvent) => {
+    if (!suggest) return false;
+    const count = suggest.items.length;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      active = (active + (event.key === "ArrowDown" ? 1 : count - 1)) % count;
+    } else if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+      pickSuggestion();
+    } else if (event.key === "Escape") {
+      closeSuggest();
+    } else {
+      return false;
+    }
+    event.preventDefault();
+    return true;
+  };
+
   const apply = (edit: Edit) => {
     if (!field) return;
     field.focus();
@@ -148,6 +291,7 @@
   };
 
   const onkeydown = (event: KeyboardEvent) => {
+    if (suggestKeys(event)) return;
     if ((mac ? event.metaKey : event.ctrlKey) && !event.altKey) {
       const bind = FORMAT_KEYS.find((entry) => entry.code === event.code && entry.shift === event.shiftKey);
       if (bind) {
@@ -169,14 +313,64 @@
     if (event.key !== "Enter" || event.shiftKey || touch()) return;
 
     event.preventDefault();
+    if (!(mac ? event.metaKey : event.ctrlKey) && field && insideFence(field.value, field.selectionStart)) {
+      if (!document.execCommand("insertText", false, "\n")) {
+        field.setRangeText("\n", field.selectionStart, field.selectionEnd, "end");
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+      }
+      return;
+    }
     onsend();
+  };
+
+  const SHORTCODE_IN_TEXT = /(^|\s):([a-z0-9_+-]+):(?=\s|$)/gi;
+
+  const convertShortcodes = (text: string, lookup: (code: string) => string | undefined, startsInCode: boolean) => {
+    let fenced = startsInCode;
+    return text
+      .split(/(```)/)
+      .map((part) => {
+        if (part === "```") {
+          fenced = !fenced;
+          return part;
+        }
+        if (fenced) return part;
+        return part
+          .split(/(`[^`\n]*`)/)
+          .map((chunk) =>
+            chunk.startsWith("`") && chunk.endsWith("`") && chunk.length > 1
+              ? chunk
+              : chunk.replace(SHORTCODE_IN_TEXT, (whole, lead, code) => {
+                  const unicode = lookup(code.toLowerCase());
+                  return unicode ? `${lead}${unicode}` : whole;
+                }),
+          )
+          .join("");
+      })
+      .join("");
   };
 
   const onpaste = (event: ClipboardEvent) => {
     const files = [...(event.clipboardData?.files ?? [])];
-    if (!files.length) return;
+    if (files.length) {
+      event.preventDefault();
+      onfiles(files);
+      return;
+    }
+
+    const text = event.clipboardData?.getData("text/plain") ?? "";
+    if (!field || !/:[a-z0-9_+-]+:/i.test(text)) return;
+
     event.preventDefault();
-    onfiles(files);
+    const from = field.selectionStart;
+    const to = field.selectionEnd;
+    const before = field.value.slice(0, from);
+    const startsInCode = (before.match(/```/g)?.length ?? 0) % 2 === 1;
+
+    loadEmojiIndex()
+      .then((index) => convertShortcodes(text, (code) => index.byShortcode.get(code)?.unicode, startsInCode))
+      .catch(() => text)
+      .then((insert) => apply({ from, to, insert, start: from + insert.length, end: from + insert.length }));
   };
 
   const onpick = () => {
@@ -185,7 +379,11 @@
   };
 
   $effect(() => {
-    const onselection = () => document.activeElement === field && updateToolbar();
+    const onselection = () => {
+      if (document.activeElement !== field) return;
+      updateToolbar();
+      if (suggest && (field!.selectionStart < suggest.start || field!.selectionStart !== field!.selectionEnd)) closeSuggest();
+    };
     document.addEventListener("selectionchange", onselection);
     addEventListener("resize", updateToolbar);
     return () => {
@@ -210,7 +408,7 @@
       <ul class="tray row-nw gap-sm">
         {#each pending as item (item.id)}
           {@const name = sanitiseFilename(item.file.name)}
-          <li class="chip col" class:error={!!item.error} class:busy={item.progress !== null} title={item.error ?? name}>
+          <li class="chip col" class:error={!!item.error} class:busy={item.progress !== null} use:tooltip={item.error ?? name}>
             <span class="chip-preview row centre">
               {#if item.preview}
                 <img src={item.preview} alt="" draggable="false" />
@@ -239,13 +437,13 @@
       {/if}
     {/if}
     <div class="field row-nw align-centre gap-sm">
-      <button type="button" class="icon attach ghost press" aria-label={text("media", "attach_files")} onclick={() => picker?.click()}>
+      <button type="button" class="icon attach ghost press" aria-label={text("media", "attach_files")} use:tooltip={text("media", "attach_files")} onclick={() => picker?.click()}>
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
           <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14" />
         </svg>
       </button>
       <input class="sr-only" type="file" multiple tabindex="-1" aria-hidden="true" bind:this={picker} onchange={onpick} />
-      <div class="input flex-max">
+      <div class="editor flex-max">
         <div class="mirror" aria-hidden="true" bind:this={mirror}>{@html highlighted}</div>
         <textarea
           rows="1"
@@ -255,13 +453,30 @@
           bind:value={draft}
           bind:this={field}
           onscroll={syncScroll}
-          onblur={() => (toolbar = null)}
+          onblur={() => {
+            toolbar = null;
+            closeSuggest();
+          }}
+          {oninput}
           onselect={updateToolbar}
           {onkeydown}
           {onpaste}
         ></textarea>
       </div>
-      <button type="submit" class="icon send ghost press" class:ready aria-label={text("chat", "send")}>
+      <button
+        type="button"
+        class="icon emoji-button ghost press"
+        class:open={pickerOpen}
+        aria-label={text("emoji", "open_picker")} use:tooltip={text("emoji", "open_picker")}
+        aria-expanded={pickerOpen}
+        aria-haspopup="dialog"
+        bind:this={pickerButton}
+        onmouseenter={shuffleFace}
+        onclick={() => (pickerOpen ? emojiPicker?.dismiss() : (pickerOpen = true))}
+      >
+        <img src={twemojiSrc(face)} alt="" width="20" height="20" draggable="false" />
+      </button>
+      <button type="submit" class="icon send ghost press" class:ready aria-label={text("chat", "send")} use:tooltip={text("chat", "send")}>
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
           <path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3 10l12 2-12 2 .4 6.4Z" />
         </svg>
@@ -269,6 +484,39 @@
     </div>
   </div>
 </form>
+
+{#if pickerOpen && pickerButton}
+  <EmojiPicker bind:this={emojiPicker} anchor={pickerButton} oninsert={insertPicked} onclose={() => (pickerOpen = false)} />
+{/if}
+
+{#if suggest}
+  <div
+    class="emoji-suggest col"
+    role="listbox"
+    tabindex="-1"
+    aria-label={text("emoji", "suggestions")}
+    style:left="{suggest.x}px"
+    style:bottom="{suggest.y}px"
+    use:portal
+    onmousedown={(event) => event.preventDefault()}
+  >
+    <span class="suggest-title xs bold faint">{text("emoji", "matching").replace("{query}", draft.slice(suggest.start, suggest.end))}</span>
+    {#each suggest.items as item, position (item.entry.hexcode)}
+      <button
+        type="button"
+        class="suggestion row-nw align-centre gap-sm press"
+        class:active={position === active}
+        role="option"
+        aria-selected={position === active}
+        onmousemove={() => (active = position)}
+        onclick={() => pickSuggestion(position)}
+      >
+        <img class="suggest-glyph" src={twemojiSrc(item.entry.unicode)} alt={item.entry.unicode} draggable="false" />
+        <span class="sm bold">:{item.code}:</span>
+      </button>
+    {/each}
+  </div>
+{/if}
 
 {#if toolbar}
   <div
@@ -283,7 +531,7 @@
     onmousedown={(event) => event.preventDefault()}
   >
     {#each FORMAT_KEYS as bind (bind.action)}
-      <button type="button" class="format ghost press" aria-label={text("format", bind.action)} aria-keyshortcuts="{mac ? 'Meta' : 'Control'}+{bind.label}" onclick={() => format(bind.action)}>
+      <button type="button" class="format ghost press" aria-label={text("format", bind.action)} use:tooltip={text("format", bind.action)} aria-keyshortcuts="{mac ? 'Meta' : 'Control'}+{bind.label}" onclick={() => format(bind.action)}>
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={FORMAT_ICONS[bind.action]} /></svg>
         <span class="tip row-nw align-centre gap-sm xs">{text("format", bind.action)}<kbd>{modLabel}+{bind.label}</kbd></span>
       </button>
@@ -323,7 +571,7 @@
     box-shadow: 0 0 24px -8px var(--colours-accent-glow);
   }
 
-  .input {
+  .editor {
     position: relative;
     display: grid;
     min-width: 0;
@@ -637,6 +885,84 @@
 
   .metadata input {
     accent-color: var(--colours-accent);
+  }
+
+  .emoji-button {
+    display: grid;
+    place-items: center;
+  }
+
+  .emoji-button img {
+    width: 20px;
+    height: 20px;
+    filter: grayscale(1) brightness(1.6);
+    opacity: 0.45;
+    transition:
+      filter var(--azure-duration-fast) var(--azure-ease-out),
+      opacity var(--azure-duration-fast) var(--azure-ease-out),
+      transform var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .emoji-button:is(:hover, :focus-visible, .open) img {
+    filter: none;
+    opacity: 1;
+    transform: scale(1.14);
+  }
+
+  .emoji-suggest {
+    position: fixed;
+    z-index: var(--azure-z-popover);
+    width: 320px;
+    padding: 4px;
+    gap: 1px;
+    border-radius: var(--azure-radius-md);
+    border: 1px solid var(--colours-outline-light);
+    background-color: var(--colours-surface-raised);
+    box-shadow:
+      0 8px 24px -8px rgb(0 0 0 / 0.6),
+      0 0 24px -12px var(--colours-accent-glow);
+    transform-origin: 0 100%;
+    animation: pop-in var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .suggest-title {
+    padding: 4px 8px 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .suggestion {
+    min-height: 36px;
+    padding: 4px 8px;
+    border: 0;
+    border-radius: var(--azure-radius-sm);
+    text-align: left;
+    background-color: transparent;
+    color: var(--colours-text-muted);
+    transition: background-color var(--azure-duration-instant) var(--azure-ease-out);
+  }
+
+  .suggestion.active {
+    color: var(--colours-text-strong);
+    background-color: var(--colours-surface-hover);
+  }
+
+  .suggest-glyph {
+    width: 22px;
+    height: 22px;
+    flex: none;
+  }
+
+  @media (max-width: 767px) {
+    .emoji-suggest {
+      left: 8px !important;
+      right: 8px;
+      width: auto;
+    }
+
+    .suggestion {
+      min-height: 44px;
+    }
   }
 
   .format-bar {

@@ -135,11 +135,11 @@ const inline = (source: string, masks: Uint16Array, offset: number, end: number)
   }
 };
 
-const emit = (source: string, masks: Uint16Array) => {
+const emit = (source: string, masks: Uint16Array, from = 0, to = source.length) => {
   let html = "";
-  let start = 0;
-  for (let index = 1; index <= source.length; index++) {
-    if (index < source.length && masks[index] === masks[start] && source[index] !== "\n") continue;
+  let start = from;
+  for (let index = from + 1; index <= to; index++) {
+    if (index < to && masks[index] === masks[start] && source[index] !== "\n") continue;
     const chunk = escapeHTML(source.slice(start, index));
     const mask = masks[start];
     if (!mask || source[start] === "\n") html += chunk;
@@ -153,9 +153,35 @@ const emit = (source: string, masks: Uint16Array) => {
   return html;
 };
 
-export const highlightMarkdown = (source: string) => {
+const TAG = /<\/?span[^>]*>|\n/g;
+
+const blockLines = (html: string) => {
+  const open: string[] = [];
+  let result = "";
+  let last = 0;
+  for (const match of html.matchAll(TAG)) {
+    result += html.slice(last, match.index);
+    last = match.index + match[0].length;
+    if (match[0] === "\n") result += `${"</span>".repeat(open.length)}</span>\n<span class="md-block">${open.join("")}`;
+    else if (match[0][1] === "/") {
+      open.pop();
+      result += match[0];
+    } else {
+      open.push(match[0]);
+      result += match[0];
+    }
+  }
+  return `<span class="md-block">${result}${html.slice(last)}</span>`;
+};
+
+export type CodeHighlighter = (source: string, language: string) => string | null;
+
+export const highlightMarkdown = (source: string, code?: CodeHighlighter) => {
   const masks = new Uint16Array(source.length);
+  const blocks: { from: number; to: number; language: string }[] = [];
   let fenced = false;
+  let language = "";
+  let bodyStart = 0;
   let lineStart = 0;
 
   while (lineStart <= source.length) {
@@ -164,7 +190,10 @@ export const highlightMarkdown = (source: string) => {
     const line = source.slice(lineStart, lineEnd);
 
     if (FENCE.test(line)) {
+      if (fenced && language && lineStart - 1 > bodyStart) blocks.push({ from: bodyStart, to: lineStart - 1, language });
       fenced = !fenced;
+      language = fenced ? line.slice(3).trim() : "";
+      bodyStart = lineEnd + 1;
       fill(masks, lineStart, lineEnd, BIT.block | BIT.sym);
     } else if (fenced) fill(masks, lineStart, lineEnd, BIT.block);
     else {
@@ -188,7 +217,18 @@ export const highlightMarkdown = (source: string) => {
     lineStart = newline + 1;
   }
 
-  return `${emit(source, masks)} `;
+  if (fenced && language && source.length > bodyStart) blocks.push({ from: bodyStart, to: source.length, language });
+  if (!code || !blocks.length) return `${emit(source, masks)} `;
+
+  let html = "";
+  let at = 0;
+  for (const block of blocks) {
+    const result = code(source.slice(block.from, block.to), block.language);
+    if (result === null) continue;
+    html += emit(source, masks, at, block.from) + blockLines(result);
+    at = block.to;
+  }
+  return `${html}${emit(source, masks, at)} `;
 };
 
 export type Edit = { from: number; to: number; insert: string; start: number; end: number };
@@ -311,3 +351,9 @@ export const formatEdit = (action: FormatAction, value: string, start: number, e
   action === "link" ? toggleLink(value, start, end, placeholder)
   : action === "quote" ? toggleQuote(value, start, end)
   : toggleWrap(value, start, end, FORMAT_TOKENS[action]);
+
+export const insideFence = (source: string, caret: number) =>
+  source
+    .slice(0, caret)
+    .split("\n")
+    .filter((line) => /^ {0,3}```[^`]*$/.test(line)).length % 2 === 1;
