@@ -2,6 +2,7 @@
   import { canCopyMedia, copyMedia } from "../../scripts/misc/clipboard";
   import { portal } from "../../scripts/misc/portal";
   import EmojiText from "../ui/EmojiText.svelte";
+  import Composer, { type Pending } from "./Composer.svelte";
   import { tick, untrack } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { canPin, canRedact, getPowerLevel } from "../../scripts/matrix/rooms";
@@ -88,13 +89,11 @@
   const text = (...path: string[]) =>
     getLocalisedText(undefined, ...path) as string;
 
-  type Pending = { id: number; file: File; preview?: string; progress: number | null; error?: string };
   type Message = (typeof timelineMessages)[number];
 
   let draft = $state("");
   let timeline: HTMLElement | undefined = $state();
   let composer: HTMLTextAreaElement | undefined = $state();
-  let picker: HTMLInputElement | undefined = $state();
   let loadingOlder = $state(false);
   let stuck = true;
   let renderedRoomId: string | undefined;
@@ -108,18 +107,25 @@
   let replying: (ReplyTarget & { name: string }) | null = $state(null);
   let editing: { eventId: string; draft: string } | null = $state(null);
   let menu: { message: Message; x: number; y: number } | null = $state(null);
-  type ConfirmKind = "delete" | "pin" | "unpin";
+  type ConfirmKind = "delete" | "pin" | "unpin" | "end_poll";
   let confirming: { kind: ConfirmKind; eventId: string } | null = $state(null);
 
   const CONFIRM_ACTIONS: Record<ConfirmKind, (eventId: string) => Promise<unknown>> = {
     delete: (eventId) => redactMessage(eventId),
     pin: (eventId) => pinMessage(eventId),
     unpin: (eventId) => unpinMessage(eventId),
+    end_poll: (eventId) => endPoll(eventId),
   };
 
   const ask = (kind: ConfirmKind, eventId: string, event?: MouseEvent | KeyboardEvent) => {
     if (event?.shiftKey) return void CONFIRM_ACTIONS[kind](eventId).catch(() => undefined);
     confirming = { kind, eventId };
+  };
+
+  const endPoll = async (eventId: string) => {
+    const message = timelineMessages.find((entry) => entry.eventId === eventId);
+    if (!message || message.kind !== "poll") return;
+    await sendRoomEvent(POLL_END[message.event.type === POLL_START[1] ? 1 : 0], pollEndContent(message.event, text("poll", "ended")));
   };
 
   const confirmAction = () => {
@@ -433,12 +439,6 @@
     return () => document.removeEventListener("visibilitychange", read);
   });
 
-  const resize = () => {
-    if (!composer) return;
-    composer.style.height = "auto";
-    composer.style.height = `${composer.scrollHeight}px`;
-  };
-
   const addFiles = async (files: Iterable<File>) => {
     const active = $session;
     if (!active) return;
@@ -495,7 +495,6 @@
     if (items.length) uploadPending(items, room.id, encrypted, body ? undefined : reply);
 
     draft = "";
-    tick().then(resize);
   };
 
   const retry = (txnId?: string) => {
@@ -583,9 +582,7 @@
       add("coordinates", text("chat", "copy_coordinates"), ICONS.copy, () => copy(formatCoordinates(location, 6)));
     }
     if (message.kind === "poll" && !message.local && ownUserId && (message.sender === ownUserId || mayModerate(ownUserId)) && !pollEnded(message))
-      add("end-poll", text("chat", "end_poll"), ICONS.end, () => {
-        sendRoomEvent(POLL_END[message.event.type === POLL_START[1] ? 1 : 0], pollEndContent(message.event, text("poll", "ended"))).catch(() => undefined);
-      });
+      add("end-poll", text("chat", "end_poll"), ICONS.end, (event) => ask("end_poll", message.eventId, event), true);
 
     if (message.plain) add("copy", text("chat", "copy_text"), ICONS.copy, () => copy(editableText(message)));
     if (!message.local && $currentRoom) {
@@ -706,33 +703,10 @@
     }
   };
 
-  const onkeydown = (event: KeyboardEvent) => {
-    if (event.key === "ArrowUp" && !draft && !event.shiftKey) {
-      const last = timelineMessages.findLast((message) => canEdit(message));
-      if (last) {
-        event.preventDefault();
-        startEdit(last);
-      }
-      return;
-    }
-    if (event.key === "Escape" && replying) {
-      event.preventDefault();
-      replying = null;
-      return;
-    }
-
-    const touch = matchMedia("(pointer: coarse)").matches;
-    if (event.key !== "Enter" || event.shiftKey || touch) return;
-
-    event.preventDefault();
-    send();
-  };
-
-  const onpaste = (event: ClipboardEvent) => {
-    const files = [...(event.clipboardData?.files ?? [])];
-    if (!files.length) return;
-    event.preventDefault();
-    addFiles(files);
+  const editLast = () => {
+    const last = timelineMessages.findLast((message) => canEdit(message));
+    if (last) startEdit(last);
+    return !!last;
   };
 
   const hasFiles = (event: DragEvent) => !!event.dataTransfer?.types.includes("Files");
@@ -760,13 +734,6 @@
     if (room) addFiles([...(event.dataTransfer?.files ?? [])]);
   };
 
-  const onpick = () => {
-    if (picker?.files?.length) addFiles([...picker.files]);
-    if (picker) picker.value = "";
-  };
-
-  const hasJpeg = $derived(pending.some((item) => item.file.type === "image/jpeg"));
-  const ready = $derived(!!draft.trim() || pending.some((item) => !item.error && item.progress === null));
 
   const roomLabel = $derived(room ? `${room.isDirect ? "" : "#"}${room.name}` : "");
 </script>
@@ -1041,76 +1008,21 @@
         </button>
       </div>
 
-    <form class="composer" onsubmit={(event) => { event.preventDefault(); send(); }}>
-      <div class="dock col" bind:clientHeight={dockHeight}>
-        {#if replying}
-          <div class="reply-bar row-nw align-centre gap-sm sm">
-            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.reply} /></svg>
-            <span class="flex-max truncate muted">{text("chat", "replying_to").split("{name}")[0]}<strong class="reply-target"><EmojiText text={replying.name} /></strong>{text("chat", "replying_to").split("{name}")[1]}</span>
-            <button type="button" class="chip-close ghost press" aria-label={text("chat", "cancel_reply")} onclick={() => (replying = null)}>
-              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
-            </button>
-          </div>
-        {/if}
-        {#if pending.length}
-          <ul class="tray row-nw gap-sm">
-            {#each pending as item (item.id)}
-              {@const name = sanitiseFilename(item.file.name)}
-              <li class="chip col" class:error={!!item.error} class:busy={item.progress !== null} title={item.error ?? name}>
-                <span class="chip-preview row centre">
-                  {#if item.preview}
-                    <img src={item.preview} alt="" draggable="false" />
-                  {:else}
-                    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M6 3h8l4 4v14H6zM14 3v4h4" /></svg>
-                  {/if}
-                  {#if item.progress !== null}
-                    <span class="progress" style:--progress={item.progress} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(item.progress * 100)} aria-label={text("media", "uploading").replace("{percent}", String(Math.round(item.progress * 100)))}></span>
-                  {/if}
-                </span>
-                <span class="chip-name xs truncate">{item.error ?? name}</span>
-                <span class="chip-size xs faint">{formatBytes(item.file.size)}</span>
-                {#if item.progress === null}
-                  <button type="button" class="chip-remove ghost press" aria-label={text("media", "remove").replace("{name}", name)} onclick={() => removePending(item.id)}>
-                    <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
-                  </button>
-                {/if}
-              </li>
-            {/each}
-          </ul>
-          {#if hasJpeg}
-            <label class="metadata row-nw align-centre gap-sm xs muted">
-              <input type="checkbox" checked={settings?.keepImageMetadata} onchange={(event) => setKeepImageMetadata(event.currentTarget.checked)} />
-              {text("media", "keep_metadata")}
-            </label>
-          {/if}
-        {/if}
-        <div class="field row-nw align-centre gap-sm">
-          <button type="button" class="icon attach ghost press" aria-label={text("media", "attach_files")} onclick={() => picker?.click()}>
-            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-              <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14" />
-            </svg>
-          </button>
-          <input class="sr-only" type="file" multiple tabindex="-1" aria-hidden="true" bind:this={picker} onchange={onpick} />
-          <textarea
-            class="flex-max"
-            rows="1"
-            enterkeyhint="send"
-            placeholder={text("chat", "composer").replace("{room}", roomLabel)}
-            aria-label={text("chat", "composer").replace("{room}", roomLabel)}
-            bind:value={draft}
-            bind:this={composer}
-            oninput={resize}
-            {onkeydown}
-            {onpaste}
-          ></textarea>
-          <button type="submit" class="icon send ghost press" class:ready aria-label={text("chat", "send")}>
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3 10l12 2-12 2 .4 6.4Z" />
-            </svg>
-          </button>
-        </div>
-      </div>
-    </form>
+    <Composer
+      bind:draft
+      bind:field={composer}
+      bind:dockHeight
+      label={text("chat", "composer").replace("{room}", roomLabel)}
+      {replying}
+      {pending}
+      keepImageMetadata={settings?.keepImageMetadata}
+      onsend={send}
+      oncancelreply={() => (replying = null)}
+      onfiles={addFiles}
+      onremove={removePending}
+      oneditlast={editLast}
+      onmetadata={setKeepImageMetadata}
+    />
 
     {#if dragDepth > 0}
       <div class="dropzone col centre gap-sm" aria-hidden="true">
@@ -1774,31 +1686,6 @@
     color: var(--colours-text-strong);
   }
 
-  .composer {
-    position: absolute;
-    inset: auto 0 0;
-    z-index: var(--azure-z-raised);
-    pointer-events: none;
-    padding: 0 var(--azure-spacing-lg) var(--azure-spacing-lg);
-    padding-bottom: max(var(--azure-spacing-lg), env(safe-area-inset-bottom));
-  }
-
-  .field {
-    pointer-events: auto;
-    padding: var(--azure-spacing-xs) var(--azure-spacing-sm);
-    border-radius: var(--azure-radius-md);
-    border: 1px solid var(--colours-outline-hairline);
-    background-color: var(--colours-surface-raised);
-    transition:
-      border-color var(--azure-duration-fast) var(--azure-ease-out),
-      box-shadow var(--azure-duration-md) var(--azure-ease-out);
-  }
-
-  .field:focus-within {
-    border-color: color-mix(in oklab, var(--colours-accent) 45%, transparent);
-    box-shadow: 0 0 24px -8px var(--colours-accent-glow);
-  }
-
   textarea {
     min-width: 0;
     width: 0;
@@ -1819,57 +1706,6 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  .send,
-  .send:hover,
-  .attach,
-  .attach:hover {
-    color: var(--colours-text-faint);
-    background: none;
-  }
-
-  .attach:hover {
-    color: var(--colours-accent);
-  }
-
-  .attach svg {
-    transition:
-      color var(--azure-duration-fast) var(--azure-ease-out),
-      transform var(--azure-duration-md) var(--azure-ease-spring);
-  }
-
-  .attach:hover svg {
-    transform: rotate(90deg);
-  }
-
-  .attach:active svg {
-    transform: rotate(90deg) scale(0.85);
-    transition-duration: var(--azure-duration-instant);
-  }
-
-  .send svg {
-    transition:
-      color var(--azure-duration-fast) var(--azure-ease-out),
-      filter var(--azure-duration-md) var(--azure-ease-out),
-      transform var(--azure-duration-md) var(--azure-ease-spring);
-  }
-
-  .send.ready {
-    color: var(--colours-accent);
-  }
-
-  .send.ready svg {
-    filter: drop-shadow(0 0 6px var(--colours-accent-glow));
-  }
-
-  .send.ready:hover svg {
-    transform: translateX(2px);
-  }
-
-  .send:active svg {
-    transform: scale(0.85);
-    transition-duration: var(--azure-duration-instant);
   }
 
   .empty {
@@ -2061,137 +1897,6 @@
     color: var(--colours-accent);
   }
 
-  .dock {
-    pointer-events: auto;
-    gap: var(--azure-spacing-sm);
-  }
-
-  .reply-bar {
-    padding: 0 var(--azure-spacing-xs) 0 var(--azure-spacing-md);
-    min-height: 34px;
-    border-radius: var(--azure-radius-md);
-    border: 1px solid var(--colours-outline-hairline);
-    background-color: var(--colours-surface-raised);
-    color: var(--colours-text-faint);
-    animation: rise-in var(--azure-duration-md) var(--azure-ease-spring);
-  }
-
-  .reply-target {
-    color: var(--colours-text-strong);
-  }
-
-  .chip-close {
-    display: grid;
-    place-items: center;
-    width: 30px;
-    height: 30px;
-    border-radius: var(--azure-radius-sm);
-    color: var(--colours-text-faint);
-  }
-
-  .chip-close:hover {
-    color: var(--colours-accent);
-    background-color: var(--colours-surface-hover);
-  }
-
-  .tray {
-    list-style: none;
-    margin: 0;
-    padding: var(--azure-spacing-sm);
-    overflow-x: auto;
-    border-radius: var(--azure-radius-md);
-    border: 1px solid var(--colours-outline-hairline);
-    background-color: var(--colours-surface-raised);
-  }
-
-  .chip {
-    position: relative;
-    flex: none;
-    width: 112px;
-    padding: var(--azure-spacing-xs);
-    gap: 2px;
-    border-radius: var(--azure-radius-md);
-    background-color: var(--colours-surface);
-    border: 1px solid var(--colours-outline-hairline);
-    animation: rise-in var(--azure-duration-md) var(--azure-ease-spring);
-  }
-
-  .chip.error {
-    border-color: color-mix(in oklab, var(--colours-danger) 50%, transparent);
-  }
-
-  .chip.error .chip-name {
-    color: var(--colours-danger);
-    white-space: normal;
-  }
-
-  .chip-preview {
-    position: relative;
-    height: 72px;
-    overflow: hidden;
-    border-radius: var(--azure-radius-sm);
-    color: var(--colours-accent);
-    background-color: var(--colours-accent-faint);
-  }
-
-  .chip-preview img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-  }
-
-  .chip.busy .chip-preview img {
-    opacity: 0.5;
-  }
-
-  .progress {
-    position: absolute;
-    inset: auto 0 0;
-    height: 3px;
-    background: linear-gradient(to right, var(--colours-accent) calc(var(--progress) * 100%), transparent 0);
-    box-shadow: 0 0 10px var(--colours-accent-glow);
-    transition: background var(--azure-duration-fast) linear;
-  }
-
-  .chip-name {
-    padding: 0 2px;
-    color: var(--colours-text);
-  }
-
-  .chip-size {
-    padding: 0 2px;
-  }
-
-  .chip-remove {
-    position: absolute;
-    top: -6px;
-    right: -6px;
-    display: grid;
-    place-items: center;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    color: var(--colours-text-muted);
-    background-color: var(--colours-surface-raised);
-    border: 1px solid var(--colours-outline-light);
-  }
-
-  .chip-remove:hover {
-    color: var(--colours-danger);
-  }
-
-  .metadata {
-    padding: 0 var(--azure-spacing-sm);
-    cursor: pointer;
-  }
-
-  .metadata input {
-    accent-color: var(--colours-accent);
-  }
-
-
-
-
   .dropzone {
     position: absolute;
     inset: var(--azure-spacing-md);
@@ -2311,15 +2016,9 @@
       left: 28px;
     }
 
-    .chip-close,
     .dialog-button {
       min-height: var(--azure-touch);
       min-width: var(--azure-touch);
-    }
-
-    .chip-remove {
-      width: 28px;
-      height: 28px;
     }
 
     .confirm-layer {
