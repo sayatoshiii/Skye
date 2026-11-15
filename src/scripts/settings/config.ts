@@ -14,6 +14,7 @@ export const MEDIA = {
   thumbnail: { width: 800, height: 600, quality: 0.8 },
   jpegQuality: 0.92,
   display: { width: 400, height: 320 },
+  stickerSize: 160,
   lazyMargin: "600px 0px",
   probeTimeout: 8000,
   fallbackUploadLimit: 50 * 1024 * 1024,
