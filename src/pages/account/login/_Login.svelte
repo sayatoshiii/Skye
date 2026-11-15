@@ -56,6 +56,13 @@
   let error = $state("");
   let busy = $state(false);
   let usernameField: HTMLInputElement | undefined = $state();
+  let passwordField: HTMLInputElement | undefined = $state();
+
+  const focusNext = (event: KeyboardEvent, next?: HTMLInputElement) => {
+    if (event.key !== "Enter" || event.isComposing || !next) return;
+    event.preventDefault();
+    next.focus();
+  };
   let mode = $state<Mode>("signin");
   let confirmPassword = $state("");
   let token = $state("");
@@ -459,6 +466,7 @@
                   bind:this={usernameField}
                   bind:value={username}
                   oninput={onUsernameInput}
+                  onkeydown={(event) => focusNext(event, passwordField)}
                 />
               </label>
             </div>
@@ -469,6 +477,7 @@
                   class="input"
                   type="password"
                   autocomplete={mode === "register" ? "new-password" : "current-password"}
+                  bind:this={passwordField}
                   bind:value={password}
                 />
               </label>
