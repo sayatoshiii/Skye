@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tooltip } from "../../scripts/misc/tooltip";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { ROUTES } from "../../scripts/settings/config";
   import { signOut } from "../../scripts/stores/matrix";
@@ -16,7 +17,7 @@
 <button
   class="sign-out ghost press"
   aria-label={getLocalisedText(undefined, "profile", "sign_out")}
-  title={getLocalisedText(undefined, "profile", "sign_out")}
+  use:tooltip={getLocalisedText(undefined, "profile", "sign_out")}
   disabled={busy}
   onclick={leave}
 >

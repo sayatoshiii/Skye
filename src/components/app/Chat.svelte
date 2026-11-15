@@ -1,4 +1,6 @@
 <script lang="ts">
+  import { tooltip } from "../../scripts/misc/tooltip";
+  import { MENU_ICONS } from "../../scripts/misc/icons";
   import { canCopyMedia, copyMedia } from "../../scripts/misc/clipboard";
   import { portal } from "../../scripts/misc/portal";
   import EmojiText from "../ui/EmojiText.svelte";
@@ -48,12 +50,14 @@
   import MessageMedia from "./media/MessageMedia.svelte";
   import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
   import PinnedMessages from "./PinnedMessages.svelte";
+  import ConfirmDialog from "../ui/ConfirmDialog.svelte";
   import LocationCard from "./media/LocationCard.svelte";
   import Poll from "./media/Poll.svelte";
   import { BEACON, BEACON_INFO, LOCATION_KEYS, POLL_END, POLL_START, formatCoordinates, getLocation, getPoll, pollEndContent, relatedTo, type GeoLocation } from "../../scripts/matrix/utilities/content";
   import { SYSTEM_ICONS, SYSTEM_TYPES, describeSystem, type MemberVerb, type SystemLine } from "../../scripts/matrix/utilities/system";
-  import { navigation, openRoom } from "../../scripts/stores/navigation.svelte";
+  import { navigation, openRoom, openRoomMenu } from "../../scripts/stores/navigation.svelte";
   import { openFullProfile, openMiniProfile } from "../../scripts/stores/profile";
+  import { getScrollAnchor, persistScrollAnchors, setScrollAnchor, type ScrollAnchor } from "../../scripts/stores/scroll";
 
   let {
     onchannels,
@@ -97,6 +101,7 @@
   let loadingOlder = $state(false);
   let stuck = true;
   let renderedRoomId: string | undefined;
+  let pin: { eventId: string; offset: number } | null = null;
   let lockedOut = $state(false);
   let dismissedRoom: string | undefined = $state();
   let settings: MediaSettings | null = $state.raw(null);
@@ -106,9 +111,10 @@
   let dockHeight = $state(60);
   let replying: (ReplyTarget & { name: string }) | null = $state(null);
   let editing: { eventId: string; draft: string } | null = $state(null);
-  let menu: { message: Message; x: number; y: number } | null = $state(null);
+  let menu: { message: Message; x: number; y: number; link?: string } | null = $state(null);
   type ConfirmKind = "delete" | "pin" | "unpin" | "end_poll";
   let confirming: { kind: ConfirmKind; eventId: string } | null = $state(null);
+  let confirmDialog: ConfirmDialog | undefined = $state();
 
   const CONFIRM_ACTIONS: Record<ConfirmKind, (eventId: string) => Promise<unknown>> = {
     delete: (eventId) => redactMessage(eventId),
@@ -130,7 +136,7 @@
 
   const confirmAction = () => {
     if (confirming) CONFIRM_ACTIONS[confirming.kind](confirming.eventId).catch(() => undefined);
-    confirming = null;
+    confirmDialog?.dismiss();
   };
   let swipe: { id: string; dx: number } | null = $state(null);
   let pinsOpen = $state(false);
@@ -383,6 +389,7 @@
   const showPresent = $derived(isDetached || farFromBottom || newCount > 0);
 
   const jumpToPresent = async () => {
+    pin = null;
     if (isDetached) {
       travel = "out-up";
       await pause(quick() ? 120 : TRAVEL_MS);
@@ -404,6 +411,70 @@
     markRoomRead();
   };
 
+  const findEvent = (eventId: string) => timeline?.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(eventId)}"]`);
+
+  const captureAnchor = () => {
+    if (!timeline || !renderedRoomId) return;
+    if (stuck && !isDetached) return setScrollAnchor(renderedRoomId, { bottom: true });
+    const top = timeline.getBoundingClientRect().top;
+    for (const item of timeline.querySelectorAll<HTMLElement>(":scope > li[data-event-id]")) {
+      const offset = item.getBoundingClientRect().top - top;
+      if (offset >= 0) return setScrollAnchor(renderedRoomId, { bottom: false, eventId: item.dataset.eventId!, offset });
+    }
+  };
+
+  const applyPin = () => {
+    const target = pin && findEvent(pin.eventId);
+    if (!timeline || !pin || !target) return;
+    timeline.scrollTop += target.getBoundingClientRect().top - timeline.getBoundingClientRect().top - pin.offset;
+  };
+
+  const unpin = () => (pin = null);
+
+  const onresize = () => {
+    if (!timeline || loadingOlder) return;
+    if (stuck && !isDetached) timeline.scrollTop = timeline.scrollHeight;
+    else if (pin) applyPin();
+  };
+
+  const restore = async (roomId: string, saved: Extract<ScrollAnchor, { bottom: false }>) => {
+    await tick();
+    if (renderedRoomId !== roomId) return;
+    if (!findEvent(saved.eventId)) {
+      const ok = await jumpToEvent(saved.eventId);
+      await tick();
+      if (renderedRoomId !== roomId) return;
+      if (!ok || !findEvent(saved.eventId)) {
+        stuck = true;
+        return scrollToBottom().then(fillViewport);
+      }
+    }
+    pin = { eventId: saved.eventId, offset: saved.offset };
+    applyPin();
+  };
+
+  $effect(() => {
+    const element = timeline;
+    if (!element) return;
+    const resize = new ResizeObserver(onresize);
+    const watch = (nodes: Iterable<Node>) => {
+      for (const node of nodes) if (node instanceof Element) resize.observe(node);
+    };
+    resize.observe(element);
+    watch(element.children);
+    const mutation = new MutationObserver((records) => records.forEach((record) => watch(record.addedNodes)));
+    mutation.observe(element, { childList: true });
+    return () => {
+      resize.disconnect();
+      mutation.disconnect();
+    };
+  });
+
+  $effect(() => {
+    window.addEventListener("pagehide", persistScrollAnchors);
+    return () => window.removeEventListener("pagehide", persistScrollAnchors);
+  });
+
   const onscroll = () => {
     if (!timeline) return;
 
@@ -415,6 +486,7 @@
     if (timeline.scrollTop < LOAD_THRESHOLD) loadOlder();
     if (isDetached && distance < LOAD_THRESHOLD) loadNewer();
     if (stuck && document.visibilityState === "visible") markRoomRead();
+    captureAnchor();
   };
 
   $effect(() => {
@@ -423,8 +495,16 @@
     if (!roomId || !latest) return;
 
     if (renderedRoomId !== roomId) {
+      persistScrollAnchors();
       renderedRoomId = roomId;
       stuck = true;
+      pin = null;
+      const saved = getScrollAnchor(roomId);
+      if (saved && !saved.bottom) {
+        stuck = false;
+        restore(roomId, saved);
+        return;
+      }
     }
 
     if (loadingOlder || !stuck) return;
@@ -550,10 +630,15 @@
     file: isMxc(content.file?.url) ? content.file : undefined,
   });
 
-  const menuItems = (message: Message): MenuItem[] => {
+  const menuItems = (message: Message, link?: string): MenuItem[] => {
     const items: MenuItem[] = [];
     const add = (id: string, label: string, icon: string, run: MenuItem["run"], danger = false) => items.push({ id, label, icon, run, danger });
     const failed = message.status === "failed";
+
+    if (link) {
+      add("open-link", text("context_menu", "open_link"), MENU_ICONS.open, () => window.open(link, "_blank", "noopener,noreferrer"));
+      add("copy-link", text("context_menu", "copy_link"), MENU_ICONS.link, () => navigator.clipboard?.writeText(link).catch(() => undefined));
+    }
 
     if (failed) {
       add("retry", text("chat", "retry"), ICONS.retry, () => retry(message.txnId));
@@ -599,15 +684,17 @@
     return items;
   };
 
-  const openMenu = (message: Message, x: number, y: number) => {
+  const openMenu = (message: Message, x: number, y: number, link?: string) => {
     if (editing?.eventId === message.eventId) return;
-    menu = { message, x, y };
+    menu = { message, x, y, link };
   };
 
   const oncontextmenu = (event: MouseEvent, message: Message) => {
-    if ((event.target as HTMLElement).closest("a, video, audio, textarea")) return;
+    const target = event.target as HTMLElement;
+    if (target.closest("textarea")) return;
     event.preventDefault();
-    if (!menu) openMenu(message, event.clientX, event.clientY);
+    const link = target.closest<HTMLAnchorElement>("a[href]")?.href ?? target.closest<HTMLElement>("[data-link]")?.dataset.link;
+    if (!menu) openMenu(message, event.clientX, event.clientY, link);
   };
 
   let press: { id: string; x: number; y: number; timer: ReturnType<typeof setTimeout>; swiping: boolean } | null = null;
@@ -667,7 +754,7 @@
   };
 
   const jumpToMessage = async (eventId: string) => {
-    pinsOpen = false;
+    pin = null;
     const loaded = () => timeline?.querySelector(`[data-event-id="${CSS.escape(eventId)}"]`);
     stuck = false;
 
@@ -758,11 +845,24 @@
     {#if room}
       {#if room.isDirect && room.directUserId}
         <h2 class="name md bold truncate">
-          <button type="button" class="name-button ghost truncate" aria-label={text("user_profile", "open").replace("{name}", room.name)} onclick={() => room.directUserId && openFullProfile(room.directUserId, room.id)}><span class="faint">@</span><EmojiText text={room.name} /></button>
+          <button type="button" class="name-button ghost truncate" aria-label={text("user_profile", "open").replace("{name}", room.name)} onclick={() => room.directUserId && openFullProfile(room.directUserId, room.id)} oncontextmenu={(event) => { event.preventDefault(); openRoomMenu(room.id, event.clientX, event.clientY); }}><span class="faint">@</span><EmojiText text={room.name} /></button>
         </h2>
       {:else}
+        {@const roomId = room.id}
         <h2 class="name md bold truncate">
-          <span class="faint">{room.isDirect ? "@" : "#"}</span><EmojiText text={room.name} />
+          <button
+            type="button"
+            class="name-button ghost truncate"
+            aria-haspopup="menu"
+            onclick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect();
+              openRoomMenu(roomId, rect.left, rect.bottom + 4);
+            }}
+            oncontextmenu={(event) => {
+              event.preventDefault();
+              openRoomMenu(roomId, event.clientX, event.clientY);
+            }}
+          >{#if room.isDirect}<span class="faint">@</span>{:else}<svg class="room-hash" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16" /></svg>{/if}<EmojiText text={room.name} /></button>
         </h2>
       {/if}
       {#if room.topic}
@@ -777,7 +877,7 @@
         aria-label={pinnedIds.length ? text("chat", "pins_count").replace("{count}", String(pinnedIds.length)) : text("chat", "pins")}
         aria-haspopup="dialog"
         aria-expanded={pinsOpen}
-        title={text("chat", "pins")}
+        use:tooltip={text("chat", "pins")}
         bind:this={pinsButton}
         onclick={() => (pinsOpen = !pinsOpen)}
       >
@@ -785,7 +885,7 @@
         {#if pinnedIds.length}<span class="pin-count xs bold" aria-hidden="true">{pinnedIds.length > 99 ? "99+" : pinnedIds.length}</span>{/if}
       </button>
     {/if}
-    <button class="icon ghost press" aria-label={text("navigation", "open_members")} onclick={onmembers}>
+    <button class="icon ghost press" aria-label={text("navigation", "open_members")} use:tooltip={text("navigation", "open_members")} onclick={onmembers}>
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
         <path fill="currentColor" d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 19c0-3.3 3.1-6 7-6s7 2.7 7 6v1H2v-1Zm15.5 1H22v-1c0-2.6-2.2-4.6-5-5 1.2 1.3 1.9 3 2 4.9V20h-1.5Z" />
       </svg>
@@ -813,7 +913,7 @@
     {/if}
     {#key room.id}
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
-    <ol class="timeline col flex-max min-0 travel-{travel || 'idle'}" bind:this={timeline} onanimationend={(event) => event.target === timeline && travel.startsWith("in") && (travel = "")} {onscroll} onclick={onmentionclick}>
+    <ol class="timeline col flex-max min-0 travel-{travel || 'idle'}" bind:this={timeline} onanimationend={(event) => event.target === timeline && travel.startsWith("in") && (travel = "")} {onscroll} onclick={onmentionclick} onwheel={unpin} ontouchstart={unpin} onkeydown={unpin} onpointerdown={unpin}>
       {#if $canLoadOlder}
         <li class="history row centre" aria-busy="true">
           <span class="dots row-nw gap-sm" aria-label={text("chat", "loading_history")}><span></span><span></span><span></span></span>
@@ -935,7 +1035,7 @@
               {#if message.content.msgtype !== "m.file" && message.content.body && message.content.filename && message.content.filename !== message.content.body}
                 <p class="body selectable"><MessageBody content={message.content} {ownUserId} {resolveName} /></p>
               {/if}
-              <MessageMedia content={message.content} />
+              <MessageMedia content={message.content} sender={resolveName(message.sender)} ts={message.ts} />
             {:else if message.kind === "sticker"}
               <MessageMedia content={message.content} sticker />
             {:else if message.kind === "location"}
@@ -943,7 +1043,7 @@
             {:else if message.kind === "poll"}
               <Poll event={message.event} related={relations.get(message.eventId) ?? []} {ownUserId} mayEnd={mayModerate} />
             {:else if message.plain}
-              <p class="body selectable {message.kind}">{#if message.kind === "emote"}<span class="emote-sender">* <EmojiText text={sender.name} /></span> {/if}<MessageBody content={message.content} {ownUserId} {resolveName} />{#if message.edited}<span class="edited xs faint"> {text("chat", "edited")}</span>{/if}</p>
+              <p class="body selectable {message.kind}">{#if message.kind === "emote"}<span class="emote-sender">* <EmojiText text={sender.name} /></span> {/if}<MessageBody content={message.content} {ownUserId} {resolveName} jumbo={message.kind !== "emote"} />{#if message.edited}<span class="edited xs faint"> {text("chat", "edited")}</span>{/if}</p>
             {:else}
               <p class="body selectable {message.kind}"><EmojiText text={message.body} /></p>
             {/if}
@@ -960,12 +1060,12 @@
           {#if editing?.eventId !== message.eventId && !message.local}
             <div class="toolbar row-nw" role="toolbar" aria-label={text("chat", "actions")}>
               {#if message.kind !== "redacted"}
-                <button type="button" class="tool ghost press" aria-label={text("chat", "reply")} title={text("chat", "reply")} onclick={() => startReply(message)}>
+                <button type="button" class="tool ghost press" aria-label={text("chat", "reply")} use:tooltip={text("chat", "reply")} onclick={() => startReply(message)}>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.reply} /></svg>
                 </button>
               {/if}
               {#if canEdit(message)}
-                <button type="button" class="tool ghost press" aria-label={text("chat", "edit")} title={text("chat", "edit")} onclick={() => startEdit(message)}>
+                <button type="button" class="tool ghost press" aria-label={text("chat", "edit")} use:tooltip={text("chat", "edit")} onclick={() => startEdit(message)}>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.edit} /></svg>
                 </button>
               {/if}
@@ -973,7 +1073,7 @@
                 type="button"
                 class="tool ghost press"
                 aria-label={text("chat", "more")}
-                title={text("chat", "more")}
+                use:tooltip={text("chat", "more")}
                 aria-haspopup="menu"
                 onclick={(event) => {
                   const rect = event.currentTarget.getBoundingClientRect();
@@ -1055,22 +1155,20 @@
   {/if}
 
   {#if menu}
-    <MessageMenu items={menuItems(menu.message)} x={menu.x} y={menu.y} label={text("chat", "actions")} onclose={() => (menu = null)} />
+    <MessageMenu items={menuItems(menu.message, menu.link)} x={menu.x} y={menu.y} label={text("chat", "actions")} onclose={() => (menu = null)} />
   {/if}
 
   {#if confirming}
-    <div class="confirm-layer col centre" role="presentation" use:portal>
-      <button type="button" class="confirm-scrim ghost" tabindex="-1" aria-hidden="true" onclick={() => (confirming = null)}></button>
-      <div class="confirm col gap-md" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" tabindex="-1" onkeydown={(event) => event.key === "Escape" && (confirming = null)}>
-        <h3 id="confirm-title" class="md bold">{text("chat", `${confirming.kind}_title`)}</h3>
-        <p class="sm muted">{text("chat", `${confirming.kind}_body`)}</p>
-        <div class="row-nw gap-sm justify-end">
-          <button type="button" class="dialog-button ghost press sm bold" onclick={() => (confirming = null)}>{text("chat", "cancel")}</button>
-          <!-- svelte-ignore a11y_autofocus -->
-          <button type="button" class="dialog-button ghost press sm bold" class:danger={confirming.kind !== "pin"} class:primary={confirming.kind === "pin"} autofocus onclick={confirmAction}>{text("chat", confirming.kind)}</button>
-        </div>
-      </div>
-    </div>
+    <ConfirmDialog
+      bind:this={confirmDialog}
+      title={text("chat", `${confirming.kind}_title`)}
+      body={text("chat", `${confirming.kind}_body`)}
+      cancelLabel={text("chat", "cancel")}
+      confirmLabel={text("chat", confirming.kind)}
+      tone={confirming.kind === "pin" ? "primary" : "danger"}
+      onconfirm={confirmAction}
+      onclose={() => (confirming = null)}
+    />
   {/if}
 
 </section>
@@ -1084,7 +1182,7 @@
 {/snippet}
 
 {#snippet pinMark()}
-  <span class="pin-mark" title={text("chat", "pinned")} aria-label={text("chat", "pinned")} role="img">
+  <span class="pin-mark" use:tooltip={text("chat", "pinned")} aria-label={text("chat", "pinned")} role="img">
     <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.pin} /></svg>
   </span>
 {/snippet}
@@ -1235,6 +1333,13 @@
     max-width: 100%;
     font: inherit;
     color: inherit;
+  }
+
+  .room-hash {
+    flex: none;
+    margin-right: var(--azure-spacing-sm);
+    vertical-align: -5px;
+    color: var(--colours-text-faint);
   }
 
   .name-button:hover,
@@ -1415,6 +1520,7 @@
   }
 
   .topic {
+    margin-left: calc(var(--azure-spacing-md) - var(--azure-spacing-sm));
     padding-left: var(--azure-spacing-md);
     border-left: 1px solid var(--colours-outline-hairline);
   }
@@ -1912,84 +2018,6 @@
     animation: fade-in var(--azure-duration-md) var(--azure-ease-out);
   }
 
-  .confirm-layer {
-    position: fixed;
-    inset: 0;
-    z-index: var(--azure-z-popover);
-    padding: var(--azure-spacing-lg);
-  }
-
-  .confirm-scrim {
-    position: absolute;
-    inset: 0;
-    background-color: var(--colours-scrim);
-    backdrop-filter: blur(4px);
-    animation: fade-in var(--azure-duration-md) var(--azure-ease-out);
-  }
-
-  .confirm {
-    position: relative;
-    width: min(100%, 380px);
-    padding: var(--azure-spacing-xl);
-    border-radius: var(--azure-radius-lg);
-    border: 1px solid var(--colours-outline-hairline);
-    background-color: var(--colours-surface-raised);
-    box-shadow: 0 24px 64px -16px black;
-    outline: none;
-    animation: rise-in var(--azure-duration-md) var(--azure-ease-spring);
-  }
-
-  .confirm h3,
-  .confirm p {
-    margin: 0;
-  }
-
-  .confirm h3 {
-    color: var(--colours-text-strong);
-  }
-
-  .justify-end {
-    justify-content: flex-end;
-  }
-
-  .dialog-button {
-    min-height: 36px;
-    padding: 0 var(--azure-spacing-lg);
-    border-radius: var(--azure-radius-sm);
-    color: var(--colours-text);
-  }
-
-  .dialog-button:hover {
-    background-color: var(--colours-surface-hover);
-  }
-
-  .dialog-button.danger {
-    color: white;
-    background-color: var(--colours-danger);
-  }
-
-  .dialog-button.primary {
-    color: var(--colours-on-accent);
-    background-color: var(--colours-accent);
-  }
-
-  .dialog-button.primary:hover {
-    background-color: color-mix(in oklab, var(--colours-accent) 85%, white);
-    box-shadow: 0 0 20px -6px var(--colours-accent-glow);
-  }
-
-  .dialog-button.danger:hover {
-    background-color: color-mix(in oklab, var(--colours-danger) 85%, white);
-    box-shadow: 0 0 20px -6px var(--colours-danger);
-  }
-
-  @keyframes rise-in {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
-  }
-
   @keyframes fade-in {
     from {
       opacity: 0;
@@ -1999,6 +2027,11 @@
   @media (pointer: coarse) {
     .message {
       -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    .message :global(:is(.selectable, img.emoji)) {
       -webkit-user-select: none;
       user-select: none;
     }
@@ -2015,22 +2048,6 @@
 
     .connector {
       left: 28px;
-    }
-
-    .dialog-button {
-      min-height: var(--azure-touch);
-      min-width: var(--azure-touch);
-    }
-
-    .confirm-layer {
-      justify-content: flex-end;
-      padding: 0;
-    }
-
-    .confirm {
-      width: 100%;
-      padding-bottom: calc(var(--azure-spacing-xl) + env(safe-area-inset-bottom));
-      border-radius: var(--azure-radius-lg) var(--azure-radius-lg) 0 0;
     }
   }
 </style>

@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { tooltip } from "../../scripts/misc/tooltip";
   import { onMount } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
+  import { dismissible } from "../../scripts/misc/dismiss.svelte";
   import { restoreOpen } from "../../scripts/stores/matrix";
   import {
     accentPresets,
@@ -18,6 +20,9 @@
   let accent = $state<string>(accentPresets.sky);
   let root: HTMLElement | undefined = $state();
 
+  const exit = dismissible(() => (open = false));
+  const dismiss = () => open && exit.close();
+
   const active = $derived(getAccentPreset(accent));
   const expanded = (colour: string) =>
     colour.length === 4
@@ -32,10 +37,10 @@
     accent = getAccent();
 
     const close = (event: PointerEvent) => {
-      if (open && root && !root.contains(event.target as Node)) open = false;
+      if (open && root && !root.contains(event.target as Node)) dismiss();
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") open = false;
+      if (event.key === "Escape") dismiss();
     };
 
     document.addEventListener("pointerdown", close);
@@ -54,7 +59,7 @@
     aria-label={text("settings", "open")}
     aria-expanded={open}
     aria-haspopup="dialog"
-    onclick={() => (open = !open)}
+    onclick={() => (open ? dismiss() : (open = true))}
   >
     <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
       <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
@@ -62,20 +67,20 @@
   </button>
 
   {#if open}
-    <div class="popover surface col gap-md" role="dialog" aria-label={text("settings", "accent")}>
+    <div class="popover surface col gap-md" class:closing={exit.closing} inert={exit.closing} onanimationend={exit.onanimationend} role="dialog" aria-label={text("settings", "accent")}>
       <span class="xs bold label">{text("settings", "accent")}</span>
       <div class="row-nw gap-sm">
         {#each Object.entries(accentPresets) as [name, colour] (name)}
           <button
             class="swatch ghost press"
             style:--swatch={colour}
-            title={text("settings", "presets", name as AccentPreset)}
+            use:tooltip={text("settings", "presets", name as AccentPreset)}
             aria-label={text("settings", "presets", name as AccentPreset)}
             aria-pressed={active === name}
             onclick={() => choose(colour)}
           ></button>
         {/each}
-        <label class="swatch custom press" style:--swatch={accent} aria-pressed={active === "custom"} title={text("settings", "custom")}>
+        <label class="swatch custom press" style:--swatch={accent} aria-pressed={active === "custom"} use:tooltip={text("settings", "custom")}>
           <input
             type="color"
             value={expanded(accent)}
@@ -99,7 +104,7 @@
       <button
         class="restore item press row-nw align-centre gap-sm sm"
         onclick={() => {
-          open = false;
+          dismiss();
           restoreOpen.set(true);
         }}
       >
@@ -154,6 +159,17 @@
       inset 0 1px 0 hsla(0, 0%, 100%, 0.06);
     transform-origin: bottom right;
     animation: pop var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .popover.closing {
+    animation: accent-out var(--azure-duration-fast) var(--azure-ease-out) forwards;
+  }
+
+  @keyframes accent-out {
+    to {
+      opacity: 0;
+      transform: translateY(6px) scale(0.96);
+    }
   }
 
   .label {

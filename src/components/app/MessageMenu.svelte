@@ -4,11 +4,15 @@
     label: string;
     icon: string;
     danger?: boolean;
+    disabled?: boolean;
+    filled?: boolean;
+    colour?: string;
     run: (event: MouseEvent | KeyboardEvent) => void;
   };
 </script>
 
 <script lang="ts">
+  import { dismissible } from "../../scripts/misc/dismiss.svelte";
   import { portal } from "../../scripts/misc/portal";
   import { tick } from "svelte";
 
@@ -17,8 +21,11 @@
     x,
     y,
     label,
+    minWidth,
     onclose,
-  }: { items: MenuItem[]; x: number; y: number; label: string; onclose: () => void } = $props();
+  }: { items: MenuItem[]; x: number; y: number; label: string; minWidth?: number; onclose: () => void } = $props();
+
+  const exit = dismissible(() => onclose());
 
   let menu: HTMLElement | undefined = $state();
   let left = $state(0);
@@ -39,16 +46,16 @@
 
       left = Math.max(gap, Math.min(at.x, innerWidth - rect.width - gap));
       top = Math.max(gap, Math.min(flip ? at.y - rect.height : at.y, innerHeight - rect.height - gap));
-      menu.querySelector<HTMLButtonElement>("[role=menuitem]")?.focus();
+      menu.querySelector<HTMLButtonElement>("[role=menuitem]:not(:disabled)")?.focus();
     });
   });
 
-  const buttons = () => [...(menu?.querySelectorAll<HTMLButtonElement>("[role=menuitem]") ?? [])];
+  const buttons = () => [...(menu?.querySelectorAll<HTMLButtonElement>("[role=menuitem]:not(:disabled)") ?? [])];
 
   const onkeydown = (event: KeyboardEvent) => {
     if (event.key === "Escape" || event.key === "Tab") {
       event.preventDefault();
-      return onclose();
+      return exit.close();
     }
 
     const list = buttons();
@@ -61,19 +68,23 @@
   };
 
   const choose = (item: MenuItem, event: MouseEvent | KeyboardEvent) => {
-    onclose();
+    exit.close();
     item.run(event);
   };
 </script>
 
-<div class="layer" role="presentation" use:portal>
-  <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={onclose} oncontextmenu={(event) => { event.preventDefault(); onclose(); }}></button>
-  <div class="menu col" role="menu" aria-label={label} tabindex="-1" bind:this={menu} style:left="{left}px" style:top="{top}px" {onkeydown}>
+<div class="layer" class:closing={exit.closing} role="presentation" use:portal>
+  <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={exit.close} oncontextmenu={(event) => { event.preventDefault(); exit.close(); }}></button>
+  <div class="menu col" role="menu" onanimationend={exit.onanimationend} inert={exit.closing} aria-label={label} tabindex="-1" bind:this={menu} style:left="{left}px" style:top="{top}px" style:min-width={minWidth ? `${minWidth}px` : undefined} {onkeydown}>
     <span class="handle" aria-hidden="true"></span>
     {#each items as item (item.id)}
-      <button type="button" role="menuitem" class="entry row-nw align-centre gap-md ghost press sm" class:danger={item.danger} onclick={(event) => choose(item, event)}>
+      <button type="button" role="menuitem" class="entry row-nw align-centre gap-md ghost press sm" class:danger={item.danger} disabled={item.disabled} onclick={(event) => choose(item, event)}>
         <span class="flex-max truncate">{item.label}</span>
-        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={item.icon} /></svg>
+        {#if item.filled}
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill={item.colour ?? "currentColor"} fill-rule="evenodd" d={item.icon} /></svg>
+        {:else}
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" style:color={item.colour}><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={item.icon} /></svg>
+        {/if}
       </button>
     {/each}
   </div>
@@ -113,6 +124,14 @@
     display: none;
   }
 
+  .layer.closing {
+    pointer-events: none;
+  }
+
+  .closing .menu {
+    animation: exit-pop var(--azure-duration-fast) var(--azure-ease-out) forwards;
+  }
+
   .entry {
     min-height: 34px;
     padding: 0 var(--azure-spacing-md);
@@ -136,6 +155,12 @@
   .entry:hover svg,
   .entry:focus-visible svg {
     color: var(--colours-accent);
+  }
+
+  .entry:disabled {
+    opacity: 0.45;
+    cursor: default;
+    background: none;
   }
 
   .entry.danger,
@@ -182,6 +207,14 @@
       margin: 0 auto var(--azure-spacing-sm);
       border-radius: var(--azure-radius-pill);
       background-color: var(--colours-outline-strong);
+    }
+
+    .closing .scrim {
+      animation: exit-fade var(--azure-duration-md) var(--azure-ease-out) forwards;
+    }
+
+    .closing .menu {
+      animation: exit-sink var(--azure-duration-md) var(--azure-ease-out) forwards;
     }
 
     .entry {

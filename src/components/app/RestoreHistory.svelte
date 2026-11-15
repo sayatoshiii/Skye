@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
+  import { dismissible } from "../../scripts/misc/dismiss.svelte";
   import { isBackupError } from "../../scripts/matrix/utilities/backup";
   import type { VerificationPhase, VerificationState } from "../../scripts/matrix/verification";
   import {
@@ -44,8 +45,10 @@
   const close = () => {
     if (phase === "restoring") return;
     if (flow && CANCELLABLE.includes(flow.phase)) cancelVerification();
-    queueMicrotask(() => restoreOpen.set(false));
+    exit.close();
   };
+
+  const exit = dismissible(() => restoreOpen.set(false));
 
   const reset = async () => {
     if (flow && SETTLED.includes(flow.phase)) clearVerification();
@@ -99,8 +102,8 @@
 <svelte:window {onkeydown} />
 
 {#if open}
-  <div class="backdrop" role="presentation" onclick={close}></div>
-  <div class="dialog surface col gap-lg" role="dialog" aria-modal="true" aria-labelledby="restore-title">
+  <div class="backdrop" class:closing={exit.closing} role="presentation" onclick={close}></div>
+  <div class="dialog surface col gap-lg" class:closing={exit.closing} inert={exit.closing} onanimationend={exit.onanimationend} role="dialog" aria-modal="true" aria-labelledby="restore-title">
     {#if verifying && flow}
       <header class="col gap-sm">
         <h2 id="restore-title" class="lg bold">
@@ -450,6 +453,21 @@
     background-color: var(--colours-surface-hover);
   }
 
+  .backdrop.closing {
+    animation: exit-fade var(--azure-duration-md) var(--azure-ease-out) forwards;
+  }
+
+  .dialog.closing {
+    animation: restore-out var(--azure-duration-md) var(--azure-ease-out) forwards;
+  }
+
+  @keyframes restore-out {
+    to {
+      opacity: 0;
+      transform: translate(-50%, calc(-50% + 12px)) scale(0.97);
+    }
+  }
+
   @keyframes fade {
     from {
       opacity: 0;
@@ -474,6 +492,16 @@
       border-bottom: 0;
       transform: translateX(-50%);
       animation-name: sheet;
+    }
+
+    .dialog.closing {
+      animation-name: sheet-out;
+    }
+  }
+
+  @keyframes sheet-out {
+    to {
+      transform: translate(-50%, 100%);
     }
   }
 
