@@ -5,7 +5,8 @@
   import type { RoomSummary } from "../../scripts/matrix/types";
   import { toEntity } from "../../scripts/stores/entities";
   import { directMessages, rooms, session, spaces } from "../../scripts/stores/matrix";
-  import { HOME, navigation, openRoom } from "../../scripts/stores/navigation.svelte";
+  import { HOME, navigation, openBrowse, openRoom } from "../../scripts/stores/navigation.svelte";
+  import { hiddenRooms } from "../../scripts/stores/hidden";
   import Avatar from "../ui/Avatar.svelte";
 
   let { onpick }: { onpick?: () => void } = $props();
@@ -32,9 +33,21 @@
   const text = (...path: string[]) =>
     getLocalisedText(undefined, ...path) as string;
 
+  let hidden: Record<string, string[]> = $state.raw({});
+
+  $effect(() => hiddenRooms.subscribe((value) => (hidden = value)));
+
+  const hiddenSet = $derived(new Set(hidden[navigation.spaceId] ?? []));
+
   const resolveRooms = (list: RoomSummary[]) =>
     list
       .filter((room) => room.membership === "join")
+      .filter(
+        (room) =>
+          !hiddenSet.has(room.roomId) ||
+          room.highlightCount > 0 ||
+          room.roomId === navigation.roomId,
+      )
       .map((room) => toEntity(room, $session?.userId));
 
   const tree = $derived($spaces.find(({ space }) => space.roomId === navigation.spaceId));
@@ -86,6 +99,11 @@
 
   const empty = $derived(categories.every((category) => category.rooms.length === 0));
 
+  const browse = () => {
+    openBrowse(navigation.spaceId);
+    onpick?.();
+  };
+
   const pick = (roomId: string) => {
     openRoom(navigation.spaceId, roomId);
     onpick?.();
@@ -100,11 +118,25 @@
   </header>
 
   <div class="list col flex-max min-0">
+    {#if tree}
+      <button
+        class="room browse item ghost press row-nw align-centre gap-sm md"
+        aria-current={navigation.browsing ? "page" : undefined}
+        onclick={browse}
+      >
+        <svg class="browse-icon faint" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 6h10M4 12h7M4 18h10" />
+          <circle cx="17" cy="13" r="3.2" fill="none" stroke="currentColor" stroke-width="2" />
+          <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="m19.4 15.4 2 2" />
+        </svg>
+        <span class="truncate flex-max">{text("navigation", "browse")}</span>
+      </button>
+    {/if}
     {#if empty}
       <p class="empty sm faint">{text("navigation", tree ? "empty_space" : "empty_home")}</p>
     {/if}
     {#each categories as category (category.id)}
-      {#if category.rooms.length || category.collapsible}
+      {#if category.rooms.length}
       {@const collapsible = category.collapsible}
       {@const isCollapsed = collapsible && collapsed[category.id]}
       <div class="category col">
@@ -239,6 +271,10 @@
       opacity var(--azure-duration-fast) var(--azure-ease-out);
   }
 
+  .room-slot.hidden .room-inner {
+    padding-block: 0;
+  }
+
   .room-slot.hidden {
     grid-template-rows: 0fr;
     opacity: 0;
@@ -248,11 +284,21 @@
     min-height: 0;
     overflow: hidden;
     padding-block: 3px;
+    transition: padding-block var(--azure-duration-md) var(--azure-ease-out);
   }
 
   .empty {
     margin: 0;
     padding: var(--azure-spacing-sm) var(--azure-spacing-md);
+  }
+
+  .browse {
+    margin-bottom: var(--azure-spacing-xs);
+  }
+
+  .browse-icon {
+    width: 16px;
+    flex: none;
   }
 
   .hash {

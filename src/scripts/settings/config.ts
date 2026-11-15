@@ -24,3 +24,6 @@ export const MEDIA = {
 } as const;
 
 export const SETTINGS_STORAGE_KEY = "skye:media-settings";
+export const BROWSE_STORAGE_KEY = "skye:browse-settings";
+
+export const BROWSE_SEGMENT = "browse";
