@@ -1439,6 +1439,7 @@
     margin: 0;
     padding: var(--azure-spacing-lg) 0 calc(var(--composer-space) + env(safe-area-inset-bottom));
     overflow-y: auto;
+    overflow-x: hidden;
     overscroll-behavior: contain;
     touch-action: pan-y;
     --fade-end: calc(var(--composer-space) * 0.55 + env(safe-area-inset-bottom));

@@ -54,6 +54,7 @@
     padding-top: max(var(--azure-spacing-md), env(safe-area-inset-top));
     padding-left: env(safe-area-inset-left);
     overflow-y: auto;
+    overflow-x: hidden;
     scrollbar-width: none;
     overscroll-behavior: contain;
     background-color: var(--colours-foreground);
