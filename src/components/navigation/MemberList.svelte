@@ -1,8 +1,10 @@
 <script lang="ts">
+  import { tooltip } from "../../scripts/misc/tooltip";
   import EmojiText from "../ui/EmojiText.svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { getPowerLevel } from "../../scripts/matrix/rooms";
   import { currentRoom, joinedMembers, presence } from "../../scripts/stores/matrix";
+  import PresenceDot from "../ui/PresenceDot.svelte";
   import Avatar from "../ui/Avatar.svelte";
   import { openMiniProfile } from "../../scripts/stores/profile";
 
@@ -100,10 +102,10 @@
     <ul class="col gap-xs">
       {#each group.visible as member (member.userId)}
         <li class="member-row">
-        <button type="button" class="member item press ghost row-nw align-centre gap-md" class:offline={hasPresence && (!member.presence || member.presence === "offline")} title={member.userId} data-profile-trigger aria-label={text("user_profile", "open").replace("{name}", member.displayName)} onclick={(event) => room && openMiniProfile(member.userId, event.currentTarget, "left", room.roomId)}>
-          <span class="presence-wrap" data-presence={hasPresence ? (member.presence ?? "offline") : undefined}>
+        <button type="button" class="member item press ghost row-nw align-centre gap-md" class:offline={hasPresence && (!member.presence || member.presence === "offline")} use:tooltip={member.userId} data-profile-trigger aria-label={text("user_profile", "open").replace("{name}", member.displayName)} onclick={(event) => room && openMiniProfile(member.userId, event.currentTarget, "left", room.roomId)}>
+          <PresenceDot userId={member.userId} size={32}>
             <Avatar name={member.displayName} url={member.avatar} size="32px" radius="50%" />
-          </span>
+          </PresenceDot>
           <span class="md truncate" class:admin={member.powerLevel >= 100}
             class:moderator={member.powerLevel >= 50 && member.powerLevel < 100}><EmojiText text={member.displayName} /></span>
         </button>
@@ -193,28 +195,4 @@
     color: var(--colours-text-strong);
   }
 
-  .presence-wrap {
-    position: relative;
-    display: flex;
-  }
-
-  [data-presence]::after {
-    content: "";
-    position: absolute;
-    right: -2px;
-    bottom: -2px;
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    border: 3px solid var(--colours-foreground);
-    background-color: var(--colours-text-faint);
-  }
-
-  [data-presence="online"]::after {
-    background-color: var(--colours-success);
-  }
-
-  [data-presence="unavailable"]::after {
-    background-color: var(--colours-warning);
-  }
 </style>

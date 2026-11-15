@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { dismissible } from "../../scripts/misc/dismiss.svelte";
   import { portal } from "../../scripts/misc/portal";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { getRoomDisplayName } from "../../scripts/matrix/rooms";
@@ -37,11 +38,13 @@
     tick().then(() => dialog?.querySelector<HTMLElement>(".close")?.focus());
   });
 
-  const close = () => {
+  const exit = dismissible(() => {
     fullProfile.set(null);
     returnFocus?.focus?.();
     returnFocus = null;
-  };
+  });
+
+  const close = exit.close;
 
   const focusables = () =>
     [...(dialog?.querySelectorAll<HTMLElement>("button:not([disabled]), [href], [tabindex]:not([tabindex='-1'])") ?? [])].filter((element) => element.offsetParent !== null);
@@ -94,9 +97,9 @@
 </script>
 
 {#if target}
-  <div class="layer col centre" role="presentation" use:portal>
+  <div class="layer col centre" class:closing={exit.closing} role="presentation" use:portal>
     <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
-    <div class="modal col" role="dialog" aria-modal="true" aria-label={text("user_profile", "card").replace("{name}", data.displayName)} tabindex="-1" bind:this={dialog} {onkeydown}>
+    <div class="modal col" role="dialog" aria-modal="true" aria-label={text("user_profile", "card").replace("{name}", data.displayName)} tabindex="-1" bind:this={dialog} inert={exit.closing} onanimationend={exit.onanimationend} {onkeydown}>
       <button type="button" class="close ghost press" aria-label={text("user_profile", "close")} onclick={close}>
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
       </button>
@@ -107,6 +110,7 @@
           avatar={data.avatar}
           banner={data.banner}
           presence={data.status?.presence}
+          status={data.status?.statusMessage}
           role={data.role}
           size="lg"
           surface="var(--colours-surface-raised)"
@@ -429,6 +433,21 @@
     color: var(--colours-accent);
   }
 
+  .closing .scrim {
+    animation: exit-fade var(--azure-duration-md) var(--azure-ease-out) forwards;
+  }
+
+  .closing .modal {
+    animation: profile-out var(--azure-duration-md) var(--azure-ease-out) forwards;
+  }
+
+  @keyframes profile-out {
+    to {
+      opacity: 0;
+      transform: translateY(8px) scale(0.98);
+    }
+  }
+
   @keyframes scrim {
     from {
       background-color: transparent;
@@ -480,6 +499,10 @@
 
     .close {
       top: calc(var(--azure-spacing-md) + env(safe-area-inset-top));
+    }
+
+    .closing .modal {
+      animation: exit-sink var(--azure-duration-md) var(--azure-ease-out) forwards;
     }
   }
 </style>

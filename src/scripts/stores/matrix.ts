@@ -9,7 +9,8 @@ import {
   getUnreadTotals,
   type RoomStore,
 } from "../matrix/rooms";
-import { clearSession, loadSession, logout, sessionRequest } from "../matrix/session";
+import { DeviceId as WasmDeviceId, UserId as WasmUserId } from "@matrix-org/matrix-sdk-crypto-wasm";
+import { clearSession, loadSession, SIGNOUT_REASON_KEY, logout, sessionRequest } from "../matrix/session";
 import {
   clearSyncToken,
   createSync,
@@ -47,6 +48,7 @@ export type PresenceDetails = {
   lastActiveAgo?: number;
   receivedAt: number;
   currentlyActive?: boolean;
+  fetched?: boolean;
 };
 
 export type Profile = {
@@ -174,7 +176,13 @@ const leaveContext = () => {
 };
 const receipts: Record<RoomId, EventId> = {};
 
-const applyPresence = (events: { sender?: UserId; content: any }[]) => {
+let syncPresence: Presence = "online";
+
+export const setSyncPresence = (value: Presence) => {
+  syncPresence = value;
+};
+
+export const applyPresence = (events: { sender?: UserId; content: any }[], fetched = false) => {
   if (!events.length) return;
 
   presence.update((current) => ({
@@ -201,6 +209,7 @@ const applyPresence = (events: { sender?: UserId; content: any }[]) => {
             lastActiveAgo: typeof event.content.last_active_ago === "number" ? event.content.last_active_ago : undefined,
             currentlyActive: event.content.currently_active,
             receivedAt,
+            fetched,
           } satisfies PresenceDetails,
         ]),
     ),
@@ -276,7 +285,8 @@ const startCrypto = (activeSession: Session) => {
     getRoom: (roomId) => get(rooms)[roomId],
     getMembers: getEncryptionMembers,
     onKeysReceived: retryDecryption,
-    onStoreLocked: () => queueMicrotask(resetLockedStore),
+    onStoreLocked: () => queueMicrotask(() => resetLockedStore()),
+    onStoreLost: () => queueMicrotask(() => resetLockedStore(STORE_LOST_REASON)),
     onVerification: (state) => {
       verification.set(state);
       if (state.phase === "incoming") restoreOpen.set(true);
@@ -296,10 +306,19 @@ let cryptoClosing: Promise<void> = Promise.resolve();
 
 let resettingStore = false;
 
-const resetLockedStore = async () => {
+const STORE_LOST_REASON = "store_lost";
+const PROMPTED_PREFIX = "verify_prompted";
+
+const resetLockedStore = async (reason?: string) => {
   const active = get(session);
   if (!active || resettingStore) return;
   resettingStore = true;
+
+  if (reason) {
+    try {
+      sessionStorage.setItem(SIGNOUT_REASON_KEY, reason);
+    } catch {}
+  }
 
   await stopCrypto();
   stopMatrix();
@@ -316,6 +335,36 @@ const stopCrypto = () => {
   verification.set(initialVerification);
   if (handle) cryptoClosing = handle.close().catch(() => undefined);
   return cryptoClosing;
+};
+
+const promptVerification = async (activeSession: Session) => {
+  const key = `${PROMPTED_PREFIX}:${activeSession.userId}:${activeSession.deviceId}`;
+  try {
+    if (localStorage.getItem(key)) return;
+  } catch {
+    return;
+  }
+
+  const handle = cryptoHandle;
+  const machine = await handle?.getMachine();
+  if (!handle || !machine) return;
+  await handle.processOutgoing().catch(() => undefined);
+  if (cryptoHandle !== handle) return;
+
+  const userId = new WasmUserId(activeSession.userId);
+  const identity = await machine.getIdentity(userId).catch(() => undefined);
+  if (!identity) return;
+
+  const device = await machine
+    .getDevice(userId, new WasmDeviceId(activeSession.deviceId))
+    .catch(() => undefined);
+  const trusted = !!device && (device.isCrossSigningTrusted() || device.isLocallyTrusted());
+  if (trusted || cryptoHandle !== handle || get(historyRestored)) return;
+
+  try {
+    localStorage.setItem(key, "1");
+  } catch {}
+  restoreOpen.set(true);
 };
 
 export const hasKeyBackup = async () =>
@@ -341,6 +390,29 @@ export const confirmVerification = () => cryptoHandle?.verification.confirm();
 export const cancelVerification = () => cryptoHandle?.verification.cancel();
 export const clearVerification = () => cryptoHandle?.verification.clear();
 
+const dropRoomCache = (roomId: RoomId) => {
+  delete timelines[roomId];
+  delete receipts[roomId];
+  delete pinnedCache[roomId];
+  if (context?.roomId === roomId) context = null;
+};
+
+export const waitForRoom = (roomId: RoomId, signal?: AbortSignal) =>
+  new Promise<RoomSummary>((resolve, reject) => {
+    let stop: (() => void) | undefined;
+    const finish = () => queueMicrotask(() => stop?.());
+    stop = rooms.subscribe((current) => {
+      const room = current[roomId];
+      if (room?.membership !== "join") return;
+      finish();
+      resolve(room);
+    });
+    signal?.addEventListener("abort", () => {
+      finish();
+      reject(signal.reason);
+    }, { once: true });
+  });
+
 export const getDirectRoomMap = () => roomStore?.getDirectRooms() ?? {};
 
 export const getTimeline = (roomId: RoomId) => {
@@ -365,7 +437,7 @@ export const startMatrix = (
   roomStore = createRoomStore(activeSession.userId);
   roomStore.on("change", (next) => rooms.set(next));
 
-  sync = createSync({ ...options, crypto, session: activeSession });
+  sync = createSync({ ...options, crypto, session: activeSession, presence: () => syncPresence });
   sync.on("state", (state) => syncState.set(state));
   sync.on("error", (error) => {
     if (!isMatrixError(error, "M_UNKNOWN_TOKEN")) return;
@@ -379,9 +451,11 @@ export const startMatrix = (
   });
   sync.on("sync", (response) => {
     roomStore?.applySync(response);
+    Object.keys(response.rooms?.leave ?? {}).forEach(dropRoomCache);
     applyPresence(response.presence?.events ?? []);
     const accountData = response.account_data?.events ?? [];
     accountDataHooks.forEach((hook) => hook(accountData));
+    if (!get(synced)) queueMicrotask(() => promptVerification(activeSession));
     synced.set(true);
   });
   sync.on("room_timeline", ({ roomId, events, limited, prevBatch }) => {

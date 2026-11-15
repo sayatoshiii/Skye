@@ -1,6 +1,7 @@
 import type { RoomMember, RoomSummary } from "../../scripts/matrix/types";
 import { fetchProfileCard, type ExtendedProfile } from "../../scripts/matrix/utilities/profile";
 import { joinedMembers, presenceDetails, rooms, session, type PresenceDetails } from "../../scripts/stores/matrix";
+import { ownStatus, statusMessage, type OwnStatus } from "../../scripts/stores/presence";
 import { roleOf } from "../../scripts/stores/profile";
 
 export const createProfileData = (target: () => { userId?: string; roomId?: string }) => {
@@ -8,12 +9,14 @@ export const createProfileData = (target: () => { userId?: string; roomId?: stri
   let loadedMembers: Record<string, Record<string, RoomMember>> = $state.raw({});
   let statuses: Record<string, PresenceDetails> = $state.raw({});
   let ownUserId: string | undefined = $state();
+  let own: OwnStatus = $state.raw({ mode: "online" });
   let details: ExtendedProfile | null = $state.raw(null);
   let banner: string | undefined = $state();
 
   $effect(() => rooms.subscribe((value) => (allRooms = value)));
   $effect(() => joinedMembers.subscribe((value) => (loadedMembers = value)));
   $effect(() => presenceDetails.subscribe((value) => (statuses = value)));
+  $effect(() => ownStatus.subscribe((value) => (own = value)));
   $effect(() => session.subscribe((value) => (ownUserId = value?.userId)));
 
   $effect(() => {
@@ -65,7 +68,10 @@ export const createProfileData = (target: () => { userId?: string; roomId?: stri
       return details?.bio;
     },
     get status() {
-      return target().userId ? statuses[target().userId!] : undefined;
+      const id = target().userId;
+      if (!id) return undefined;
+      if (id === ownUserId) return { ...(statuses[id] ?? { presence: "online", receivedAt: Date.now() }), statusMessage: statusMessage(own) };
+      return statuses[id];
     },
     get role() {
       return target().userId ? roleOf(room, target().userId!) : undefined;

@@ -20,7 +20,7 @@
 
   const member = $derived(userId ? room?.members[userId] : undefined);
   const joined = $derived(userId && room ? $joinedMembers[room.roomId]?.[userId] : undefined);
-  const left = $derived(!joined && !!member && member.membership !== "join" && member.membership !== "invite");
+  const left = $derived(!!room && !!$joinedMembers[room.roomId] && !joined && (member?.membership === "leave" || member?.membership === "ban"));
 </script>
 
 <aside class="profile col" aria-label={text("user_profile", "label")}>
@@ -44,6 +44,7 @@
           avatar={data.avatar}
           banner={data.banner}
           presence={data.status?.presence}
+          status={data.status?.statusMessage}
           {left}
           onopen={() => openFullProfile(userId, room?.roomId)}
         />

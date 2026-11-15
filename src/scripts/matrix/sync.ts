@@ -10,6 +10,7 @@ import type {
 } from "./types";
 
 export const DEFAULT_SYNC_FILTER: SyncFilter = {
+  presence: { types: ["m.presence"] },
   room: {
     state: { lazy_load_members: true },
     timeline: { limit: 30, lazy_load_members: true },
@@ -24,10 +25,11 @@ export type SyncOptions = {
   maxBackoff?: number;
   crypto?: CryptoHooks;
   persistToken?: boolean;
+  presence?: () => "online" | "unavailable" | "offline";
 };
 
 const SINCE_KEY = "sync_since";
-const FILTER_KEY = "sync_filter_id";
+const FILTER_KEY = "sync_filter_id_v2";
 
 const readStorage = (key: string) =>
   typeof localStorage === "undefined" ? null : localStorage.getItem(key);
@@ -62,6 +64,7 @@ export const createSync = ({
   maxBackoff = 60000,
   crypto = {},
   persistToken = true,
+  presence = () => "online",
 }: SyncOptions) => {
   const emitter = createEmitter<SyncEvents>();
   let controller: AbortController | null = null;
@@ -96,7 +99,7 @@ export const createSync = ({
         filter: filterId,
         since: token ?? undefined,
         timeout: token ? timeout : 0,
-        set_presence: "online",
+        set_presence: presence(),
       },
       signal,
     });
