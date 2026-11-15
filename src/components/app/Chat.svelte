@@ -1,24 +1,42 @@
 <script lang="ts">
+  import { canCopyMedia, copyMedia } from "../../scripts/misc/clipboard";
+  import { portal } from "../../scripts/misc/portal";
   import EmojiText from "../ui/EmojiText.svelte";
   import { tick, untrack } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
-  import { getPowerLevel } from "../../scripts/matrix/rooms";
+  import { canRedact, getPowerLevel } from "../../scripts/matrix/rooms";
   import type { TimelineEvent } from "../../scripts/matrix/types";
+  import { formatBytes, getUploadLimit, isInline, prepareAttachment, sanitiseFilename, uploadAttachment } from "../../scripts/matrix/utilities/attachments";
+  import { downloadMedia } from "../../scripts/matrix/utilities/download";
+  import { isMxc, type MediaSource } from "../../scripts/matrix/utilities/media";
+  import { HTML_FORMAT, findLinks, stripReplyFallback, toPreviewLine } from "../../scripts/misc/formatting";
+  import { MEDIA } from "../../scripts/settings/config";
+  import { linkPreviewsEnabled, mediaSettings, setKeepImageMetadata, type MediaSettings } from "../../scripts/settings/media";
   import { toEntity } from "../../scripts/stores/entities";
+  import { lightbox } from "../../scripts/stores/lightbox";
   import {
     canLoadOlder,
     currentRoom,
     currentTimeline,
+    discardMessage,
+    editRoomMessage,
     joinedMembers,
     loadOlderMessages,
     markRoomRead,
+    redactMessage,
     restoreOpen,
     retryMessage,
     sendMessage,
+    sendRoomMessage,
     session,
     undecryptable,
+    type ReplyTarget,
   } from "../../scripts/stores/matrix";
   import Avatar from "../ui/Avatar.svelte";
+  import LinkPreview from "./media/LinkPreview.svelte";
+  import MessageBody from "./media/MessageBody.svelte";
+  import MessageMedia from "./media/MessageMedia.svelte";
+  import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
 
   let {
     onchannels,
@@ -28,23 +46,66 @@
   const GROUP_WINDOW = 5 * 60 * 1000;
   const LOAD_THRESHOLD = 240;
   const STICK_THRESHOLD = 120;
+  const LONG_PRESS = 480;
+  const SWIPE_REPLY = 64;
   const VISIBLE_TYPES = ["m.room.message", "m.room.encrypted", "m.sticker"];
+  const MEDIA_TYPES = ["m.image", "m.video", "m.audio", "m.file"];
+
+  const ICONS = {
+    reply: "M10 8 5 12l5 4M5 12h9a5 5 0 0 1 5 5v1",
+    edit: "M4 20h4L19 9l-4-4L4 16v4Zm9-13 4 4",
+    copy: "M9 9h10v10H9zM5 15V5h10",
+    link: "M10 14a4 4 0 0 0 6 0l3-3a4 4 0 0 0-6-6l-1 1m2 4a4 4 0 0 0-6 0l-3 3a4 4 0 0 0 6 6l1-1",
+    id: "M5 9h14M5 15h14M10 4 8 20M16 4l-2 16",
+    delete: "M4 7h16M9 7V4h6v3m-8 0 1 13h8l1-13",
+    retry: "M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4",
+    download: "M12 4v11m-5-5 5 5 5-5M5 20h14",
+    open: "M14 4h6v6m0-6-8 8M10 5H5v14h14v-5",
+  };
 
   const text = (...path: string[]) =>
     getLocalisedText(undefined, ...path) as string;
 
+  type Pending = { id: number; file: File; preview?: string; progress: number | null; error?: string };
+  type Message = (typeof timelineMessages)[number];
+
   let draft = $state("");
   let timeline: HTMLElement | undefined = $state();
   let composer: HTMLTextAreaElement | undefined = $state();
+  let picker: HTMLInputElement | undefined = $state();
   let loadingOlder = $state(false);
   let stuck = true;
   let renderedRoomId: string | undefined;
   let lockedOut = $state(false);
   let dismissedRoom: string | undefined = $state();
+  let settings: MediaSettings | null = $state.raw(null);
+  let pending: Pending[] = $state([]);
+  let pendingCounter = 0;
+  let dragDepth = $state(0);
+  let dockHeight = $state(60);
+  let replying: (ReplyTarget & { name: string }) | null = $state(null);
+  let editing: { eventId: string; draft: string } | null = $state(null);
+  let menu: { message: Message; x: number; y: number } | null = $state(null);
+  let confirming: Message | null = $state(null);
+  let swipe: { id: string; dx: number } | null = $state(null);
 
   $effect(() => undecryptable.subscribe((value) => (lockedOut = value)));
+  $effect(() => mediaSettings.subscribe((value) => (settings = value)));
+  $effect(() => () => pending.forEach((item) => item.preview && URL.revokeObjectURL(item.preview)));
 
   const room = $derived($currentRoom && toEntity($currentRoom, $session?.userId));
+  const ownUserId = $derived($session?.userId);
+  const encrypted = $derived(!!$currentRoom?.encryption);
+  const previewsOn = $derived(!!settings && !!$currentRoom && linkPreviewsEnabled(settings, $currentRoom.roomId, encrypted));
+
+  $effect(() => {
+    $currentRoom?.roomId;
+    untrack(() => {
+      replying = null;
+      editing = null;
+      menu = null;
+    });
+  });
 
   const getSender = (userId: string) => {
     const member = $currentRoom?.members[userId] ?? $joinedMembers[$currentRoom?.roomId ?? ""]?.[userId];
@@ -55,6 +116,8 @@
       powerLevel: $currentRoom ? getPowerLevel($currentRoom, userId) : 0,
     };
   };
+
+  const resolveName = (userId: string) => getSender(userId).name;
 
   const isChained = (previous?: { sender: string; ts: number }, message?: { sender: string; ts: number }) =>
     !!previous && !!message && previous.sender === message.sender && message.ts - previous.ts < GROUP_WINDOW;
@@ -67,6 +130,7 @@
 
     const { msgtype, body } = event.content;
     if (typeof body !== "string") return { kind: "fallback", body: text("chat", "unsupported").replace("{type}", String(msgtype ?? event.type)) };
+    if (MEDIA_TYPES.includes(msgtype)) return { kind: "media", body };
     if (msgtype === "m.text") return { kind: "text", body };
     if (msgtype === "m.notice") return { kind: "notice", body };
     if (msgtype === "m.emote") return { kind: "emote", body };
@@ -74,24 +138,46 @@
     return { kind: "fallback", body: text("chat", "unsupported").replace("{type}", String(msgtype)) };
   };
 
+  const mentions = (content: Record<string, any>, userId?: string) => {
+    if (!userId) return false;
+    if (Array.isArray(content["m.mentions"]?.user_ids) && content["m.mentions"].user_ids.includes(userId)) return true;
+    const html = content.format === HTML_FORMAT ? String(content.formatted_body ?? "") : "";
+    return html.includes(`matrix.to/#/${userId}`) || html.includes(`matrix.to/#/${encodeURIComponent(userId)}`);
+  };
+
   const timelineMessages = $derived(
     $currentTimeline
       .filter((event) => VISIBLE_TYPES.includes(event.type))
-      .map((event) => ({
-        id: event.txnId ?? event.event_id,
-        sender: event.sender,
-        ts: event.origin_server_ts,
-        edited: event.edited && !event.redacted,
-        status: event.localStatus,
-        txnId: event.txnId,
-        ...describe(event),
-      }))
+      .map((event) => {
+        const described = describe(event);
+        const replyTo = event.redacted ? undefined : (event.content["m.relates_to"]?.["m.in_reply_to"]?.event_id as string | undefined);
+        const plain = described.kind === "text" || described.kind === "notice" || described.kind === "emote";
+
+        return {
+          id: event.txnId ?? event.event_id,
+          eventId: event.event_id,
+          local: event.event_id.startsWith("~"),
+          sender: event.sender,
+          ts: event.origin_server_ts,
+          edited: event.edited && !event.redacted,
+          status: event.localStatus,
+          txnId: event.txnId,
+          content: event.content,
+          replyTo,
+          mentionsMe: event.sender !== ownUserId && !event.redacted && mentions(event.content, ownUserId),
+          links: described.kind === "text" ? findLinks(replyTo ? stripReplyFallback(described.body) : described.body).slice(0, MEDIA.maxPreviewLinks) : [],
+          plain,
+          ...described,
+        };
+      })
       .map((message, index, all) => ({
         ...message,
         grouped: isChained(all[index - 1], message),
         last: !isChained(message, all[index + 1]),
       })),
   );
+
+  const findReply = (eventId: string) => $currentTimeline.find((event) => event.event_id === eventId);
 
   const formatTime = (ts: number) =>
     new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(ts);
@@ -156,12 +242,59 @@
     composer.style.height = `${composer.scrollHeight}px`;
   };
 
+  const addFiles = async (files: Iterable<File>) => {
+    const active = $session;
+    if (!active) return;
+    const limit = await getUploadLimit(active);
+
+    for (const file of files) {
+      const item: Pending = {
+        id: ++pendingCounter,
+        file,
+        progress: null,
+        preview: isInline(file.type, "image") ? URL.createObjectURL(file) : undefined,
+        error: file.size > limit ? text("media", "too_big").replace("{name}", sanitiseFilename(file.name)).replace("{limit}", formatBytes(limit)) : undefined,
+      };
+      pending.push(item);
+    }
+  };
+
+  const removePending = (id: number) => {
+    const item = pending.find((entry) => entry.id === id);
+    if (item?.preview) URL.revokeObjectURL(item.preview);
+    pending = pending.filter((entry) => entry.id !== id);
+  };
+
+  const uploadPending = async (items: Pending[], roomId: string, roomEncrypted: boolean, reply?: ReplyTarget) => {
+    const active = $session;
+    if (!active) return;
+
+    for (const item of items) {
+      item.progress = 0;
+      item.error = undefined;
+      try {
+        const prepared = await prepareAttachment(item.file, !settings?.keepImageMetadata);
+        const content = await uploadAttachment(active, prepared, roomEncrypted, (value) => (item.progress = value));
+        await sendRoomMessage(content, reply, roomId);
+        removePending(item.id);
+      } catch {
+        item.progress = null;
+        item.error = text("media", "upload_failed");
+      }
+    }
+  };
+
   const send = () => {
     const body = draft.trim();
-    if (!body || !room) return;
+    const items = pending.filter((item) => !item.error && item.progress === null);
+    if ((!body && !items.length) || !room) return;
 
+    const reply = replying ? { eventId: replying.eventId, sender: replying.sender } : undefined;
     stuck = true;
-    sendMessage(body).catch(() => undefined);
+    replying = null;
+
+    if (body) sendMessage(body, reply).catch(() => undefined);
+    if (items.length) uploadPending(items, room.roomId, encrypted, body ? undefined : reply);
 
     draft = "";
     tick().then(resize);
@@ -171,7 +304,164 @@
     if (txnId) retryMessage(txnId)?.catch(() => undefined);
   };
 
+  const startReply = (message: Message) => {
+    if (message.local) return;
+    replying = { eventId: message.eventId, sender: message.sender, name: getSender(message.sender).name };
+    composer?.focus();
+  };
+
+  const editableText = (message: Message) =>
+    message.content["m.relates_to"]?.["m.in_reply_to"] ? stripReplyFallback(message.content.body ?? "") : String(message.content.body ?? "");
+
+  const canEdit = (message: Message) =>
+    message.sender === ownUserId && !message.local && (message.kind === "text" || message.kind === "emote" || message.kind === "notice");
+
+  const startEdit = async (message: Message) => {
+    editing = { eventId: message.eventId, draft: editableText(message) };
+    await tick();
+    const field = timeline?.querySelector<HTMLTextAreaElement>(".edit-field");
+    field?.focus();
+    field?.setSelectionRange(field.value.length, field.value.length);
+  };
+
+  const saveEdit = (message: Message) => {
+    const value = editing?.draft.trim();
+    editing = null;
+    if (!value || value === editableText(message).trim()) return;
+    editRoomMessage(message.eventId, value).catch(() => undefined);
+    composer?.focus();
+  };
+
+  const oneditkey = (event: KeyboardEvent, message: Message) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      editing = null;
+      composer?.focus();
+    }
+    if (event.key === "Enter" && !event.shiftKey && !matchMedia("(pointer: coarse)").matches) {
+      event.preventDefault();
+      saveEdit(message);
+    }
+  };
+
+  const remove = (message: Message, event?: MouseEvent | KeyboardEvent) => {
+    if (event?.shiftKey) return void redactMessage(message.eventId).catch(() => undefined);
+    confirming = message;
+  };
+
+  const confirmRemove = () => {
+    if (confirming) redactMessage(confirming.eventId).catch(() => undefined);
+    confirming = null;
+  };
+
+  const copy = (value: string) => navigator.clipboard?.writeText(value).catch(() => undefined);
+
+  const mediaSource = (content: Record<string, any>): MediaSource => ({
+    url: isMxc(content.url) ? content.url : undefined,
+    file: isMxc(content.file?.url) ? content.file : undefined,
+  });
+
+  const menuItems = (message: Message): MenuItem[] => {
+    const items: MenuItem[] = [];
+    const add = (id: string, label: string, icon: string, run: MenuItem["run"], danger = false) => items.push({ id, label, icon, run, danger });
+    const failed = message.status === "failed";
+
+    if (failed) {
+      add("retry", text("chat", "retry"), ICONS.retry, () => retry(message.txnId));
+      add("discard", text("chat", "discard"), ICONS.delete, () => message.txnId && discardMessage(message.txnId), true);
+      return items;
+    }
+
+    if (!message.local && message.kind !== "redacted") add("reply", text("chat", "reply"), ICONS.reply, () => startReply(message));
+    if (canEdit(message)) add("edit", text("chat", "edit"), ICONS.edit, () => startEdit(message));
+
+    if (message.kind === "media") {
+      const source = mediaSource(message.content);
+      const mimetype = String(message.content.info?.mimetype ?? "");
+      const name = sanitiseFilename(message.content.filename ?? message.content.body);
+      if (message.content.msgtype === "m.image" && isInline(mimetype, "image"))
+        add("open", text("chat", "open_media"), ICONS.open, () => lightbox.set({ source, mimetype, name, w: message.content.info?.w, h: message.content.info?.h }));
+      const gif = mimetype === "image/gif" || !!message.content.info?.["fi.mau.gif"];
+      const copyKind = gif ? "copy_gif" : mimetype.startsWith("video/") ? "copy_video" : mimetype.startsWith("image/") ? "copy_image" : null;
+      if (copyKind && isInline(mimetype, mimetype.split("/")[0] as "image" | "video") && canCopyMedia(mimetype))
+        add("copy-media", text("chat", copyKind), ICONS.copy, () => copyMedia(source, mimetype).catch(() => undefined));
+      add("download", text("chat", "download"), ICONS.download, () => downloadMedia(source, name).catch(() => undefined));
+    }
+
+    if (message.plain) add("copy", text("chat", "copy_text"), ICONS.copy, () => copy(editableText(message)));
+    if (!message.local && $currentRoom) {
+      add("link", text("chat", "copy_link"), ICONS.link, () => copy(`https://matrix.to/#/${encodeURIComponent($currentRoom!.roomId)}/${encodeURIComponent(message.eventId)}`));
+      add("id", text("chat", "copy_id"), ICONS.id, () => copy(message.eventId));
+    }
+    if (!message.local && message.kind !== "redacted" && $currentRoom && ownUserId && canRedact($currentRoom, ownUserId, message.sender))
+      add("delete", text("chat", "delete"), ICONS.delete, (event) => remove(message, event), true);
+
+    return items;
+  };
+
+  const openMenu = (message: Message, x: number, y: number) => {
+    if (editing?.eventId === message.eventId) return;
+    menu = { message, x, y };
+  };
+
+  const oncontextmenu = (event: MouseEvent, message: Message) => {
+    if ((event.target as HTMLElement).closest("a, video, audio, textarea")) return;
+    event.preventDefault();
+    if (!menu) openMenu(message, event.clientX, event.clientY);
+  };
+
+  let press: { id: string; x: number; y: number; timer: ReturnType<typeof setTimeout>; swiping: boolean } | null = null;
+
+  const onpointerdown = (event: PointerEvent, message: Message) => {
+    if (event.pointerType !== "touch" || editing) return;
+    const timer = setTimeout(() => {
+      press = null;
+      swipe = null;
+      openMenu(message, event.clientX, event.clientY);
+    }, LONG_PRESS);
+    press = { id: message.id, x: event.clientX, y: event.clientY, timer, swiping: false };
+  };
+
+  const onpointermove = (event: PointerEvent, message: Message) => {
+    if (!press || press.id !== message.id) return;
+    const dx = event.clientX - press.x;
+    const dy = event.clientY - press.y;
+    if (Math.abs(dx) > 10 || Math.abs(dy) > 10) clearTimeout(press.timer);
+    if (!press.swiping && dx > 14 && Math.abs(dy) < 12 && !message.local) press.swiping = true;
+    if (press.swiping) swipe = { id: message.id, dx: Math.max(0, Math.min(dx, SWIPE_REPLY * 1.4)) };
+    else if (Math.abs(dy) > 12) press = null;
+  };
+
+  const onpointerup = (message: Message) => {
+    if (press) clearTimeout(press.timer);
+    if (swipe?.id === message.id && swipe.dx >= SWIPE_REPLY) startReply(message);
+    press = null;
+    swipe = null;
+  };
+
+  const jumpTo = (eventId: string) => {
+    const target = timeline?.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(eventId)}"]`);
+    if (!target) return;
+    target.scrollIntoView({ block: "center", behavior: "smooth" });
+    target.classList.remove("flash");
+    void target.offsetWidth;
+    target.classList.add("flash");
+  };
+
   const onkeydown = (event: KeyboardEvent) => {
+    if (event.key === "ArrowUp" && !draft && !event.shiftKey) {
+      const last = timelineMessages.findLast((message) => canEdit(message));
+      if (last) {
+        event.preventDefault();
+        startEdit(last);
+      }
+      return;
+    }
+    if (event.key === "Escape" && replying) {
+      replying = null;
+      return;
+    }
+
     const touch = matchMedia("(pointer: coarse)").matches;
     if (event.key !== "Enter" || event.shiftKey || touch) return;
 
@@ -179,10 +469,58 @@
     send();
   };
 
+  const onpaste = (event: ClipboardEvent) => {
+    const files = [...(event.clipboardData?.files ?? [])];
+    if (!files.length) return;
+    event.preventDefault();
+    addFiles(files);
+  };
+
+  const hasFiles = (event: DragEvent) => !!event.dataTransfer?.types.includes("Files");
+
+  const ondragenter = (event: DragEvent) => {
+    if (!hasFiles(event) || !room) return;
+    event.preventDefault();
+    dragDepth++;
+  };
+
+  const ondragover = (event: DragEvent) => {
+    if (!hasFiles(event) || !room) return;
+    event.preventDefault();
+    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+  };
+
+  const ondragleave = (event: DragEvent) => {
+    if (hasFiles(event)) dragDepth = Math.max(0, dragDepth - 1);
+  };
+
+  const ondrop = (event: DragEvent) => {
+    if (!hasFiles(event)) return;
+    event.preventDefault();
+    dragDepth = 0;
+    if (room) addFiles([...(event.dataTransfer?.files ?? [])]);
+  };
+
+  const onpick = () => {
+    if (picker?.files?.length) addFiles([...picker.files]);
+    if (picker) picker.value = "";
+  };
+
+  const hasJpeg = $derived(pending.some((item) => item.file.type === "image/jpeg"));
+  const ready = $derived(!!draft.trim() || pending.some((item) => !item.error && item.progress === null));
+
   const roomLabel = $derived(room ? `${room.isDirect ? "" : "#"}${room.name}` : "");
 </script>
 
-<section class="chat col min-0">
+<section
+  class="chat col min-0"
+  style:--composer-space="{dockHeight + 24}px"
+  {ondragenter}
+  {ondragover}
+  {ondragleave}
+  {ondrop}
+  aria-label={roomLabel}
+>
   <header class="header row-nw align-centre gap-sm hairline-b">
     <button class="icon ghost press mobile-only" aria-label={text("navigation", "open_channels")} onclick={onchannels}>
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
@@ -236,28 +574,96 @@
       {/if}
       {#each timelineMessages as message (message.id)}
         {@const sender = getSender(message.sender)}
+        {@const offset = swipe?.id === message.id ? swipe.dx : 0}
         <li
           class="message row-nw"
-          class:grouped={message.grouped}
+          class:grouped={message.grouped && !message.replyTo}
           class:last={message.last}
           class:sending={message.status === "sending"}
           class:failed={message.status === "failed"}
+          class:mentioned={message.mentionsMe}
+          class:menu-open={menu?.message.id === message.id}
+          class:editing={editing?.eventId === message.eventId}
+          data-event-id={message.eventId}
+          oncontextmenu={(event) => oncontextmenu(event, message)}
+          onpointerdown={(event) => onpointerdown(event, message)}
+          onpointermove={(event) => onpointermove(event, message)}
+          onpointerup={() => onpointerup(message)}
+          onpointercancel={() => onpointerup(message)}
+          style:translate={offset ? `${offset}px 0` : undefined}
         >
+          {#if offset}
+            <span class="swipe-cue row centre" class:armed={offset >= SWIPE_REPLY} style:opacity={Math.min(1, offset / SWIPE_REPLY)} aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.reply} /></svg>
+            </span>
+          {/if}
+          {#if message.replyTo}
+            {@const original = findReply(message.replyTo)}
+            {@const author = original ? getSender(original.sender) : null}
+            <button
+              type="button"
+              class="reply-quote row-nw align-centre gap-sm ghost xs"
+              aria-label={text("chat", "jump_to_reply")}
+              onclick={() => message.replyTo && jumpTo(message.replyTo)}
+              disabled={!original}
+            >
+              <span class="connector" aria-hidden="true"></span>
+              {#if original && author}
+                <Avatar name={author.name} url={author.avatar} size="16px" radius="50%" />
+                <span class="reply-name bold"><EmojiText text={author.name} /></span>
+                <span class="reply-text truncate muted">{original.redacted ? text("chat", "redacted") : toPreviewLine(original.content) || text("chat", "encrypted")}</span>
+              {:else}
+                <span class="reply-text truncate faint">{text("chat", "reply_unavailable")}</span>
+              {/if}
+            </button>
+          {/if}
           <div class="gutter">
-            {#if message.grouped}
+            {#if message.grouped && !message.replyTo}
               <time class="hover-time xs faint" datetime={new Date(message.ts).toISOString()}>{formatTime(message.ts)}</time>
             {:else}
               <Avatar name={sender.name} url={sender.avatar} size="38px" radius="50%" />
             {/if}
           </div>
           <div class="content col min-0">
-            {#if !message.grouped}
+            {#if !message.grouped || message.replyTo}
               <div class="meta row-nw align-centre gap-sm">
                 <span class="sender md bold" class:admin={sender.powerLevel >= 100}><EmojiText text={sender.name} /></span>
                 <time class="xs faint" datetime={new Date(message.ts).toISOString()}>{formatTime(message.ts)}</time>
               </div>
             {/if}
-            <p class="body selectable {message.kind}">{#if message.kind === "emote"}<span class="emote-sender">* <EmojiText text={sender.name} /></span> {/if}<EmojiText text={message.body} />{#if message.edited}<span class="edited xs faint"> {text("chat", "edited")}</span>{/if}</p>
+            {#if editing?.eventId === message.eventId}
+              <div class="editor col gap-xs">
+                <textarea
+                  class="edit-field"
+                  rows="1"
+                  aria-label={text("chat", "edit")}
+                  bind:value={editing.draft}
+                  onkeydown={(event) => oneditkey(event, message)}
+                  oninput={(event) => {
+                    const field = event.currentTarget;
+                    field.style.height = "auto";
+                    field.style.height = `${field.scrollHeight}px`;
+                  }}
+                ></textarea>
+                <span class="xs faint row-nw align-centre gap-sm">
+                  {text("chat", "editing_hint")}
+                  <button type="button" class="link-button ghost press xs bold" onclick={() => (editing = null)}>{text("chat", "cancel")}</button>
+                  <button type="button" class="link-button accent ghost press xs bold" onclick={() => saveEdit(message)}>{text("chat", "save")}</button>
+                </span>
+              </div>
+            {:else if message.kind === "media"}
+              {#if message.content.msgtype !== "m.file" && message.content.body && message.content.filename && message.content.filename !== message.content.body}
+                <p class="body selectable"><MessageBody content={message.content} {ownUserId} {resolveName} /></p>
+              {/if}
+              <MessageMedia content={message.content} />
+            {:else if message.plain}
+              <p class="body selectable {message.kind}">{#if message.kind === "emote"}<span class="emote-sender">* <EmojiText text={sender.name} /></span> {/if}<MessageBody content={message.content} {ownUserId} {resolveName} />{#if message.edited}<span class="edited xs faint"> {text("chat", "edited")}</span>{/if}</p>
+            {:else}
+              <p class="body selectable {message.kind}"><EmojiText text={message.body} /></p>
+            {/if}
+            {#each message.links as link (link)}
+              <LinkPreview url={link} ts={message.ts} previews={previewsOn} />
+            {/each}
             {#if message.status === "failed"}
               <p class="failure xs row-nw align-centre gap-sm">
                 <span>{text("chat", "failed")}</span>
@@ -265,41 +671,140 @@
               </p>
             {/if}
           </div>
+          {#if editing?.eventId !== message.eventId && !message.local}
+            <div class="toolbar row-nw" role="toolbar" aria-label={text("chat", "actions")}>
+              {#if message.kind !== "redacted"}
+                <button type="button" class="tool ghost press" aria-label={text("chat", "reply")} title={text("chat", "reply")} onclick={() => startReply(message)}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.reply} /></svg>
+                </button>
+              {/if}
+              {#if canEdit(message)}
+                <button type="button" class="tool ghost press" aria-label={text("chat", "edit")} title={text("chat", "edit")} onclick={() => startEdit(message)}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.edit} /></svg>
+                </button>
+              {/if}
+              <button
+                type="button"
+                class="tool ghost press"
+                aria-label={text("chat", "more")}
+                title={text("chat", "more")}
+                aria-haspopup="menu"
+                onclick={(event) => {
+                  const rect = event.currentTarget.getBoundingClientRect();
+                  openMenu(message, rect.right - 200, rect.bottom + 4);
+                }}
+              >
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M5 10.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Zm7 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z" /></svg>
+              </button>
+            </div>
+          {/if}
         </li>
       {/each}
     </ol>
     {/key}
 
     <form class="composer" onsubmit={(event) => { event.preventDefault(); send(); }}>
-      <div class="field row-nw align-centre gap-sm">
-        <button type="button" class="icon attach ghost press" aria-label={text("chat", "attach")}>
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-            <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
-        <textarea
-          class="flex-max"
-          rows="1"
-          enterkeyhint="send"
-          placeholder={text("chat", "composer").replace("{room}", roomLabel)}
-          aria-label={text("chat", "composer").replace("{room}", roomLabel)}
-          bind:value={draft}
-          bind:this={composer}
-          oninput={resize}
-          {onkeydown}
-        ></textarea>
-        <button type="submit" class="icon send ghost press" class:ready={draft.trim()} aria-label={text("chat", "send")}>
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-            <path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3 10l12 2-12 2 .4 6.4Z" />
-          </svg>
-        </button>
+      <div class="dock col" bind:clientHeight={dockHeight}>
+        {#if replying}
+          <div class="reply-bar row-nw align-centre gap-sm sm">
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.reply} /></svg>
+            <span class="flex-max truncate muted">{text("chat", "replying_to").split("{name}")[0]}<strong class="reply-target"><EmojiText text={replying.name} /></strong>{text("chat", "replying_to").split("{name}")[1]}</span>
+            <button type="button" class="chip-close ghost press" aria-label={text("chat", "cancel_reply")} onclick={() => (replying = null)}>
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
+            </button>
+          </div>
+        {/if}
+        {#if pending.length}
+          <ul class="tray row-nw gap-sm">
+            {#each pending as item (item.id)}
+              {@const name = sanitiseFilename(item.file.name)}
+              <li class="chip col" class:error={!!item.error} class:busy={item.progress !== null} title={item.error ?? name}>
+                <span class="chip-preview row centre">
+                  {#if item.preview}
+                    <img src={item.preview} alt="" draggable="false" />
+                  {:else}
+                    <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" d="M6 3h8l4 4v14H6zM14 3v4h4" /></svg>
+                  {/if}
+                  {#if item.progress !== null}
+                    <span class="progress" style:--progress={item.progress} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(item.progress * 100)} aria-label={text("media", "uploading").replace("{percent}", String(Math.round(item.progress * 100)))}></span>
+                  {/if}
+                </span>
+                <span class="chip-name xs truncate">{item.error ?? name}</span>
+                <span class="chip-size xs faint">{formatBytes(item.file.size)}</span>
+                {#if item.progress === null}
+                  <button type="button" class="chip-remove ghost press" aria-label={text("media", "remove").replace("{name}", name)} onclick={() => removePending(item.id)}>
+                    <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
+                  </button>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+          {#if hasJpeg}
+            <label class="metadata row-nw align-centre gap-sm xs muted">
+              <input type="checkbox" checked={settings?.keepImageMetadata} onchange={(event) => setKeepImageMetadata(event.currentTarget.checked)} />
+              {text("media", "keep_metadata")}
+            </label>
+          {/if}
+        {/if}
+        <div class="field row-nw align-centre gap-sm">
+          <button type="button" class="icon attach ghost press" aria-label={text("media", "attach_files")} onclick={() => picker?.click()}>
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+              <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+          <input class="sr-only" type="file" multiple tabindex="-1" aria-hidden="true" bind:this={picker} onchange={onpick} />
+          <textarea
+            class="flex-max"
+            rows="1"
+            enterkeyhint="send"
+            placeholder={text("chat", "composer").replace("{room}", roomLabel)}
+            aria-label={text("chat", "composer").replace("{room}", roomLabel)}
+            bind:value={draft}
+            bind:this={composer}
+            oninput={resize}
+            {onkeydown}
+            {onpaste}
+          ></textarea>
+          <button type="submit" class="icon send ghost press" class:ready aria-label={text("chat", "send")}>
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3 10l12 2-12 2 .4 6.4Z" />
+            </svg>
+          </button>
+        </div>
       </div>
     </form>
+
+    {#if dragDepth > 0}
+      <div class="dropzone col centre gap-sm" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="32" height="32"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m-5 5 5-5 5 5M5 20h14" /></svg>
+        <span class="md bold">{text("media", "drop")}</span>
+      </div>
+    {/if}
   {:else}
     <div class="empty col centre flex-max glow">
       <p class="muted md">{text("chat", "empty")}</p>
     </div>
   {/if}
+
+  {#if menu}
+    <MessageMenu items={menuItems(menu.message)} x={menu.x} y={menu.y} label={text("chat", "actions")} onclose={() => (menu = null)} />
+  {/if}
+
+  {#if confirming}
+    <div class="confirm-layer col centre" role="presentation" use:portal>
+      <button type="button" class="confirm-scrim ghost" tabindex="-1" aria-hidden="true" onclick={() => (confirming = null)}></button>
+      <div class="confirm col gap-md" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" tabindex="-1" onkeydown={(event) => event.key === "Escape" && (confirming = null)}>
+        <h3 id="confirm-title" class="md bold">{text("chat", "delete_title")}</h3>
+        <p class="sm muted">{text("chat", "delete_body")}</p>
+        <div class="row-nw gap-sm justify-end">
+          <button type="button" class="dialog-button ghost press sm bold" onclick={() => (confirming = null)}>{text("chat", "cancel")}</button>
+          <!-- svelte-ignore a11y_autofocus -->
+          <button type="button" class="dialog-button danger ghost press sm bold" autofocus onclick={confirmRemove}>{text("chat", "delete")}</button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
 </section>
 
 <style>
@@ -684,6 +1189,427 @@
 
     .gutter {
       width: 56px;
+    }
+  }
+
+  .message {
+    position: relative;
+    flex-wrap: wrap;
+    transition:
+      background-color var(--azure-duration-fast) var(--azure-ease-out),
+      translate var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .content {
+    flex: 1 1 0;
+  }
+
+  .message.mentioned {
+    background-color: color-mix(in oklab, var(--colours-warning) 9%, transparent);
+    box-shadow: inset 2px 0 0 var(--colours-warning);
+  }
+
+  .message.mentioned:hover {
+    background-color: color-mix(in oklab, var(--colours-warning) 13%, transparent);
+  }
+
+  .message.menu-open,
+  .message.editing {
+    background-color: var(--colours-surface-hover);
+  }
+
+  .message:global(.flash) {
+    animation: flash 1.6s var(--azure-ease-out);
+  }
+
+  @keyframes flash {
+    0%,
+    30% {
+      background-color: var(--colours-accent-soft);
+      box-shadow: inset 2px 0 0 var(--colours-accent);
+    }
+  }
+
+  .swipe-cue {
+    position: absolute;
+    left: -40px;
+    top: 50%;
+    width: 32px;
+    height: 32px;
+    margin-top: -16px;
+    border-radius: 50%;
+    color: var(--colours-text-muted);
+    background-color: var(--colours-surface-raised);
+    transition:
+      color var(--azure-duration-fast) var(--azure-ease-out),
+      transform var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .swipe-cue.armed {
+    color: var(--colours-accent);
+    transform: scale(1.12);
+    box-shadow: 0 0 18px -4px var(--colours-accent-glow);
+  }
+
+  .reply-quote {
+    flex-basis: 100%;
+    min-width: 0;
+    margin: 0 0 2px;
+    padding: 0 0 0 64px;
+    position: relative;
+    height: 20px;
+    text-align: left;
+    color: var(--colours-text-muted);
+  }
+
+  .reply-quote:not(:disabled):hover .reply-text,
+  .reply-quote:not(:disabled):hover .reply-name {
+    color: var(--colours-text-strong);
+  }
+
+  .reply-quote:disabled {
+    cursor: default;
+  }
+
+  .connector {
+    position: absolute;
+    left: 32px;
+    top: 10px;
+    width: 26px;
+    height: 12px;
+    border-top: 2px solid var(--colours-outline-strong);
+    border-left: 2px solid var(--colours-outline-strong);
+    border-top-left-radius: var(--azure-radius-sm);
+  }
+
+  .reply-name {
+    flex: none;
+    color: var(--colours-text);
+  }
+
+  .reply-text {
+    min-width: 0;
+  }
+
+  .toolbar {
+    position: absolute;
+    top: -14px;
+    right: var(--azure-spacing-lg);
+    padding: 2px;
+    gap: 2px;
+    opacity: 0;
+    pointer-events: none;
+    border-radius: var(--azure-radius-sm);
+    border: 1px solid var(--colours-outline-hairline);
+    background-color: var(--colours-surface-raised);
+    box-shadow: 0 6px 18px -8px black;
+    transform: translateY(2px);
+    transition:
+      opacity var(--azure-duration-fast) var(--azure-ease-out),
+      transform var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .message:hover .toolbar,
+  .message:focus-within .toolbar,
+  .message.menu-open .toolbar {
+    opacity: 1;
+    pointer-events: auto;
+    transform: none;
+  }
+
+  .tool {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 28px;
+    border-radius: var(--azure-radius-sm);
+    color: var(--colours-text-faint);
+  }
+
+  .tool:hover {
+    color: var(--colours-accent);
+    background-color: var(--colours-surface-hover);
+  }
+
+  .editor textarea {
+    width: 100%;
+    max-height: 40vh;
+    padding: var(--azure-spacing-sm) var(--azure-spacing-md);
+    border-radius: var(--azure-radius-sm);
+    border: 1px solid color-mix(in oklab, var(--colours-accent) 45%, transparent);
+    background-color: var(--colours-surface-raised);
+    box-shadow: 0 0 20px -10px var(--colours-accent-glow);
+  }
+
+  .link-button {
+    color: var(--colours-text-muted);
+  }
+
+  .link-button:hover,
+  .link-button.accent {
+    color: var(--colours-accent);
+  }
+
+  .dock {
+    pointer-events: auto;
+    gap: var(--azure-spacing-sm);
+  }
+
+  .reply-bar {
+    padding: 0 var(--azure-spacing-xs) 0 var(--azure-spacing-md);
+    min-height: 34px;
+    border-radius: var(--azure-radius-md);
+    border: 1px solid var(--colours-outline-hairline);
+    background-color: var(--colours-surface-raised);
+    color: var(--colours-text-faint);
+    animation: rise-in var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .reply-target {
+    color: var(--colours-text-strong);
+  }
+
+  .chip-close {
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    border-radius: var(--azure-radius-sm);
+    color: var(--colours-text-faint);
+  }
+
+  .chip-close:hover {
+    color: var(--colours-accent);
+    background-color: var(--colours-surface-hover);
+  }
+
+  .tray {
+    list-style: none;
+    margin: 0;
+    padding: var(--azure-spacing-sm);
+    overflow-x: auto;
+    border-radius: var(--azure-radius-md);
+    border: 1px solid var(--colours-outline-hairline);
+    background-color: var(--colours-surface-raised);
+  }
+
+  .chip {
+    position: relative;
+    flex: none;
+    width: 112px;
+    padding: var(--azure-spacing-xs);
+    gap: 2px;
+    border-radius: var(--azure-radius-md);
+    background-color: var(--colours-surface);
+    border: 1px solid var(--colours-outline-hairline);
+    animation: rise-in var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .chip.error {
+    border-color: color-mix(in oklab, var(--colours-danger) 50%, transparent);
+  }
+
+  .chip.error .chip-name {
+    color: var(--colours-danger);
+    white-space: normal;
+  }
+
+  .chip-preview {
+    position: relative;
+    height: 72px;
+    overflow: hidden;
+    border-radius: var(--azure-radius-sm);
+    color: var(--colours-accent);
+    background-color: var(--colours-accent-faint);
+  }
+
+  .chip-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .chip.busy .chip-preview img {
+    opacity: 0.5;
+  }
+
+  .progress {
+    position: absolute;
+    inset: auto 0 0;
+    height: 3px;
+    background: linear-gradient(to right, var(--colours-accent) calc(var(--progress) * 100%), transparent 0);
+    box-shadow: 0 0 10px var(--colours-accent-glow);
+    transition: background var(--azure-duration-fast) linear;
+  }
+
+  .chip-name {
+    padding: 0 2px;
+    color: var(--colours-text);
+  }
+
+  .chip-size {
+    padding: 0 2px;
+  }
+
+  .chip-remove {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    color: var(--colours-text-muted);
+    background-color: var(--colours-surface-raised);
+    border: 1px solid var(--colours-outline-light);
+  }
+
+  .chip-remove:hover {
+    color: var(--colours-danger);
+  }
+
+  .metadata {
+    padding: 0 var(--azure-spacing-sm);
+    cursor: pointer;
+  }
+
+  .metadata input {
+    accent-color: var(--colours-accent);
+  }
+
+
+
+
+  .dropzone {
+    position: absolute;
+    inset: var(--azure-spacing-md);
+    z-index: var(--azure-z-overlay);
+    pointer-events: none;
+    color: var(--colours-accent);
+    border-radius: var(--azure-radius-lg);
+    border: 2px dashed color-mix(in oklab, var(--colours-accent) 60%, transparent);
+    background-color: color-mix(in oklab, var(--colours-background) 80%, transparent);
+    backdrop-filter: blur(6px);
+    box-shadow: inset 0 0 60px -20px var(--colours-accent-glow);
+    animation: fade-in var(--azure-duration-md) var(--azure-ease-out);
+  }
+
+  .confirm-layer {
+    position: fixed;
+    inset: 0;
+    z-index: var(--azure-z-popover);
+    padding: var(--azure-spacing-lg);
+  }
+
+  .confirm-scrim {
+    position: absolute;
+    inset: 0;
+    background-color: var(--colours-scrim);
+    backdrop-filter: blur(4px);
+    animation: fade-in var(--azure-duration-md) var(--azure-ease-out);
+  }
+
+  .confirm {
+    position: relative;
+    width: min(100%, 380px);
+    padding: var(--azure-spacing-xl);
+    border-radius: var(--azure-radius-lg);
+    border: 1px solid var(--colours-outline-hairline);
+    background-color: var(--colours-surface-raised);
+    box-shadow: 0 24px 64px -16px black;
+    outline: none;
+    animation: rise-in var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .confirm h3,
+  .confirm p {
+    margin: 0;
+  }
+
+  .confirm h3 {
+    color: var(--colours-text-strong);
+  }
+
+  .justify-end {
+    justify-content: flex-end;
+  }
+
+  .dialog-button {
+    min-height: 36px;
+    padding: 0 var(--azure-spacing-lg);
+    border-radius: var(--azure-radius-sm);
+    color: var(--colours-text);
+  }
+
+  .dialog-button:hover {
+    background-color: var(--colours-surface-hover);
+  }
+
+  .dialog-button.danger {
+    color: white;
+    background-color: var(--colours-danger);
+  }
+
+  .dialog-button.danger:hover {
+    background-color: color-mix(in oklab, var(--colours-danger) 85%, white);
+    box-shadow: 0 0 20px -6px var(--colours-danger);
+  }
+
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @media (pointer: coarse) {
+    .message {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    .toolbar {
+      display: none;
+    }
+  }
+
+  @media (max-width: 767px) {
+    .reply-quote {
+      padding-left: 56px;
+    }
+
+    .connector {
+      left: 28px;
+    }
+
+    .chip-close,
+    .dialog-button {
+      min-height: var(--azure-touch);
+      min-width: var(--azure-touch);
+    }
+
+    .chip-remove {
+      width: 28px;
+      height: 28px;
+    }
+
+    .confirm-layer {
+      justify-content: flex-end;
+      padding: 0;
+    }
+
+    .confirm {
+      width: 100%;
+      padding-bottom: calc(var(--azure-spacing-xl) + env(safe-area-inset-bottom));
+      border-radius: var(--azure-radius-lg) var(--azure-radius-lg) 0 0;
     }
   }
 </style>

@@ -50,7 +50,32 @@
       "unsupported": "Skye cannot show this message yet ({type}).",
       "edited": "(edited)",
       "failed": "Not sent.",
-      "retry": "Retry"
+      "retry": "Retry",
+      "reply": "Reply",
+      "replying_to": "Replying to {name}",
+      "cancel_reply": "Cancel reply",
+      "reply_unavailable": "Original message not loaded",
+      "jump_to_reply": "Jump to original message",
+      "spoiler": "Spoiler, tap to reveal",
+      "edit": "Edit",
+      "more": "More actions",
+      "copy_text": "Copy text",
+      "copy_link": "Copy link",
+      "copy_id": "Copy message ID",
+      "delete": "Delete",
+      "discard": "Discard",
+      "save": "Save",
+      "cancel": "Cancel",
+      "download": "Save",
+      "open_media": "Open",
+      "delete_title": "Delete message",
+      "delete_body": "This message will be deleted for everyone. Hold Shift to skip this next time.",
+      "editing_hint": "Enter to save, Esc to cancel",
+      "copied": "Copied",
+      "actions": "Message actions",
+      "copy_image": "Copy image",
+      "copy_gif": "Copy GIF",
+      "copy_video": "Copy video"
     },
     "settings": {
       "open": "Settings",
@@ -206,6 +231,29 @@
         "no_identity": "Cross-signing isn't set up on your account, so device verification isn't available. Use your Security Key instead.",
         "generic": "Something went wrong. Please try again."
       }
+    },
+    "media": {
+      "attach_files": "Attach files",
+      "drop": "Drop to attach",
+      "remove": "Remove {name}",
+      "too_big": "{name} is too big. The limit is {limit}.",
+      "upload_failed": "Upload failed.",
+      "uploading": "Uploading {percent}%",
+      "keep_metadata": "Keep photo location and camera data",
+      "open": "Open {name}",
+      "close": "Close",
+      "download": "Download {name}",
+      "load_failed": "Could not load media.",
+      "image": "Image",
+      "video": "Video",
+      "audio": "Audio",
+      "file": "File",
+      "play_video": "Play video",
+      "unsafe_type": "Shown as a file for safety.",
+      "play_embed": "Play",
+      "embed_note": "Playing loads content from {provider}.",
+      "always_allow": "Always allow {provider}",
+      "open_link": "Open on {provider}"
     }
   }
 }

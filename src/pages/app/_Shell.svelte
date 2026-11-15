@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, type Snippet } from "svelte";
   import Chat from "../../components/app/Chat.svelte";
+  import Lightbox from "../../components/app/media/Lightbox.svelte";
   import Loading from "../../components/app/Loading.svelte";
   import RestoreHistory from "../../components/app/RestoreHistory.svelte";
   import ChannelList from "../../components/navigation/ChannelList.svelte";
@@ -186,6 +187,8 @@
     </div>
   </div>
 </div>
+
+<Lightbox />
 
 <style>
   .shell {

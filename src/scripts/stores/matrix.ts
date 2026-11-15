@@ -1,3 +1,4 @@
+import { markdownToContent } from "../misc/formatting";
 import { derived, get, writable } from "svelte/store";
 import { isMatrixError } from "../api/client";
 import {
@@ -396,9 +397,52 @@ export const loadOlderMessages = () => {
     .finally(() => canLoadOlder.set(timeline.canPaginate()));
 };
 
-export const sendMessage = (body: string) => {
+export type ReplyTarget = { eventId: EventId; sender: UserId };
+
+const requireRoom = () => {
   const roomId = get(currentRoomId);
   if (!roomId) throw new Error("No room selected.");
-
-  return getTimeline(roomId).sendMessage(body);
+  return roomId;
 };
+
+const withReply = (content: Record<string, any>, reply?: ReplyTarget) =>
+  reply
+    ? {
+        ...content,
+        "m.relates_to": { "m.in_reply_to": { event_id: reply.eventId } },
+        "m.mentions": { user_ids: reply.sender === get(session)?.userId ? [] : [reply.sender] },
+      }
+    : content;
+
+export const sendMessage = (body: string, reply?: ReplyTarget) =>
+  getTimeline(requireRoom()).sendEvent(
+    "m.room.message",
+    withReply({ msgtype: "m.text", ...markdownToContent(body) }, reply),
+  );
+
+export const sendRoomMessage = (
+  content: Record<string, any>,
+  reply?: ReplyTarget,
+  roomId: RoomId = requireRoom(),
+) =>
+  getTimeline(roomId).sendEvent("m.room.message", withReply(content, reply));
+
+export const editRoomMessage = (eventId: EventId, body: string) => {
+  const content = { msgtype: "m.text", ...markdownToContent(body) } as Record<string, any>;
+  const fallback: Record<string, any> = { ...content, body: `* ${content.body}` };
+  if (content.formatted_body) fallback.formatted_body = `* ${content.formatted_body}`;
+
+  return getTimeline(requireRoom()).sendEvent("m.room.message", {
+    ...fallback,
+    "m.new_content": content,
+    "m.relates_to": { rel_type: "m.replace", event_id: eventId },
+  });
+};
+
+export const redactMessage = (eventId: EventId) =>
+  getTimeline(requireRoom()).redact(eventId);
+
+export const discardMessage = (txnId: string) =>
+  getTimeline(requireRoom()).discard(txnId);
+
+if (import.meta.hot) import.meta.hot.dispose(() => stopMatrix());
