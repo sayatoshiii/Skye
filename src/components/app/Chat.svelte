@@ -1007,7 +1007,7 @@
         <div class="row-nw gap-sm justify-end">
           <button type="button" class="dialog-button ghost press sm bold" onclick={() => (confirming = null)}>{text("chat", "cancel")}</button>
           <!-- svelte-ignore a11y_autofocus -->
-          <button type="button" class="dialog-button ghost press sm bold" class:danger={confirming.kind !== "pin"} autofocus onclick={confirmAction}>{text("chat", confirming.kind)}</button>
+          <button type="button" class="dialog-button ghost press sm bold" class:danger={confirming.kind !== "pin"} class:primary={confirming.kind === "pin"} autofocus onclick={confirmAction}>{text("chat", confirming.kind)}</button>
         </div>
       </div>
     </div>
@@ -1989,6 +1989,16 @@
   .dialog-button.danger {
     color: white;
     background-color: var(--colours-danger);
+  }
+
+  .dialog-button.primary {
+    color: var(--colours-on-accent);
+    background-color: var(--colours-accent);
+  }
+
+  .dialog-button.primary:hover {
+    background-color: color-mix(in oklab, var(--colours-accent) 85%, white);
+    box-shadow: 0 0 20px -6px var(--colours-accent-glow);
   }
 
   .dialog-button.danger:hover {
