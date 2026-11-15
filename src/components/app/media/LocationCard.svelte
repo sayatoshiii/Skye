@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tooltip } from "../../../scripts/misc/tooltip";
   import { getLocalisedText } from "../../../scripts/accessibility/language/translation";
   import { formatCoordinates, osmLink, tilePosition, type GeoLocation } from "../../../scripts/matrix/utilities/content";
 
@@ -65,7 +66,7 @@
     <div class="actions row-nw align-centre gap-md xs">
       <a class="bold" href={osmLink(location)} target="_blank" rel="noopener noreferrer">{text("location", "open_osm")}</a>
       {#if !showMap}
-        <button type="button" class="ghost press bold" title={text("location", "map_note")} onclick={() => (showMap = true)}>{text("location", "load_map")}</button>
+        <button type="button" class="ghost press bold" use:tooltip={text("location", "map_note")} onclick={() => (showMap = true)}>{text("location", "load_map")}</button>
         <span class="faint truncate">{text("location", "map_note")}</span>
       {/if}
     </div>

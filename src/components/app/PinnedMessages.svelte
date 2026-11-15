@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { tooltip } from "../../scripts/misc/tooltip";
   import { tick } from "svelte";
+  import { dismissible } from "../../scripts/misc/dismiss.svelte";
   import { portal } from "../../scripts/misc/portal";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import type { TimelineEvent } from "../../scripts/matrix/types";
@@ -34,6 +36,8 @@
   const MEDIA_TYPES = ["m.image", "m.video", "m.audio", "m.file"];
 
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
+
+  const exit = dismissible(() => onclose());
 
   let panel: HTMLElement | undefined = $state();
   let list: HTMLElement | undefined = $state();
@@ -77,13 +81,13 @@
     if (event.key !== "Escape") return;
     event.preventDefault();
     event.stopPropagation();
-    onclose();
+    exit.close();
     anchor?.focus();
   };
 </script>
 
-<div class="layer" role="presentation" use:portal>
-  <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={onclose}></button>
+<div class="layer" class:closing={exit.closing} role="presentation" use:portal>
+  <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={exit.close}></button>
   <div
     class="panel col"
     role="dialog"
@@ -91,6 +95,8 @@
     aria-labelledby="pins-title"
     tabindex="-1"
     bind:this={panel}
+    inert={exit.closing}
+    onanimationend={exit.onanimationend}
     style:right="{right}px"
     style:top="{top}px"
     {onkeydown}
@@ -101,7 +107,7 @@
       <h3 id="pins-title" class="title md bold flex-max truncate">
         {text("chat", "pins")}{#if ordered.length}<span class="count faint">&nbsp;·&nbsp;{ordered.length}</span>{/if}
       </h3>
-      <button type="button" class="icon-button close ghost press" aria-label={text("chat", "close")} onclick={onclose}>
+      <button type="button" class="icon-button close ghost press" aria-label={text("chat", "close")} onclick={exit.close}>
         <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
       </button>
     </header>
@@ -152,7 +158,7 @@
                   {:else if MEDIA_TYPES.includes(event.content.msgtype)}
                     <div class="media"><MessageMedia content={event.content} /></div>
                   {:else if typeof event.content.body === "string"}
-                    <p class="body"><MessageBody content={event.content} {ownUserId} {resolveName} /></p>
+                    <p class="body"><MessageBody content={event.content} {ownUserId} {resolveName} highlight={false} /></p>
                   {:else}
                     <p class="faint">{text("chat", "unsupported").replace("{type}", String(event.content.msgtype ?? event.type))}</p>
                   {/if}
@@ -160,10 +166,13 @@
               </div>
               <span class="actions row-nw gap-xs">
                 {#if event}
-                  <button type="button" class="jump ghost press xs bold" aria-label={`${text("chat", "jump")}: ${sender?.name ?? ""}`} onclick={() => onjump(eventId)}>{text("chat", "jump")}</button>
+                  <button type="button" class="jump ghost press xs bold" aria-label={`${text("chat", "jump")}: ${sender?.name ?? ""}`} onclick={() => {
+                    exit.close();
+                    onjump(eventId);
+                  }}>{text("chat", "jump")}</button>
                 {/if}
                 {#if canUnpin}
-                  <button type="button" class="icon-button unpin ghost press" aria-label={text("chat", "unpin")} title={text("chat", "unpin")} onclick={(event) => onunpin(eventId, event)}>
+                  <button type="button" class="icon-button unpin ghost press" aria-label={text("chat", "unpin")} use:tooltip={text("chat", "unpin")} onclick={(event) => onunpin(eventId, event)}>
                     <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
                   </button>
                 {/if}
@@ -215,6 +224,21 @@
 
   .handle {
     display: none;
+  }
+
+  .layer.closing {
+    pointer-events: none;
+  }
+
+  .closing .panel {
+    animation: pin-out var(--azure-duration-fast) var(--azure-ease-out) forwards;
+  }
+
+  @keyframes pin-out {
+    to {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.97);
+    }
   }
 
   .head {
@@ -376,7 +400,7 @@
   }
 
   .media {
-    display: flex;
+    display: block;
     width: fit-content;
     max-width: 220px;
     max-height: 140px;
@@ -389,7 +413,8 @@
     flex: none;
     width: auto !important;
     height: 140px;
-    max-width: 100%;
+    min-width: 60px;
+    max-width: 220px;
     margin: 0;
     border: 0;
     border-radius: 0;
@@ -511,6 +536,14 @@
       border-radius: var(--azure-radius-lg) var(--azure-radius-lg) 0 0;
       border-bottom: none;
       animation: rise var(--azure-duration-glide) var(--azure-ease-fluid);
+    }
+
+    .closing .scrim {
+      animation: exit-fade var(--azure-duration-md) var(--azure-ease-out) forwards;
+    }
+
+    .closing .panel {
+      animation: exit-sink var(--azure-duration-md) var(--azure-ease-out) forwards;
     }
 
     .handle {
