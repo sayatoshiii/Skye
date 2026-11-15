@@ -110,7 +110,7 @@
       "too_far_back": "Message is too far back",
       "close": "Close",
       "loading_newer": "Loading newer messages",
-      "jump_present": "Jump to present",
+      "jump_present": "Jump back to latest",
       "jump_short": "Jump",
       "viewing_older": "Viewing older messages",
       "new_message": "{count} new message",
