@@ -96,14 +96,11 @@
     {onkeydown}
   >
     <span class="handle" aria-hidden="true"></span>
-    <header class="head">
-      <span class="head-spacer" aria-hidden="true"></span>
-      <span class="head-title row-nw align-centre gap-sm min-0">
+    <header class="head row-nw align-centre gap-sm">
       <svg class="head-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 4h6l-1 6 4 4H6l4-4-1-6Zm3 10v6" /></svg>
-      <h3 id="pins-title" class="title md bold truncate">
+      <h3 id="pins-title" class="title md bold flex-max truncate">
         {text("chat", "pins")}{#if ordered.length}<span class="count faint">&nbsp;·&nbsp;{ordered.length}</span>{/if}
       </h3>
-      </span>
       <button type="button" class="icon-button close ghost press" aria-label={text("chat", "close")} onclick={onclose}>
         <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
       </button>
@@ -180,12 +177,8 @@
 </div>
 
 <style>
-  .head-title {
-    justify-content: center;
-  }
-
   .head .close {
-    justify-self: end;
+    margin-right: -6px;
   }
 
   .panel:focus {
@@ -226,9 +219,6 @@
 
   .head {
     flex: none;
-    display: grid;
-    grid-template-columns: 28px minmax(0, 1fr) 28px;
-    align-items: center;
     min-height: 48px;
     padding: 0 var(--azure-spacing-lg);
     border-bottom: 1px solid var(--colours-outline-hairline);
