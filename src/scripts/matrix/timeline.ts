@@ -405,6 +405,18 @@ export const createTimeline = ({
 
   const hasEvent = (eventId: EventId) => !!findEvent(eventId);
 
+  const fetchRelations = async (eventId: EventId, relType = "m.reference", limit = 200) => {
+    const response = await matrixRequest<{ chunk: MatrixEvent[] }>({
+      base: baseURL.MATRIX_V1(session.homeserver),
+      accessToken: session.accessToken,
+      endpoint: `${roomPath}/relations/${encodeURIComponent(eventId)}/${encodeURIComponent(relType)}`,
+      method: "GET",
+      query: { limit },
+    });
+
+    return await Promise.all(response.chunk.map((raw) => decrypt({ ...raw, room_id: raw.room_id ?? roomId })));
+  };
+
   const setPinned = (pinned: EventId[]) =>
     request({
       endpoint: `${roomPath}/state/m.room.pinned_events`,
@@ -435,6 +447,7 @@ export const createTimeline = ({
     fetchPage,
     adoptOlder,
     hasEvent,
+    fetchRelations,
     retryDecryption,
     on: emitter.on,
     getEvents: () => [...events],

@@ -683,6 +683,12 @@ export const findInHistory = async (eventId: EventId, maxPages = 10) => {
   return has();
 };
 
+export const sendRoomEvent = (type: string, content: Record<string, any>, roomId: RoomId = requireRoom()) =>
+  getTimeline(roomId).sendEvent(type, content);
+
+export const fetchRelations = (eventId: EventId, relType = "m.reference", roomId: RoomId = requireRoom()) =>
+  getTimeline(roomId).fetchRelations(eventId, relType);
+
 export const discardMessage = (txnId: string) =>
   getTimeline(requireRoom()).discard(txnId);
 

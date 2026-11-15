@@ -35,6 +35,8 @@
     retryMessage,
     sendMessage,
     sendRoomMessage,
+    sendRoomEvent,
+    rooms,
     session,
     undecryptable,
     type ReplyTarget,
@@ -45,6 +47,11 @@
   import MessageMedia from "./media/MessageMedia.svelte";
   import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
   import PinnedMessages from "./PinnedMessages.svelte";
+  import LocationCard from "./media/LocationCard.svelte";
+  import Poll from "./media/Poll.svelte";
+  import { BEACON, BEACON_INFO, LOCATION_KEYS, POLL_END, POLL_START, formatCoordinates, getLocation, getPoll, pollEndContent, relatedTo, type GeoLocation } from "../../scripts/matrix/utilities/content";
+  import { SYSTEM_ICONS, SYSTEM_TYPES, describeSystem, type MemberVerb, type SystemLine } from "../../scripts/matrix/utilities/system";
+  import { navigation, openRoom } from "../../scripts/stores/navigation.svelte";
   import { openFullProfile, openMiniProfile } from "../../scripts/stores/profile";
 
   let {
@@ -57,7 +64,9 @@
   const STICK_THRESHOLD = 120;
   const LONG_PRESS = 480;
   const SWIPE_REPLY = 64;
-  const VISIBLE_TYPES = ["m.room.message", "m.room.encrypted", "m.sticker"];
+  const VISIBLE_TYPES = ["m.room.message", "m.room.encrypted", "m.sticker", ...LOCATION_KEYS, ...POLL_START, ...BEACON_INFO, ...SYSTEM_TYPES];
+  const MEMBER_GROUP = 3;
+  const MEMBER_VERBS: MemberVerb[] = ["joined", "left", "invited", "removed", "profile"];
   const MEDIA_TYPES = ["m.image", "m.video", "m.audio", "m.file"];
 
   const ICONS = {
@@ -72,6 +81,8 @@
     open: "M14 4h6v6m0-6-8 8M10 5H5v14h14v-5",
     pin: "M9 4h6l-1 6 4 4H6l4-4-1-6Zm3 10v6",
     unpin: "M9 4h6l-1 6 4 4H6l4-4-1-6Zm3 10v6M4 4l16 16",
+    end: "M6 6h12v12H6z",
+    chevron: "m9 6 6 6-6 6",
   };
 
   const text = (...path: string[]) =>
@@ -166,21 +177,69 @@
 
   const resolveName = (userId: string) => getSender(userId).name;
 
-  const isChained = (previous?: { sender: string; ts: number }, message?: { sender: string; ts: number }) =>
-    !!previous && !!message && previous.sender === message.sender && message.ts - previous.ts < GROUP_WINDOW;
+  const SYSTEM_KINDS = ["system", "members"];
 
-  const describe = (event: TimelineEvent) => {
+  const isChained = (previous?: { sender: string; ts: number; kind: string }, message?: { sender: string; ts: number; kind: string }) =>
+    !!previous && !!message && !SYSTEM_KINDS.includes(previous.kind) && !SYSTEM_KINDS.includes(message.kind) && previous.sender === message.sender && message.ts - previous.ts < GROUP_WINDOW;
+
+  type Kind = "redacted" | "fallback" | "media" | "sticker" | "text" | "notice" | "emote" | "location" | "poll" | "server" | "system" | "members";
+  type Described = { kind: Kind; body: string; system?: SystemLine; location?: GeoLocation | null; live?: boolean };
+
+  const relations = $derived.by(() => {
+    const map = new Map<string, TimelineEvent[]>();
+    for (const event of $currentTimeline) {
+      const target = relatedTo(event);
+      if (!target || event.content["m.relates_to"]?.rel_type !== "m.reference") continue;
+      const list = map.get(target);
+      list ? list.push(event) : map.set(target, [event]);
+    }
+    return map;
+  });
+
+  const callStart = (callId: string) =>
+    $currentTimeline.find((event) => event.type === "m.call.invite" && event.content.call_id === callId);
+
+  const mayModerate = (userId: string) => !!$currentRoom && canRedact($currentRoom, userId, "");
+
+  const describeBeacon = (event: TimelineEvent): Described => {
+    const info = event.content;
+    const start = Number(info["org.matrix.msc3488.ts"] ?? info["m.ts"] ?? event.origin_server_ts);
+    const live = !!info.live && start + Number(info.timeout ?? 0) > Date.now();
+    const latest = (relations.get(event.event_id) ?? [])
+      .filter((item) => BEACON.includes(item.type) && !item.redacted)
+      .sort((a, b) => b.origin_server_ts - a.origin_server_ts)[0];
+    const location = latest ? getLocation(latest.content) : null;
+    const description = typeof info.description === "string" && info.description.trim() ? info.description.trim() : undefined;
+
+    return { kind: "location", body: description ?? "", location: location && { ...location, description }, live };
+  };
+
+  const describe = (event: TimelineEvent): Described | null => {
+    if (SYSTEM_TYPES.includes(event.type)) {
+      if (event.redacted) return null;
+      const system = describeSystem(event, resolveName, callStart);
+      return system && { kind: "system", body: "", system };
+    }
     if (event.redacted) return { kind: "redacted", body: text("chat", "redacted") };
     if (event.decryptionFailed || event.type === "m.room.encrypted")
       return { kind: "fallback", body: text("chat", "encrypted") };
-    if (event.type === "m.sticker") return { kind: "fallback", body: text("chat", "unsupported").replace("{type}", event.type) };
+    if (event.type === "m.sticker") return { kind: "sticker", body: String(event.content.body ?? "") };
+    if (POLL_START.includes(event.type)) return getPoll(event) ? { kind: "poll", body: "" } : { kind: "fallback", body: text("poll", "unavailable") };
+    if (BEACON_INFO.includes(event.type)) return describeBeacon(event);
 
     const { msgtype, body } = event.content;
+    if (LOCATION_KEYS.includes(event.type) || msgtype === "m.location") {
+      const location = getLocation(event.content);
+      if (location) return { kind: "location", body: String(body ?? ""), location };
+    }
+    if (msgtype === "m.key.verification.request")
+      return { kind: "system", body: "", system: { icon: "shield", key: "verification", params: { actor: resolveName(event.sender) }, tone: "accent" } };
     if (typeof body !== "string") return { kind: "fallback", body: text("chat", "unsupported").replace("{type}", String(msgtype ?? event.type)) };
     if (MEDIA_TYPES.includes(msgtype)) return { kind: "media", body };
     if (msgtype === "m.text") return { kind: "text", body };
     if (msgtype === "m.notice") return { kind: "notice", body };
     if (msgtype === "m.emote") return { kind: "emote", body };
+    if (msgtype === "m.server_notice") return { kind: "server", body };
 
     return { kind: "fallback", body: text("chat", "unsupported").replace("{type}", String(msgtype)) };
   };
@@ -192,13 +251,14 @@
     return html.includes(`matrix.to/#/${userId}`) || html.includes(`matrix.to/#/${encodeURIComponent(userId)}`);
   };
 
-  const timelineMessages = $derived(
+  const baseMessages = $derived(
     $currentTimeline
       .filter((event) => VISIBLE_TYPES.includes(event.type))
-      .map((event) => {
+      .flatMap((event) => {
         const described = describe(event);
+        if (!described) return [];
         const replyTo = event.redacted ? undefined : (event.content["m.relates_to"]?.["m.in_reply_to"]?.event_id as string | undefined);
-        const plain = described.kind === "text" || described.kind === "notice" || described.kind === "emote";
+        const plain = described.kind === "text" || described.kind === "notice" || described.kind === "emote" || described.kind === "server";
 
         return {
           id: event.txnId ?? event.event_id,
@@ -214,15 +274,61 @@
           mentionsMe: event.sender !== ownUserId && !event.redacted && mentions(event.content, ownUserId),
           links: described.kind === "text" ? findLinks(replyTo ? stripReplyFallback(described.body) : described.body).slice(0, MEDIA.maxPreviewLinks) : [],
           plain,
+          event,
           ...described,
+          members: undefined as BaseMessage[] | undefined,
         };
-      })
+      }),
+  );
+
+  type BaseMessage = (typeof baseMessages)[number];
+
+  const foldMembers = (list: BaseMessage[]) => {
+    const out: BaseMessage[] = [];
+    let run: BaseMessage[] = [];
+    const flush = () => {
+      if (run.length >= MEMBER_GROUP) out.push({ ...run[0], id: `members:${run[0].id}`, kind: "members", members: run, ts: run.at(-1)!.ts });
+      else out.push(...run);
+      run = [];
+    };
+    for (const message of list) {
+      if (message.kind === "system" && message.system?.verb) run.push(message);
+      else {
+        flush();
+        out.push(message);
+      }
+    }
+    flush();
+    return out;
+  };
+
+  const timelineMessages = $derived(
+    foldMembers(baseMessages)
       .map((message, index, all) => ({
         ...message,
         grouped: isChained(all[index - 1], message),
         last: !isChained(message, all[index + 1]),
       })),
   );
+
+  const formatLine = (line: SystemLine) =>
+    Object.entries(line.params).reduce((value, [key, param]) => value.replaceAll(`{${key}}`, param), text("system", line.key));
+
+  const summarise = (members: BaseMessage[]) => {
+    const counts = new Map<MemberVerb, number>();
+    for (const member of members) if (member.system?.verb) counts.set(member.system.verb, (counts.get(member.system.verb) ?? 0) + 1);
+    return MEMBER_VERBS.filter((verb) => counts.has(verb))
+      .map((verb) => text("system", `summary_${verb}`).replace("{count}", String(counts.get(verb))))
+      .join(", ");
+  };
+
+  const openUpgraded = (roomId: string) => {
+    if ($rooms[roomId]) return openRoom(navigation.spaceId, roomId);
+    window.open(`https://matrix.to/#/${encodeURIComponent(roomId)}`, "_blank", "noopener,noreferrer");
+  };
+
+  const pollEnded = (message: Message) =>
+    (relations.get(message.eventId) ?? []).some((event) => POLL_END.includes(event.type) && (event.sender === message.sender || mayModerate(event.sender)));
 
   const findReply = (eventId: string) => $currentTimeline.find((event) => event.event_id === eventId);
 
@@ -472,6 +578,15 @@
       add("download", text("chat", "download"), ICONS.download, () => downloadMedia(source, name).catch(() => undefined));
     }
 
+    if (message.location) {
+      const location = message.location;
+      add("coordinates", text("chat", "copy_coordinates"), ICONS.copy, () => copy(formatCoordinates(location, 6)));
+    }
+    if (message.kind === "poll" && !message.local && ownUserId && (message.sender === ownUserId || mayModerate(ownUserId)) && !pollEnded(message))
+      add("end-poll", text("chat", "end_poll"), ICONS.end, () => {
+        sendRoomEvent(POLL_END[message.event.type === POLL_START[1] ? 1 : 0], pollEndContent(message.event, text("poll", "ended"))).catch(() => undefined);
+      });
+
     if (message.plain) add("copy", text("chat", "copy_text"), ICONS.copy, () => copy(editableText(message)));
     if (!message.local && $currentRoom) {
       add("link", text("chat", "copy_link"), ICONS.link, () => copy(`https://matrix.to/#/${encodeURIComponent($currentRoom!.roomId)}/${encodeURIComponent(message.eventId)}`));
@@ -713,16 +828,20 @@
   {#if room}
     {#if lockedOut && dismissedRoom !== room.id}
       <div class="decrypt-banner row-nw align-centre gap-sm sm" role="status">
-        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-          <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z" />
-        </svg>
-        <span class="flex-max min-0 muted">{text("encryption", "banner")}</span>
+        <span class="banner-text row-nw align-centre gap-sm min-0">
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z" />
+          </svg>
+          <span class="muted min-0">{text("encryption", "banner")}</span>
+        </span>
+        <span class="banner-controls row-nw align-centre gap-xs">
         <button type="button" class="banner-action ghost press bold" onclick={() => restoreOpen.set(true)}>{text("encryption", "banner_action")}</button>
         <button type="button" class="banner-close ghost press" aria-label={text("encryption", "dismiss")} onclick={() => (dismissedRoom = room.id)}>
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
             <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" />
           </svg>
         </button>
+        </span>
       </div>
     {/if}
     {#key room.id}
@@ -743,6 +862,25 @@
       {#each timelineMessages as message (message.id)}
         {@const sender = getSender(message.sender)}
         {@const offset = swipe?.id === message.id ? swipe.dx : 0}
+        {#if message.kind === "system" && message.system}
+          <li class="system row-nw align-centre gap-sm xs" data-event-id={message.eventId}>{@render systemLine(message.system, message.ts)}</li>
+        {:else if message.kind === "members" && message.members}
+          <li class="system members xs" data-event-id={message.eventId}>
+            <details>
+              <summary class="row-nw align-centre gap-sm">
+                <span class="system-icon row centre" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={SYSTEM_ICONS.profile} /></svg></span>
+                <span class="system-text min-0 muted">{summarise(message.members)}</span>
+                <svg class="chevron" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d={ICONS.chevron} /></svg>
+                <time class="faint" datetime={new Date(message.ts).toISOString()}>{formatTime(message.ts)}</time>
+              </summary>
+              <ul class="member-list col">
+                {#each message.members as item (item.id)}
+                  {#if item.system}<li class="row-nw align-centre gap-sm" data-event-id={item.eventId}>{@render systemLine(item.system, item.ts)}</li>{/if}
+                {/each}
+              </ul>
+            </details>
+          </li>
+        {:else}
         <li
           class="message row-nw"
           class:grouped={message.grouped && !message.replyTo}
@@ -750,6 +888,7 @@
           class:sending={message.status === "sending"}
           class:failed={message.status === "failed"}
           class:mentioned={message.mentionsMe}
+          class:server={message.kind === "server"}
           class:menu-open={menu?.message.id === message.id}
           class:editing={editing?.eventId === message.eventId}
           data-event-id={message.eventId}
@@ -798,6 +937,8 @@
               <div class="meta row-nw align-centre gap-sm">
                 <button type="button" class="sender md bold ghost" class:admin={sender.powerLevel >= 100} data-profile-trigger onclick={(event) => openProfile(message.sender, event.currentTarget)}><EmojiText text={sender.name} /></button>
                 <time class="xs faint" datetime={new Date(message.ts).toISOString()}>{formatTime(message.ts)}</time>
+                {#if message.kind === "notice"}<span class="bot-tag xs bold">{text("chat", "bot")}</span>{/if}
+                {#if message.kind === "server"}<span class="bot-tag server-tag xs bold">{text("chat", "server_notice")}</span>{/if}
                 {#if pinnedSet.has(message.eventId)}{@render pinMark()}{/if}
               </div>
             {:else if pinnedSet.has(message.eventId)}
@@ -828,6 +969,12 @@
                 <p class="body selectable"><MessageBody content={message.content} {ownUserId} {resolveName} /></p>
               {/if}
               <MessageMedia content={message.content} />
+            {:else if message.kind === "sticker"}
+              <MessageMedia content={message.content} sticker />
+            {:else if message.kind === "location"}
+              <LocationCard location={message.location ?? null} live={message.live} label={message.live === undefined ? undefined : text("location", message.live ? "live_shared" : "live_ended")} />
+            {:else if message.kind === "poll"}
+              <Poll event={message.event} related={relations.get(message.eventId) ?? []} {ownUserId} mayEnd={mayModerate} />
             {:else if message.plain}
               <p class="body selectable {message.kind}">{#if message.kind === "emote"}<span class="emote-sender">* <EmojiText text={sender.name} /></span> {/if}<MessageBody content={message.content} {ownUserId} {resolveName} />{#if message.edited}<span class="edited xs faint"> {text("chat", "edited")}</span>{/if}</p>
             {:else}
@@ -871,6 +1018,7 @@
             </div>
           {/if}
         </li>
+        {/if}
       {/each}
       {#if isDetached && $canLoadNewer}
         <li class="history row centre" aria-busy="true">
@@ -1014,6 +1162,14 @@
   {/if}
 
 </section>
+
+{#snippet systemLine(line: SystemLine, ts: number)}
+  <span class="system-icon row centre {line.tone ?? ''}" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={SYSTEM_ICONS[line.icon]} /></svg></span>
+  <span class="system-text min-0 muted"><EmojiText text={formatLine(line)} />{#if line.detail}<span class="faint"> · <EmojiText text={line.detail} /></span>{/if}</span>
+  {#if line.jump}{@const target = line.jump}<button type="button" class="system-link ghost press bold" onclick={() => jumpToMessage(target)}>{text("system", "jump")}</button>{/if}
+  {#if line.room}{@const target = line.room}<button type="button" class="system-link ghost press bold" onclick={() => openUpgraded(target)}>{text("system", "go_to_room")}</button>{/if}
+  <time class="faint" datetime={new Date(ts).toISOString()}>{formatTime(ts)}</time>
+{/snippet}
 
 {#snippet pinMark()}
   <span class="pin-mark" title={text("chat", "pinned")} aria-label={text("chat", "pinned")} role="img">
@@ -1255,6 +1411,8 @@
 
   .decrypt-banner {
     flex: none;
+    flex-wrap: wrap;
+    row-gap: var(--azure-spacing-xs);
     margin: var(--azure-spacing-sm) var(--azure-spacing-md) 0;
     padding: var(--azure-spacing-sm) var(--azure-spacing-sm) var(--azure-spacing-sm) var(--azure-spacing-md);
     color: var(--colours-accent);
@@ -1263,6 +1421,19 @@
     border-radius: var(--azure-radius-md);
     box-shadow: 0 0 24px -12px var(--colours-accent-glow);
     animation: banner-in var(--azure-duration-md) var(--azure-ease-out);
+  }
+
+  .banner-text {
+    flex: 1 1 200px;
+  }
+
+  .banner-text svg {
+    flex: none;
+  }
+
+  .banner-controls {
+    flex: none;
+    margin-left: auto;
   }
 
   .banner-action {
@@ -1472,6 +1643,106 @@
 
   .notice {
     color: var(--colours-text-muted);
+  }
+
+  .bot-tag {
+    padding: 0 5px;
+    border-radius: var(--azure-radius-sm);
+    color: var(--colours-accent);
+    background-color: var(--colours-accent-faint);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
+  .message.server {
+    border: 1px solid var(--colours-accent);
+    background-color: var(--colours-accent-faint);
+  }
+
+  .system {
+    margin: 2px var(--azure-spacing-sm) 0;
+    padding: 2px var(--azure-spacing-lg) 2px 0;
+    padding-inline-start: calc(38px + var(--azure-spacing-lg) - 22px);
+    border-radius: var(--azure-radius-md);
+    transition: background-color var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .system:hover {
+    background-color: var(--colours-surface-hover);
+  }
+
+  .system time {
+    flex: none;
+    opacity: 0;
+    transition: opacity var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .system:hover time,
+  .system:focus-within time {
+    opacity: 1;
+  }
+
+  .system-icon {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    color: var(--colours-text-faint);
+  }
+
+  .system-icon.accent {
+    color: var(--colours-accent);
+  }
+
+  .system-icon.danger {
+    color: var(--colours-danger);
+  }
+
+  .system-text {
+    overflow-wrap: anywhere;
+  }
+
+  .system-link {
+    flex: none;
+    color: var(--colours-accent);
+  }
+
+  .system-link:hover {
+    text-decoration: underline;
+  }
+
+  .members details {
+    width: 100%;
+  }
+
+  .members summary {
+    cursor: pointer;
+    list-style: none;
+  }
+
+  .members summary::-webkit-details-marker {
+    display: none;
+  }
+
+  .chevron {
+    flex: none;
+    color: var(--colours-text-faint);
+    transition: rotate var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .members details[open] .chevron {
+    rotate: 90deg;
+  }
+
+  .member-list {
+    margin: 2px 0 0;
+    padding: 0 0 0 var(--azure-spacing-lg);
+    gap: 2px;
+    list-style: none;
+  }
+
+  .member-list li:hover time {
+    opacity: 1;
   }
 
   .emote {

@@ -6,16 +6,18 @@
   import { nearViewport } from "../../../scripts/misc/lazy";
   import { MEDIA } from "../../../scripts/settings/config";
   import { lightbox } from "../../../scripts/stores/lightbox";
+  import { getWaveform } from "../../../scripts/matrix/utilities/content";
+  import VoicePlayer from "./VoicePlayer.svelte";
 
-  let { content }: { content: Record<string, any> } = $props();
+  let { content, sticker = false }: { content: Record<string, any>; sticker?: boolean } = $props();
 
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
 
   const KINDS: Record<string, MediaKind> = { "m.image": "image", "m.video": "video", "m.audio": "audio", "m.file": "file" };
 
   const info = $derived((content.info ?? {}) as Record<string, any>);
-  const kind = $derived(KINDS[content.msgtype] ?? "file");
-  const mimetype = $derived(String(info.mimetype ?? "").split(";")[0].trim().toLowerCase());
+  const kind = $derived(sticker ? "image" : (KINDS[content.msgtype] ?? "file"));
+  const mimetype = $derived(String(info.mimetype ?? (sticker ? "image/png" : "")).split(";")[0].trim().toLowerCase());
   const source: MediaSource = $derived({ url: isMxc(content.url) ? content.url : undefined, file: isMxc(content.file?.url) ? content.file : undefined });
   const thumbnail: MediaSource | null = $derived(
     isMxc(info.thumbnail_file?.url) ? { file: info.thumbnail_file } : isMxc(info.thumbnail_url) ? { url: info.thumbnail_url } : null,
@@ -29,7 +31,7 @@
     const w = Number(info.w) || 0;
     const h = Number(info.h) || 0;
     if (!w || !h) return null;
-    const scale = Math.min(1, MEDIA.display.width / w, MEDIA.display.height / h);
+    const scale = Math.min(1, (sticker ? MEDIA.stickerSize : MEDIA.display.width) / w, (sticker ? MEDIA.stickerSize : MEDIA.display.height) / h);
     return { w: Math.round(w * scale), h: Math.round(h * scale), ratio: `${w} / ${h}` };
   });
 
@@ -48,7 +50,8 @@
 
   $effect(() => () => releases.splice(0).forEach((release) => release()));
 
-  const useThumbnail = $derived(kind === "image" && !!thumbnail && mimetype !== "image/gif");
+  const useThumbnail = $derived(kind === "image" && !sticker && !!thumbnail && mimetype !== "image/gif");
+  const waveform = $derived(kind === "audio" ? getWaveform(content) : null);
 
   const onvisible = () => {
     if (kind === "image") return useThumbnail && thumbnail ? acquire(thumbnail, thumbnailType, (value) => (link = value)) : acquire(source, mimetype, (value) => (link = value));
@@ -73,6 +76,7 @@
 {#if inline && kind !== "audio"}
   <div
     class="frame"
+    class:sticker
     class:sized={!!size}
     style:width={size ? `${size.w}px` : undefined}
     style:aspect-ratio={size?.ratio}
@@ -96,6 +100,8 @@
       </button>
     {/if}
   </div>
+{:else if inline && kind === "audio" && waveform}
+  <VoicePlayer {source} {mimetype} samples={waveform.samples} duration={waveform.duration} {name} />
 {:else if inline && kind === "audio"}
   <div class="audio" use:nearViewport={onvisible}>
     {#if link}<audio src={link} controls preload="metadata"></audio>{:else if failed}<span class="xs faint">{text("media", "load_failed")}</span>{/if}
@@ -127,6 +133,18 @@
     border-radius: var(--azure-radius-md);
     border: 1px solid var(--colours-outline-hairline);
     background-color: var(--colours-surface);
+  }
+
+  .frame.sticker {
+    width: min(100%, var(--sticker-size, 160px));
+    min-height: 0;
+    aspect-ratio: 1;
+    border: none;
+    background-color: transparent;
+  }
+
+  .frame.sticker img {
+    object-fit: contain;
   }
 
   .frame.sized {
