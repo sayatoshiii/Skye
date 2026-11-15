@@ -82,3 +82,75 @@ export const getWideMediaLink = (url: string, width = 640, height = 240) =>
         true,
       ) as Promise<string>,
   ).catch(() => undefined));
+
+export type EncryptedFile = {
+  url: string;
+  key: { kty: string; key_ops: string[]; alg: string; k: string; ext: boolean };
+  iv: string;
+  hashes: Record<string, string>;
+  v: string;
+};
+
+export type MediaSource = { url?: string; file?: EncryptedFile };
+
+const blobCache: Record<string, Promise<Blob>> = {};
+const linkCache: Record<string, { count: number; link: Promise<string> }> = {};
+
+const decryptBlob = async (blob: Blob, file: EncryptedFile) => {
+  const { Attachment, EncryptedAttachment } = await import(
+    "@matrix-org/matrix-sdk-crypto-wasm"
+  );
+  const { loadWasm } = await import("../crypto");
+  await loadWasm();
+
+  const { v, key, iv, hashes } = file;
+  const attachment = new EncryptedAttachment(
+    new Uint8Array(await blob.arrayBuffer()),
+    JSON.stringify({ v, key, iv, hashes }),
+  );
+
+  return Attachment.decrypt(attachment);
+};
+
+export const getSourceKey = (source: MediaSource) =>
+  source.file?.url ?? source.url ?? "";
+
+export const getMediaBlob = (source: MediaSource, mimetype: string) => {
+  const mxc = getSourceKey(source);
+  if (!isMxc(mxc)) return Promise.reject(new Error("Invalid media source."));
+
+  return (blobCache[`${mxc}:${mimetype}`] ??= queueMedia(async () => {
+    const raw = (await getAuthenticatedMedia(mxc)) as Blob;
+    const bytes = source.file
+      ? await decryptBlob(raw, source.file)
+      : new Uint8Array(await raw.arrayBuffer());
+
+    return new Blob([bytes as BlobPart], { type: mimetype });
+  }).catch((error) => {
+    delete blobCache[`${mxc}:${mimetype}`];
+    throw error;
+  }));
+};
+
+export const acquireMediaLink = (source: MediaSource, mimetype: string) => {
+  const key = `${getSourceKey(source)}:${mimetype}`;
+  const entry = (linkCache[key] ??= {
+    count: 0,
+    link: getMediaBlob(source, mimetype).then((blob) => URL.createObjectURL(blob)),
+  });
+
+  entry.count++;
+  entry.link.catch(() => {
+    if (linkCache[key] === entry) delete linkCache[key];
+  });
+
+  return {
+    link: entry.link,
+    release: () => {
+      if (--entry.count > 0 || linkCache[key] !== entry) return;
+      delete linkCache[key];
+      delete blobCache[key];
+      entry.link.then((link) => URL.revokeObjectURL(link)).catch(() => undefined);
+    },
+  };
+};

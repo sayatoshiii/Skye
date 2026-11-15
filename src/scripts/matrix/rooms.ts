@@ -302,3 +302,7 @@ export const getUnreadTotals = (roomList: RoomSummary[]) =>
     }),
     { notificationCount: 0, highlightCount: 0 },
   );
+
+export const canRedact = (room: RoomSummary, userId: UserId, sender: UserId) =>
+  canSendEvent(room, userId, "m.room.redaction") &&
+  (sender === userId || getPowerLevel(room, userId) >= (room.powerLevels?.redact ?? 50));
