@@ -44,6 +44,7 @@ export type CryptoContext = {
   onKeysReceived: (roomIds: RoomId[]) => void;
   onVerification: (state: VerificationState) => void;
   onStoreLocked: () => void;
+  onStoreLost: () => void;
 };
 
 export type RestoreProgress = { imported: number; total: number };
@@ -62,6 +63,71 @@ export const getStoreName = (session: Pick<Session, "userId" | "deviceId">) =>
 
 const passphraseKey = (session: Pick<Session, "userId" | "deviceId">) =>
   `${PASSPHRASE_PREFIX}:${session.userId}:${session.deviceId}`;
+
+const READY_PREFIX = "crypto_ready";
+const DEVICE_FLAG_PREFIXES = [PASSPHRASE_PREFIX, READY_PREFIX, "history_restored", "verify_prompted"];
+
+const readyKey = (session: Pick<Session, "userId" | "deviceId">) =>
+  `${READY_PREFIX}:${session.userId}:${session.deviceId}`;
+
+const isStoreReady = (session: Session) => {
+  try {
+    return localStorage.getItem(readyKey(session)) === "1";
+  } catch {
+    return false;
+  }
+};
+
+const markStoreReady = (session: Session) => {
+  try {
+    localStorage.setItem(readyKey(session), "1");
+  } catch {}
+};
+
+const databaseHasStores = (name: string) =>
+  new Promise<boolean>((resolve) => {
+    let created = false;
+    const request = indexedDB.open(name);
+    request.onupgradeneeded = () => {
+      created = true;
+    };
+    request.onsuccess = () => {
+      const database = request.result;
+      const found = !created && database.objectStoreNames.length > 0;
+      database.close();
+      if (created) indexedDB.deleteDatabase(name);
+      resolve(found);
+    };
+    request.onerror = request.onblocked = () => resolve(true);
+  });
+
+export const cryptoStoreExists = async (
+  session: Pick<Session, "userId" | "deviceId">,
+) => {
+  const name = `${getStoreName(session)}::${STORE_SUFFIXES[0]}`;
+  try {
+    if (typeof indexedDB.databases === "function") {
+      const databases = await indexedDB.databases();
+      return databases.some((database) => database.name === name);
+    }
+    return await databaseHasStores(name);
+  } catch {
+    return true;
+  }
+};
+
+export const requestPersistence = () => {
+  try {
+    navigator.storage?.persist?.().catch(() => undefined);
+  } catch {}
+};
+
+export const clearDeviceFlags = (session: Pick<Session, "userId" | "deviceId"> | null) => {
+  if (!session || typeof localStorage === "undefined") return;
+  DEVICE_FLAG_PREFIXES.forEach((prefix) =>
+    localStorage.removeItem(`${prefix}:${session.userId}:${session.deviceId}`),
+  );
+};
 
 const randomPassphrase = () => {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -89,7 +155,7 @@ export const clearCryptoStore = async (
 ) => {
   if (!session || typeof localStorage === "undefined") return;
 
-  localStorage.removeItem(passphraseKey(session));
+  clearDeviceFlags(session);
   await Promise.all(
     STORE_SUFFIXES.map((suffix) =>
       deleteDatabase(`${getStoreName(session)}::${suffix}`),
@@ -145,15 +211,24 @@ export const createCrypto = (context: CryptoContext) => {
   let pending = false;
 
   const ready: Promise<OlmMachine | null> = loadWasm()
-    .then(() =>
-      OlmMachine.initialize(
+    .then(async () => {
+      if (isStoreReady(session) && !(await cryptoStoreExists(session))) {
+        context.onStoreLost();
+        return null;
+      }
+      return OlmMachine.initialize(
         new WasmUserId(session.userId),
         new WasmDeviceId(session.deviceId),
         getStoreName(session),
         getPassphrase(session),
-      ),
-    )
+      );
+    })
     .then((machine) => {
+      if (!machine) return null;
+      if (!isStoreReady(session)) {
+        markStoreReady(session);
+        requestPersistence();
+      }
       machine.registerRoomKeyUpdatedCallback(async (infos) => {
         context.onKeysReceived([
           ...new Set(infos.map((info) => info.roomId.toString())),

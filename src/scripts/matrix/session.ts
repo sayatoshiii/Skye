@@ -9,6 +9,8 @@ const STORAGE_KEYS = {
   refreshToken: "refresh_token",
 } as const;
 
+export const SIGNOUT_REASON_KEY = "signout_reason";
+
 const hasStorage = () => typeof localStorage !== "undefined";
 
 export const saveSession = (session: Session) => {
