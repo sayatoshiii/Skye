@@ -515,16 +515,19 @@
 
     .handle {
       display: block;
-      flex: none;
+      position: absolute;
+      top: var(--azure-spacing-sm);
+      left: 50%;
+      translate: -50% 0;
       width: 36px;
       height: 4px;
-      margin: var(--azure-spacing-sm) auto 0;
+      margin: 0;
       border-radius: var(--azure-radius-pill);
       background-color: var(--colours-outline-strong);
     }
 
     .head {
-      min-height: 44px;
+      min-height: 56px;
     }
 
     .pin {
