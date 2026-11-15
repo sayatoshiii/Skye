@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from "svelte";
+  import { dismissible } from "../../scripts/misc/dismiss.svelte";
   import { portal } from "../../scripts/misc/portal";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { miniProfile, openFullProfile, type ProfileTarget } from "../../scripts/stores/profile";
@@ -23,10 +24,17 @@
 
   const data = createProfileData(() => ({ userId: target?.userId, roomId: target?.roomId }));
 
-  const close = (restore = true) => {
+  let restoring = true;
+
+  const exit = dismissible(() => {
     const element = target?.anchor?.element;
     miniProfile.set(null);
-    if (restore) element?.focus();
+    if (restoring) element?.focus();
+  });
+
+  const close = (restore = true) => {
+    restoring = restore;
+    exit.close();
   };
 
   const place = () => {
@@ -83,7 +91,7 @@
 </script>
 
 {#if target}
-  <div class="layer" role="presentation" use:portal>
+  <div class="layer" class:closing={exit.closing} role="presentation" use:portal>
     <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={() => close()}></button>
     {#key target.userId}
       <div
@@ -93,6 +101,8 @@
         aria-label={text("user_profile", "card").replace("{name}", data.displayName)}
         tabindex="-1"
         bind:this={card}
+        inert={exit.closing}
+        onanimationend={exit.onanimationend}
         style:left="{left}px"
         style:top="{top}px"
         {onkeydown}
@@ -104,6 +114,7 @@
           avatar={data.avatar}
           banner={data.banner}
           presence={data.status?.presence}
+          status={data.status?.statusMessage}
           role={data.role}
           size="sm"
           surface="var(--colours-surface-raised)"
@@ -155,6 +166,21 @@
   .card.placed {
     visibility: visible;
     animation: pop var(--azure-duration-md) var(--azure-ease-fluid);
+  }
+
+  .layer.closing {
+    pointer-events: none;
+  }
+
+  .closing .card.placed {
+    animation: profile-out var(--azure-duration-fast) var(--azure-ease-out) forwards;
+  }
+
+  @keyframes profile-out {
+    to {
+      opacity: 0;
+      transform: translateY(4px) scale(0.97);
+    }
   }
 
   .card :global(.banner) {
@@ -232,6 +258,14 @@
 
     .card.placed {
       animation: rise var(--azure-duration-glide) var(--azure-ease-fluid);
+    }
+
+    .closing .scrim {
+      animation: exit-fade var(--azure-duration-md) var(--azure-ease-out) forwards;
+    }
+
+    .closing .card.placed {
+      animation: exit-sink var(--azure-duration-md) var(--azure-ease-out) forwards;
     }
 
     .handle {

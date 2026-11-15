@@ -1,7 +1,12 @@
 <script lang="ts">
+  import { tooltip } from "../../scripts/misc/tooltip";
   import type { Snippet } from "svelte";
   import EmojiText from "../ui/EmojiText.svelte";
   import Avatar from "../ui/Avatar.svelte";
+  import PresenceDot from "../ui/PresenceDot.svelte";
+  import { formatAgo } from "../../scripts/misc/time";
+  import { presenceDetails } from "../../scripts/stores/matrix";
+  import { statusTextOf } from "../../scripts/stores/presence";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { hueOf } from "../../scripts/matrix/utilities/profile";
 
@@ -11,6 +16,7 @@
     avatar,
     banner,
     presence,
+    status,
     left = false,
     role,
     size = "md",
@@ -23,6 +29,7 @@
     avatar?: string;
     banner?: string;
     presence?: string;
+    status?: string;
     left?: boolean;
     role?: "admin" | "moderator";
     size?: "sm" | "md" | "lg";
@@ -31,7 +38,7 @@
     actions?: Snippet;
   } = $props();
 
-  const AVATAR = { sm: "72px", md: "84px", lg: "112px" };
+  const AVATAR = { sm: 72, md: 84, lg: 112 };
 
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
 
@@ -47,6 +54,17 @@
     copyTimer = setTimeout(() => (copied = false), 1600);
   };
 
+  const shownStatus = $derived(status?.trim() || $statusTextOf(userId));
+
+  const activity = $derived.by(() => {
+    const details = $presenceDetails[userId];
+    if (!details) return undefined;
+    if (details.currentlyActive) return text("user_profile", "active_now");
+    if (details.lastActiveAgo === undefined) return undefined;
+    const ago = details.lastActiveAgo + Date.now() - details.receivedAt;
+    return text("user_profile", "last_active").replace("{time}", formatAgo(ago, [["day", 86400], ["hour", 3600], ["minute", 60]]));
+  });
+
   const openLabel = $derived(text("user_profile", "open").replace("{name}", displayName));
 </script>
 
@@ -56,12 +74,16 @@
   <div class="identity col gap-xs">
     <div class="top-row row-nw">
       {#if onopen}
-        <button type="button" class="avatar ghost press" data-presence={presence ?? "offline"} class:left class:themed={!banner} aria-label={openLabel} onclick={onopen}>
-          <Avatar name={displayName} url={avatar} size={AVATAR[size]} radius="50%" />
+        <button type="button" class="avatar ghost press" class:left class:themed={!banner} aria-label={openLabel} onclick={onopen}>
+          <PresenceDot {userId} size={AVATAR[size]}>
+            <Avatar name={displayName} url={avatar} size={`${AVATAR[size]}px`} radius="50%" />
+          </PresenceDot>
         </button>
       {:else}
-        <span class="avatar" data-presence={presence ?? "offline"} class:left class:themed={!banner}>
-          <Avatar name={displayName} url={avatar} size={AVATAR[size]} radius="50%" />
+        <span class="avatar" class:left class:themed={!banner}>
+          <PresenceDot {userId} size={AVATAR[size]}>
+            <Avatar name={displayName} url={avatar} size={`${AVATAR[size]}px`} radius="50%" />
+          </PresenceDot>
         </span>
       {/if}
       {#if actions}
@@ -76,7 +98,7 @@
     {/if}
     <div class="handle row-nw align-centre gap-xs">
       <span class="id sm truncate">{userId}</span>
-      <button type="button" class="copy ghost press" class:copied aria-label={copied ? text("user_profile", "copied") : text("user_profile", "copy")} title={copied ? text("user_profile", "copied") : text("user_profile", "copy")} onclick={copy}>
+      <button type="button" class="copy ghost press" class:copied aria-label={copied ? text("user_profile", "copied") : text("user_profile", "copy")} use:tooltip={copied ? text("user_profile", "copied") : text("user_profile", "copy")} onclick={copy}>
         {#if copied}
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m5 12 5 5 9-10" /></svg>
         {:else}
@@ -84,6 +106,13 @@
         {/if}
       </button>
     </div>
+
+    {#if shownStatus}
+      <p class="status md"><EmojiText text={shownStatus} /></p>
+    {/if}
+    {#if activity}
+      <p class="activity xs">{activity}</p>
+    {/if}
 
     {#if role}
       <span class="role xs bold row-nw align-centre gap-xs" data-role={role}>
@@ -145,6 +174,7 @@
   }
 
   .avatar {
+    --presence-outset: calc(var(--ring) * 0.6);
     position: relative;
     display: flex;
     width: fit-content;
@@ -169,26 +199,6 @@
 
   .avatar.left :global(img) {
     filter: grayscale(0.7) brightness(0.8);
-  }
-
-  .avatar::after {
-    content: "";
-    position: absolute;
-    right: 2px;
-    bottom: 2px;
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    border: 4px solid var(--surface);
-    background-color: var(--colours-text-faint);
-  }
-
-  [data-presence="online"]::after {
-    background-color: var(--colours-success);
-  }
-
-  [data-presence="unavailable"]::after {
-    background-color: var(--colours-warning);
   }
 
   .name-button {
@@ -260,6 +270,17 @@
   .role[data-role="moderator"] .role-dot {
     background-color: var(--colours-warning);
     box-shadow: none;
+  }
+
+  .status {
+    margin: var(--azure-spacing-xs) 0 0;
+    color: var(--colours-text);
+    overflow-wrap: anywhere;
+  }
+
+  .activity {
+    margin: 2px 0 0;
+    color: var(--colours-text-faint);
   }
 
   .left-note {

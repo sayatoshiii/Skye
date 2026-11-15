@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tooltip } from "../../scripts/misc/tooltip";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { openDirect } from "../../scripts/stores/navigation.svelte";
 
@@ -25,7 +26,7 @@
   };
 </script>
 
-<button type="button" class="message-button row-nw align-centre centre gap-sm sm bold press" class:compact class:failed aria-busy={busy} title={failed ? text("user_profile", "message_failed") : undefined} onclick={run}>
+<button type="button" class="message-button row-nw align-centre centre gap-sm sm bold press" class:compact class:failed aria-busy={busy} use:tooltip={failed ? text("user_profile", "message_failed") : undefined} onclick={run}>
   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 5h16v11H9l-5 4V5Z" /></svg>
   <span>{busy ? text("user_profile", "messaging") : failed ? text("user_profile", "message_failed") : text("user_profile", "message")}</span>
 </button>
