@@ -1,7 +1,14 @@
 <script lang="ts">
+  import { tooltip } from "../../scripts/misc/tooltip";
   import EmojiText from "../ui/EmojiText.svelte";
   import Avatar from "../ui/Avatar.svelte";
   import Toggle from "../ui/Toggle.svelte";
+  import ConfirmDialog from "../ui/ConfirmDialog.svelte";
+  import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
+  import { MENU_ICONS } from "../../scripts/misc/icons";
+  import { longpress } from "../../scripts/misc/longpress";
+  import { toMatrixTo } from "../../scripts/matrix/utilities/links";
+  import { describeMembershipError, leaveRoom, type MembershipError } from "../../scripts/matrix/utilities/membership";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { formatAgo } from "../../scripts/misc/time";
   import { getHierarchy, joinRoom, knockRoom, type HierarchyRoom } from "../../scripts/matrix/utilities/hierarchy";
@@ -9,7 +16,7 @@
   import type { RoomSummary, Session } from "../../scripts/matrix/types";
   import { browseSettings, dismissBrowseIntro, type BrowseSettings } from "../../scripts/settings/browse";
   import { hiddenRooms, isRoomHidden, setRoomsHidden } from "../../scripts/stores/hidden";
-  import { rooms, session } from "../../scripts/stores/matrix";
+  import { markRoomRead, rooms, session } from "../../scripts/stores/matrix";
   import { navigation, openRoom } from "../../scripts/stores/navigation.svelte";
   import { toEntity } from "../../scripts/stores/entities";
 
@@ -241,6 +248,63 @@
   };
 
   const open = (roomId: string) => openRoom(spaceId, roomId);
+
+  let leaving: Item | null = $state(null);
+  let leavingBusy = $state(false);
+  let confirmDialog: ConfirmDialog | undefined = $state();
+  let leaveError: MembershipError | null = $state(null);
+
+  const leave = async (item: Item) => {
+    if (!activeSession) return;
+    leavingBusy = true;
+    leaveError = null;
+    try {
+      await leaveRoom(activeSession, item.roomId);
+      confirmDialog?.dismiss();
+    } catch (error) {
+      leaveError = describeMembershipError(error);
+    } finally {
+      leavingBusy = false;
+    }
+  };
+
+  let menu: { item: Item; x: number; y: number } | null = $state.raw(null);
+
+  const openMenu = (item: Item, x: number, y: number) => {
+    if (!menu) menu = { item, x, y };
+  };
+
+  const copy = (value: string) => navigator.clipboard?.writeText(value).catch(() => undefined);
+
+  const menuItems = (item: Item): MenuItem[] => {
+    const joined = isJoined(item.roomId);
+    const shared = [
+      { id: "link", label: text("room_menu", "copy_link"), icon: MENU_ICONS.link, run: () => copy(toMatrixTo(item.roomId, viaFor(item))) },
+      { id: "id", label: text("room_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(item.roomId) },
+    ];
+    if (!joined) {
+      const entry: MenuItem[] = canJoin(item)
+        ? [{ id: "join", label: text("browse", "join"), icon: MENU_ICONS.add, run: () => act(item, "join") }]
+        : canKnock(item) && !requested[item.roomId]
+          ? [{ id: "knock", label: text("browse", "knock"), icon: MENU_ICONS.add, run: () => act(item, "knock") }]
+          : [];
+      return [...entry, ...shared];
+    }
+    const shown = !isRoomHidden(hidden, spaceId, item.roomId);
+    return [
+      { id: "open", label: text("room_menu", "open"), icon: MENU_ICONS.open, run: () => open(item.roomId) },
+      { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, run: () => markRoomRead(item.roomId) },
+      { id: "hide", label: text("room_menu", shown ? "hide" : "show"), icon: MENU_ICONS.hide, run: () => setRoomsHidden(spaceId, [item.roomId], shown) },
+      ...shared,
+      { id: "leave", label: text("room_menu", "leave"), icon: MENU_ICONS.leave, danger: true, run: (event) => (event instanceof MouseEvent && event.shiftKey ? void leave(item) : ((leaveError = null), (leaving = item))) },
+    ];
+  };
+
+  const askLeave = (item: Item, event: MouseEvent) => {
+    if (event.shiftKey) return void leave(item);
+    leaveError = null;
+    leaving = item;
+  };
 </script>
 
 {#snippet joinControl(item: Item, compact: boolean)}
@@ -248,7 +312,7 @@
     {#if compact}
       <span class="joined xs bold">{text("browse", "joined")}</span>
     {:else}
-      <label class="check row-nw align-centre gap-sm sm" title={text("browse", "show")}>
+      <label class="check row-nw align-centre gap-sm sm" use:tooltip={text("browse", "show")}>
         <span class="sr-only">{text("browse", "show")}</span>
         <input
           type="checkbox"
@@ -256,6 +320,7 @@
           onchange={(event) => setRoomsHidden(spaceId, [item.roomId], !event.currentTarget.checked)}
         />
       </label>
+      <button type="button" class="leave-action ghost press sm" onclick={(event) => askLeave(item, event)}>{text("room_menu", "leave")}</button>
     {/if}
   {:else if joining(item.roomId)}
     <button type="button" class="action press sm bold row-nw align-centre gap-sm" disabled aria-busy="true">
@@ -263,7 +328,7 @@
       {text("browse", "joining")}
     </button>
   {:else if canJoin(item)}
-    <button type="button" class="action primary press sm bold" class:failed={failed[item.roomId]} title={failed[item.roomId] ? text("browse", "join_failed") : undefined} onclick={() => act(item, "join")}>
+    <button type="button" class="action primary press sm bold" class:failed={failed[item.roomId]} use:tooltip={failed[item.roomId] ? text("browse", "join_failed") : undefined} onclick={() => act(item, "join")}>
       {text("browse", "join")}
     </button>
   {:else if canKnock(item)}
@@ -277,7 +342,7 @@
       {text("browse", requested[item.roomId] ? "requested" : "knock")}
     </button>
   {:else}
-    <span class="blocked" title={blockedReason(item)}>
+    <span class="blocked" use:tooltip={blockedReason(item)}>
       <button type="button" class="action press sm bold" disabled aria-label={`${text("browse", "join")}: ${blockedReason(item)}`}>
         {text("browse", "join")}
       </button>
@@ -386,7 +451,15 @@
               <ul class="items col">
                 {#each section.items as item (item.roomId)}
                   {@const active = activity(item.roomId)}
-                  <li class="item-row row-nw align-centre gap-md" class:dim={isJoined(item.roomId) && isRoomHidden(hidden, spaceId, item.roomId)}>
+                  <li
+                    class="item-row row-nw align-centre gap-md"
+                    class:dim={isJoined(item.roomId) && isRoomHidden(hidden, spaceId, item.roomId)}
+                    oncontextmenu={(event) => {
+                      event.preventDefault();
+                      openMenu(item, event.clientX, event.clientY);
+                    }}
+                    use:longpress={(x, y) => openMenu(item, x, y)}
+                  >
                     <button type="button" class="room-main ghost row-nw align-centre gap-md flex-max min-0" disabled={!isJoined(item.roomId)} onclick={() => open(item.roomId)}>
                       {#if item.avatarUrl}
                         <Avatar name={item.name} url={item.avatarUrl} size="36px" radius="var(--azure-radius-md)" />
@@ -416,7 +489,47 @@
   </div>
 </section>
 
+{#if menu}
+  <MessageMenu items={menuItems(menu.item)} x={menu.x} y={menu.y} label={text("room_menu", "actions")} onclose={() => (menu = null)} />
+{/if}
+
+{#if leaving}
+  {@const target = leaving}
+  <ConfirmDialog
+    bind:this={confirmDialog}
+    title={text("room_menu", "leave_title").replace("{name}", target.name)}
+    body={text("room_menu", "leave_body")}
+    cancelLabel={text("room_menu", "cancel")}
+    confirmLabel={leavingBusy ? text("room_menu", "leaving") : text("room_menu", "leave")}
+    busy={leavingBusy}
+    onconfirm={() => leave(target)}
+    onclose={() => (leaving = null)}
+  >
+    {#if leaveError}
+      <p class="leave-error sm" role="alert">{text("room_menu", "errors", leaveError)}</p>
+    {/if}
+  </ConfirmDialog>
+{/if}
+
 <style>
+  .leave-action {
+    flex: none;
+    padding: var(--azure-spacing-xs) var(--azure-spacing-sm);
+    border-radius: var(--azure-radius-sm);
+    color: var(--colours-text-faint);
+    transition: color var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .leave-action:hover,
+  .leave-action:focus-visible {
+    color: var(--colours-danger);
+  }
+
+  .leave-error {
+    margin: 0;
+    color: var(--colours-danger);
+  }
+
   .browse {
     height: 100%;
     background-color: var(--colours-background);

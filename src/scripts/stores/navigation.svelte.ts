@@ -201,3 +201,52 @@ export const openDirect = async (userId: string) => {
   navigation.pane = "chat";
   return roomId;
 };
+
+const getRoomIdsIn = (spaceId: string) => {
+  if (spaceId === HOME) return getHomeRoomIds();
+  const tree = getSpaceTree(spaceId);
+  return tree ? getSpaceRoomIds(tree) : [];
+};
+
+export const findSpaceFor = (roomId: string) =>
+  get(spaces).find((tree) => getSpaceRoomIds(tree).includes(roomId))?.space.roomId ?? HOME;
+
+export const openJoined = (roomId: string) => {
+  const room = get(rooms)[roomId];
+  if (room?.isSpace) return openBrowse(roomId);
+  openRoom(findSpaceFor(roomId), roomId);
+  navigation.pane = "chat";
+};
+
+export const navigateAwayFrom = (roomIds: string[]) => {
+  const gone = new Set(roomIds);
+  Object.entries(lastRoomPerSpace).forEach(([spaceId, roomId]) => gone.has(roomId) && delete lastRoomPerSpace[spaceId]);
+
+  const leavingSpace = gone.has(navigation.spaceId);
+  if (!leavingSpace && !(navigation.roomId && gone.has(navigation.roomId))) return;
+
+  const spaceId = leavingSpace ? HOME : navigation.spaceId;
+  const next = getRoomIdsIn(spaceId).find((roomId) => !gone.has(roomId));
+
+  if (next) return openRoom(spaceId, next);
+  if (spaceId !== HOME) return openBrowse(spaceId);
+
+  navigation.spaceId = HOME;
+  navigation.roomId = undefined;
+  navigation.browsing = false;
+  history.pushState(null, "", serialisePath(HOME));
+};
+
+export const spaceMenu = $state<{ request: { spaceId: string; x: number; y: number; width?: number } | null }>({ request: null });
+
+export const openSpaceMenu = (spaceId: string, x: number, y: number, width?: number) => {
+  if (spaceId === HOME || spaceMenu.request) return;
+  spaceMenu.request = { spaceId, x, y, width };
+};
+
+export const roomMenu = $state<{ request: { roomId: string; x: number; y: number } | null }>({ request: null });
+
+export const openRoomMenu = (roomId: string, x: number, y: number) => {
+  if (roomMenu.request) return;
+  roomMenu.request = { roomId, x, y };
+};

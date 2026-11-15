@@ -1,13 +1,24 @@
 <script lang="ts">
+  import { tooltip } from "../../scripts/misc/tooltip";
   import EmojiText from "../ui/EmojiText.svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { getOrphanRooms } from "../../scripts/matrix/rooms";
   import type { RoomSummary } from "../../scripts/matrix/types";
   import { toEntity } from "../../scripts/stores/entities";
-  import { directMessages, rooms, session, spaces } from "../../scripts/stores/matrix";
-  import { HOME, navigation, openBrowse, openRoom } from "../../scripts/stores/navigation.svelte";
-  import { hiddenRooms } from "../../scripts/stores/hidden";
+  import { directMessages, markRoomRead, rooms, session, spaces } from "../../scripts/stores/matrix";
+  import { HOME, navigateAwayFrom, navigation, openBrowse, openRoom, openRoomMenu, openSpaceMenu, roomMenu } from "../../scripts/stores/navigation.svelte";
+  import { hiddenRooms, setRoomsHidden } from "../../scripts/stores/hidden";
+  import { serverNameFromUserId } from "../../scripts/matrix/discovery";
+  import { toMatrixTo } from "../../scripts/matrix/utilities/links";
+  import { describeMembershipError, forgetRoom, leaveRoom, type MembershipError } from "../../scripts/matrix/utilities/membership";
+  import { MENU_ICONS } from "../../scripts/misc/icons";
+  import { longpress } from "../../scripts/misc/longpress";
+  import type { RoomEntity } from "../../scripts/stores/entities";
+  import MessageMenu, { type MenuItem } from "../app/MessageMenu.svelte";
   import Avatar from "../ui/Avatar.svelte";
+  import PresenceDot from "../ui/PresenceDot.svelte";
+  import { statusTextOf } from "../../scripts/stores/presence";
+  import ConfirmDialog from "../ui/ConfirmDialog.svelte";
 
   let { onpick }: { onpick?: () => void } = $props();
 
@@ -104,6 +115,59 @@
     onpick?.();
   };
 
+  const menu = $derived.by(() => {
+    const request = roomMenu.request;
+    const summary = request && $rooms[request.roomId];
+    return request && summary ? { room: toEntity(summary, $session?.userId), x: request.x, y: request.y } : null;
+  });
+  let confirming: { room: RoomEntity; forget: boolean } | null = $state(null);
+  let leavingBusy = $state(false);
+  let confirmDialog: ConfirmDialog | undefined = $state();
+  let leaveError: MembershipError | null = $state(null);
+
+  const copy = (value: string) => navigator.clipboard?.writeText(value).catch(() => undefined);
+
+  const openMenu = (room: RoomEntity, x: number, y: number) => openRoomMenu(room.id, x, y);
+
+  const leave = async (room: RoomEntity, forget: boolean) => {
+    if (!$session || leavingBusy) return;
+    leavingBusy = true;
+    leaveError = null;
+
+    try {
+      await leaveRoom($session, room.id);
+      if (forget) await forgetRoom($session, room.id).catch((error) => console.warn("Skye could not forget the room", error));
+      navigateAwayFrom([room.id]);
+      confirmDialog?.dismiss();
+    } catch (error) {
+      leaveError = describeMembershipError(error);
+      if (!confirming) confirming = { room, forget };
+    } finally {
+      leavingBusy = false;
+    }
+  };
+
+  const askLeave = (room: RoomEntity, event: MouseEvent | KeyboardEvent) => {
+    leaveError = null;
+    if (event.shiftKey) return void leave(room, false);
+    confirming = { room, forget: false };
+  };
+
+  const menuItems = (room: RoomEntity): MenuItem[] => {
+    const via = $session ? [serverNameFromUserId($session.userId)] : [];
+    const inSpace = navigation.spaceId !== HOME;
+
+    return [
+      { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, run: () => markRoomRead(room.id) },
+      { id: "link", label: text("room_menu", "copy_link"), icon: MENU_ICONS.link, run: () => copy(toMatrixTo(room.alias ?? room.id, via)) },
+      { id: "id", label: text("room_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(room.id) },
+      ...(inSpace
+        ? [{ id: "hide", label: text("room_menu", "hide"), icon: MENU_ICONS.hide, run: () => setRoomsHidden(navigation.spaceId, [room.id], true) }]
+        : []),
+      { id: "leave", label: text("room_menu", "leave"), icon: MENU_ICONS.leave, danger: true, run: (event) => askLeave(room, event) },
+    ];
+  };
+
   const pick = (roomId: string) => {
     openRoom(navigation.spaceId, roomId);
     onpick?.();
@@ -112,9 +176,27 @@
 
 <section class="channels col min-0">
   <header class="header row-nw align-centre hairline-b">
-    <h1 class="title bold md truncate">
-      {space?.name ?? text("navigation", "direct_messages")}
-    </h1>
+    {#if tree}
+      {@const spaceId = tree.space.roomId}
+      <button
+        type="button"
+        class="title-button ghost row-nw align-centre gap-sm flex-max min-0"
+        aria-haspopup="menu"
+        onclick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          openSpaceMenu(spaceId, rect.left + 8, rect.bottom + 4, rect.width - 16);
+        }}
+        oncontextmenu={(event) => {
+          event.preventDefault();
+          openSpaceMenu(spaceId, event.clientX, event.clientY);
+        }}
+      >
+        <h1 class="title bold md truncate flex-max">{space?.name}</h1>
+        <svg class="title-chevron" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" /></svg>
+      </button>
+    {:else}
+      <h1 class="title bold md truncate">{text("navigation", "direct_messages")}</h1>
+    {/if}
   </header>
 
   <div class="list col flex-max min-0">
@@ -164,16 +246,32 @@
                   <div class="room-inner">
                   <button
                     class="room item ghost press row-nw align-centre gap-sm md"
+                    class:direct={room.isDirect}
                     class:unread={room.unread || room.mentions}
                     aria-current={active ? "page" : undefined}
                     onclick={() => pick(room.id)}
+                    oncontextmenu={(event) => {
+                      event.preventDefault();
+                      openMenu(room, event.clientX, event.clientY);
+                    }}
+                    use:longpress={(x, y) => openMenu(room, x, y)}
                   >
                     {#if room.isDirect}
-                      <Avatar name={room.name} url={room.avatar} size="28px" radius="50%" />
+                      {@const status = $statusTextOf(room.directUserId)}
+                      {@const shown = room.name.startsWith("@") ? room.name.slice(1).split(":")[0] : room.name}
+                      <PresenceDot userId={room.directUserId} size={32}>
+                        <Avatar name={shown} url={room.avatar} size="32px" radius="50%" />
+                      </PresenceDot>
+                      <span class="dm-text col flex-max min-0" use:tooltip={room.directUserId}>
+                        <span class="dm-name truncate"><EmojiText text={shown} /></span>
+                        {#if status}
+                          <span class="dm-status xs muted truncate"><EmojiText text={status} /></span>
+                        {/if}
+                      </span>
                     {:else}
                       <span class="hash faint" aria-hidden="true">#</span>
+                      <span class="truncate flex-max"><EmojiText text={room.name} /></span>
                     {/if}
-                    <span class="truncate flex-max"><EmojiText text={room.name} /></span>
                     {#if room.mentions}
                       <span class="badge xs bold">{room.mentions}</span>
                     {/if}
@@ -188,6 +286,34 @@
     {/each}
   </div>
 </section>
+
+{#if menu}
+  <MessageMenu items={menuItems(menu.room)} x={menu.x} y={menu.y} label={text("room_menu", "actions")} onclose={() => (roomMenu.request = null)} />
+{/if}
+
+{#if confirming}
+  {@const target = confirming}
+  <ConfirmDialog
+    bind:this={confirmDialog}
+    title={text("room_menu", "leave_title").replace("{name}", target.room.name)}
+    body={text("room_menu", "leave_body")}
+    cancelLabel={text("room_menu", "cancel")}
+    confirmLabel={leavingBusy ? text("room_menu", "leaving") : text("room_menu", "leave")}
+    busy={leavingBusy}
+    onconfirm={() => leave(target.room, target.forget)}
+    onclose={() => (confirming = null)}
+  >
+    {#if target.room.isDirect}
+      <label class="forget row-nw align-centre gap-sm sm">
+        <input type="checkbox" bind:checked={confirming.forget} disabled={leavingBusy} />
+        <span>{text("room_menu", "forget")}</span>
+      </label>
+    {/if}
+    {#if leaveError}
+      <p class="leave-error sm" role="alert">{text("room_menu", "errors", leaveError)}</p>
+    {/if}
+  </ConfirmDialog>
+{/if}
 
 <style>
   .channels {
@@ -205,6 +331,35 @@
   .title {
     margin: 0;
     color: var(--colours-text-strong);
+    text-align: left;
+  }
+
+  .title-button {
+    align-self: stretch;
+    margin: 0 calc(var(--azure-spacing-lg) * -1);
+    padding: 0 var(--azure-spacing-lg);
+    border-radius: 0;
+  }
+
+  .title-button:hover {
+    background-color: var(--colours-surface-hover);
+  }
+
+  .title-button > * {
+    transition: transform var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .title-button:active > * {
+    transform: scale(0.95);
+  }
+
+  .title-button:active {
+    background-color: var(--colours-surface-active);
+  }
+
+  .title-chevron {
+    flex: none;
+    color: var(--colours-text-muted);
   }
 
   .list {
@@ -257,6 +412,38 @@
     text-align: left;
   }
 
+  .room.direct {
+    min-height: 42px;
+    padding: 0 8px;
+    gap: 12px;
+    border-radius: 6px;
+  }
+
+  .room.direct[aria-current="page"] {
+    color: var(--colours-text-strong);
+  }
+
+  .dm-name {
+    font-size: 16px;
+    font-weight: 500;
+    line-height: 20px;
+  }
+
+  .room.unread .dm-name,
+  .room.direct[aria-current="page"] .dm-name {
+    color: var(--colours-text-strong);
+  }
+
+  .dm-status {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--colours-text-muted);
+  }
+
+  .room-slot:has(.direct) .room-inner {
+    padding-block: 0.5px;
+  }
+
   .room.unread {
     color: var(--colours-text-strong);
     font-weight: 600;
@@ -290,6 +477,23 @@
   .empty {
     margin: 0;
     padding: var(--azure-spacing-sm) var(--azure-spacing-md);
+  }
+
+  .forget {
+    cursor: pointer;
+    color: var(--colours-text);
+  }
+
+  .forget input {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--colours-accent);
+  }
+
+  .leave-error {
+    margin: 0;
+    color: var(--colours-danger);
   }
 
   .browse {
