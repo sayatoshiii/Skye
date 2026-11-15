@@ -27,7 +27,7 @@
     ownUserId?: string;
     getSender: (userId: string) => { name: string; avatar?: string };
     onjump: (eventId: string) => void;
-    onunpin: (eventId: string) => void;
+    onunpin: (eventId: string, event?: MouseEvent) => void;
     onclose: () => void;
   } = $props();
 
@@ -96,11 +96,14 @@
     {onkeydown}
   >
     <span class="handle" aria-hidden="true"></span>
-    <header class="head row-nw align-centre gap-sm">
+    <header class="head">
+      <span class="head-spacer" aria-hidden="true"></span>
+      <span class="head-title row-nw align-centre gap-sm min-0">
       <svg class="head-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 4h6l-1 6 4 4H6l4-4-1-6Zm3 10v6" /></svg>
-      <h3 id="pins-title" class="title md bold flex-max truncate">
-        {text("chat", "pins")}{#if ordered.length}<span class="count faint"> · {ordered.length}</span>{/if}
+      <h3 id="pins-title" class="title md bold truncate">
+        {text("chat", "pins")}{#if ordered.length}<span class="count faint">&nbsp;·&nbsp;{ordered.length}</span>{/if}
       </h3>
+      </span>
       <button type="button" class="icon-button close ghost press" aria-label={text("chat", "close")} onclick={onclose}>
         <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
       </button>
@@ -163,7 +166,7 @@
                   <button type="button" class="jump ghost press xs bold" aria-label={`${text("chat", "jump")}: ${sender?.name ?? ""}`} onclick={() => onjump(eventId)}>{text("chat", "jump")}</button>
                 {/if}
                 {#if canUnpin}
-                  <button type="button" class="icon-button unpin ghost press" aria-label={text("chat", "unpin")} title={text("chat", "unpin")} onclick={() => onunpin(eventId)}>
+                  <button type="button" class="icon-button unpin ghost press" aria-label={text("chat", "unpin")} title={text("chat", "unpin")} onclick={(event) => onunpin(eventId, event)}>
                     <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
                   </button>
                 {/if}
@@ -177,8 +180,12 @@
 </div>
 
 <style>
+  .head-title {
+    justify-content: center;
+  }
+
   .head .close {
-    margin-right: -6px;
+    justify-self: end;
   }
 
   .panel:focus {
@@ -219,6 +226,9 @@
 
   .head {
     flex: none;
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) 28px;
+    align-items: center;
     min-height: 48px;
     padding: 0 var(--azure-spacing-lg);
     border-bottom: 1px solid var(--colours-outline-hairline);
