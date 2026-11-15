@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatAgo as formatAgoBase } from "../../scripts/misc/time";
   import type { Snippet } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import type { PresenceDetails } from "../../scripts/stores/matrix";
@@ -11,13 +12,8 @@
 
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
 
-  const formatAgo = (milliseconds: number) => {
-    const formatter = new Intl.RelativeTimeFormat(document.documentElement.lang || undefined, { numeric: "auto" });
-    const seconds = Math.round(milliseconds / 1000);
-    const units: [Intl.RelativeTimeFormatUnit, number][] = [["day", 86400], ["hour", 3600], ["minute", 60]];
-    const [unit, size] = units.find(([, size]) => seconds >= size) ?? ["second", 1];
-    return formatter.format(-Math.round(seconds / size), unit);
-  };
+  const formatAgo = (milliseconds: number) =>
+    formatAgoBase(milliseconds, [["day", 86400], ["hour", 3600], ["minute", 60]]);
 
   const activity = $derived.by(() => {
     if (!status) return undefined;

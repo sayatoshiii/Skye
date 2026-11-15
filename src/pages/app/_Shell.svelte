@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, type Snippet } from "svelte";
+  import BrowseChannels from "../../components/app/BrowseChannels.svelte";
   import Chat from "../../components/app/Chat.svelte";
   import Lightbox from "../../components/app/media/Lightbox.svelte";
   import Loading from "../../components/app/Loading.svelte";
@@ -174,7 +175,11 @@
     </div>
 
     <div class="pane centre-pane min-0" inert={mobile && navigation.pane !== "chat"}>
-      <Chat onchannels={() => go("channels")} onmembers={toggleMembers} />
+      {#if navigation.browsing}
+        <BrowseChannels onchannels={() => go("channels")} />
+      {:else}
+        <Chat onchannels={() => go("channels")} onmembers={toggleMembers} />
+      {/if}
       {#if mobile && navigation.pane !== "chat"}
         <button class="scrim ghost" aria-label="chat" tabindex="-1" onclick={() => go("chat")}></button>
       {/if}

@@ -75,11 +75,15 @@ export const detached = writable(false);
 export const canLoadNewer = writable(false);
 export const verification = writable<VerificationState>(initialVerification);
 
-let notesHook: ((events: { type: string; content?: Record<string, unknown> }[]) => void) | null = null;
+type AccountDataHook = (events: { type: string; content?: Record<string, unknown> }[]) => void;
 
-export const registerNotesHook = (hook: typeof notesHook) => {
-  notesHook = hook;
+const accountDataHooks = new Set<AccountDataHook>();
+
+export const registerAccountDataHook = (hook: AccountDataHook) => {
+  accountDataHooks.add(hook);
 };
+
+export const registerNotesHook = registerAccountDataHook;
 
 const RESTORED_PREFIX = "history_restored";
 
@@ -376,7 +380,8 @@ export const startMatrix = (
   sync.on("sync", (response) => {
     roomStore?.applySync(response);
     applyPresence(response.presence?.events ?? []);
-    notesHook?.(response.account_data?.events ?? []);
+    const accountData = response.account_data?.events ?? [];
+    accountDataHooks.forEach((hook) => hook(accountData));
     synced.set(true);
   });
   sync.on("room_timeline", ({ roomId, events, limited, prevBatch }) => {

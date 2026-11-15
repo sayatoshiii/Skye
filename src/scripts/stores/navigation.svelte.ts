@@ -3,6 +3,7 @@ import { serverNameFromUserId } from "../matrix/discovery";
 import { getOrphanRooms } from "../matrix/rooms";
 import { loadSession, sessionRequest } from "../matrix/session";
 import type { SpaceTree } from "../matrix/types";
+import { BROWSE_SEGMENT } from "../settings/config";
 import { toEntity } from "./entities";
 import { directMessages, getDirectRoomMap, rooms, spaces } from "./matrix";
 
@@ -15,6 +16,7 @@ export const navigation = $state({
   spaceId: HOME,
   roomId: undefined as string | undefined,
   pane: "chat" as Pane,
+  browsing: false,
 });
 
 const lastRoomPerSpace: Record<string, string> = {};
@@ -103,13 +105,13 @@ export const fromSegment = (segment: string | undefined, entities: Routable[]) =
   return entities.find((entity) => entity.alias === alias)?.id;
 };
 
-export const serialisePath = (spaceId: string, roomId?: string) => {
+export const serialisePath = (spaceId: string, roomId?: string, browsing = false) => {
   const entities = getEntities();
 
   return [
     APP_BASE,
     spaceId === HOME ? HOME : toSegment(spaceId, entities),
-    roomId && toSegment(roomId, entities),
+    browsing && spaceId !== HOME ? BROWSE_SEGMENT : roomId && toSegment(roomId, entities),
   ]
     .filter(Boolean)
     .join("/");
@@ -128,10 +130,12 @@ export const parsePath = (pathname: string) => {
   const knownSpace = spaceId === HOME || (!!spaceId && !!getSpaceTree(spaceId));
   const resolvedSpace = knownSpace ? spaceId! : HOME;
   const knownRoom = roomId && get(rooms)[roomId] ? roomId : undefined;
+  const browsing = resolvedSpace !== HOME && roomSegment === BROWSE_SEGMENT;
 
   return {
     spaceId: resolvedSpace,
-    roomId: knownRoom ?? getDefaultRoom(resolvedSpace),
+    roomId: browsing ? undefined : (knownRoom ?? getDefaultRoom(resolvedSpace)),
+    browsing,
   };
 };
 
@@ -140,15 +144,28 @@ export const openRoom = (spaceId: string, roomId?: string, push = true) => {
 
   navigation.spaceId = spaceId;
   navigation.roomId = roomId;
+  navigation.browsing = false;
   if (roomId) lastRoomPerSpace[spaceId] = roomId;
 
   if (push) history.pushState(null, "", serialisePath(spaceId, roomId));
 };
 
+export const openBrowse = (spaceId: string, push = true) => {
+  if (spaceId === HOME) return openRoom(spaceId, undefined, push);
+
+  navigation.spaceId = spaceId;
+  navigation.roomId = undefined;
+  navigation.browsing = true;
+  navigation.pane = "chat";
+
+  if (push) history.pushState(null, "", serialisePath(spaceId, undefined, true));
+};
+
 export const syncFromLocation = () => {
-  const { spaceId, roomId } = parsePath(location.pathname);
-  openRoom(spaceId, roomId, false);
-  history.replaceState(null, "", serialisePath(spaceId, roomId));
+  const { spaceId, roomId, browsing } = parsePath(location.pathname);
+  if (browsing) openBrowse(spaceId, false);
+  else openRoom(spaceId, roomId, false);
+  history.replaceState(null, "", serialisePath(spaceId, roomId, browsing));
 };
 
 const createDirect = async (userId: string) => {
