@@ -1,7 +1,12 @@
 <script lang="ts">
+  import { tooltip } from "../../../scripts/misc/tooltip";
   import { getLocalisedText } from "../../../scripts/accessibility/language/translation";
   import { downloadMedia } from "../../../scripts/matrix/utilities/download";
   import { acquireMediaLink } from "../../../scripts/matrix/utilities/media";
+  import { dismissible } from "../../../scripts/misc/dismiss.svelte";
+  import { canCopyMedia, copyMedia } from "../../../scripts/misc/clipboard";
+  import { MENU_ICONS } from "../../../scripts/misc/icons";
+  import MessageMenu, { type MenuItem } from "../MessageMenu.svelte";
   import { lightbox, type LightboxItem } from "../../../scripts/stores/lightbox";
 
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
@@ -115,7 +120,22 @@
     if (!pointers.size) gesturing = false;
   };
 
-  const close = () => lightbox.set(null);
+  const exit = dismissible(() => lightbox.set(null));
+  const close = exit.close;
+
+  let menu: { x: number; y: number } | null = $state.raw(null);
+
+  const menuItems = (current: LightboxItem): MenuItem[] => [
+    ...(canCopyMedia(current.mimetype)
+      ? [{ id: "copy", label: text("chat", "copy_image"), icon: MENU_ICONS.copy, run: () => void copyMedia(current.source, current.mimetype).catch(() => undefined) }]
+      : []),
+    { id: "save", label: text("chat", "save"), icon: MENU_ICONS.save, run: () => void downloadMedia(current.source, current.name).catch(() => undefined) },
+  ];
+
+  const oncontextmenu = (event: MouseEvent) => {
+    event.preventDefault();
+    if (!menu) menu = { x: event.clientX, y: event.clientY };
+  };
 
   const onclick = (event: MouseEvent) => {
     if (moved || zoom > MIN_ZOOM || event.target === image) return;
@@ -141,14 +161,14 @@
 <svelte:window {onkeydown} />
 
 {#if item}
-  <div class="lightbox col centre" role="dialog" aria-modal="true" aria-label={item.name}>
+  <div class="lightbox col centre" class:closing={exit.closing} inert={exit.closing} onanimationend={exit.onanimationend} role="dialog" aria-modal="true" aria-label={item.name}>
     <button type="button" class="scrim ghost" aria-label={text("media", "close")} onclick={close}></button>
     <div class="bar row-nw align-centre gap-sm">
       <span class="sm truncate flex-max min-0">{item.name}</span>
-      <button type="button" class="tool ghost press" aria-label={text("media", "download").replace("{name}", item.name)} onclick={() => item && downloadMedia(item.source, item.name).catch(() => undefined)}>
+      <button type="button" class="tool ghost press" aria-label={text("media", "download").replace("{name}", item.name)} use:tooltip={text("media", "download").replace("{name}", item.name)} onclick={() => item && downloadMedia(item.source, item.name).catch(() => undefined)}>
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M12 4v11m-5-5 5 5 5-5M5 20h14" /></svg>
       </button>
-      <button type="button" class="tool ghost press" aria-label={text("media", "close")} onclick={close} bind:this={closeButton}>
+      <button type="button" class="tool ghost press" aria-label={text("media", "close")} use:tooltip={text("media", "close")} onclick={close} bind:this={closeButton}>
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
       </button>
     </div>
@@ -165,6 +185,7 @@
         {onpointerup}
         onpointercancel={onpointerup}
         {onclick}
+        {oncontextmenu}
       >
         <img
           bind:this={image}
@@ -181,12 +202,21 @@
   </div>
 {/if}
 
+{#if menu && item}
+  <MessageMenu items={menuItems(item)} x={menu.x} y={menu.y} label={item.name} onclose={() => (menu = null)} />
+{/if}
+
 <style>
   .lightbox {
+    --bar: calc(var(--azure-touch) + var(--azure-spacing-sm) * 2 + env(safe-area-inset-top));
     position: fixed;
     inset: 0;
     z-index: var(--azure-z-overlay);
     padding: calc(64px + env(safe-area-inset-top)) var(--azure-spacing-lg) calc(var(--azure-spacing-lg) + env(safe-area-inset-bottom));
+  }
+
+  .lightbox.closing {
+    animation: exit-fade var(--azure-duration-md) var(--azure-ease-out) forwards;
   }
 
   .bar {
@@ -205,8 +235,29 @@
   .bar {
     position: absolute;
     inset: 0 0 auto;
+    z-index: 1;
     padding: calc(var(--azure-spacing-sm) + env(safe-area-inset-top)) var(--azure-spacing-md) var(--azure-spacing-sm) var(--azure-spacing-lg);
     color: var(--colours-text-strong);
+    text-shadow: 0 1px 3px rgb(0 0 0 / 0.6);
+    pointer-events: none;
+  }
+
+  .bar::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto;
+    z-index: -1;
+    height: calc(108px + env(safe-area-inset-top));
+    background: linear-gradient(to bottom, rgb(0 0 0 / 0.5), rgb(0 0 0 / 0.18) 55%, transparent);
+    pointer-events: none;
+  }
+
+  .bar > * {
+    pointer-events: auto;
+  }
+
+  .tool svg {
+    filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.6));
   }
 
   .tool {
@@ -225,7 +276,7 @@
 
   .stage {
     position: absolute;
-    inset: calc(56px + env(safe-area-inset-top)) var(--azure-spacing-lg) calc(var(--azure-spacing-lg) + env(safe-area-inset-bottom));
+    inset: calc(var(--bar) + var(--azure-spacing-xs)) var(--azure-spacing-lg) calc(var(--azure-spacing-lg) + env(safe-area-inset-bottom));
     display: flex;
     touch-action: none;
     cursor: zoom-in;

@@ -46,7 +46,7 @@
 </script>
 
 {#if embed || previews}
-  <div class="preview" class:portrait={embed?.portrait} class:hidden={!embed && !preview} use:nearViewport={onvisible}>
+  <div class="preview" data-link={url} class:portrait={embed?.portrait} class:hidden={!embed && !preview} use:nearViewport={onvisible}>
     {#if embed && active}
       <div class="player">
         <iframe
@@ -257,9 +257,14 @@
   }
 
   .player {
+    padding: var(--azure-spacing-sm);
     overflow: hidden;
     border-radius: var(--azure-radius-md);
     border: 1px solid var(--colours-outline-hairline);
+  }
+
+  .player iframe {
+    border-radius: var(--azure-radius-sm);
   }
 
   .stage img,

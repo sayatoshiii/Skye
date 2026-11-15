@@ -8,8 +8,9 @@
   import { lightbox } from "../../../scripts/stores/lightbox";
   import { getWaveform } from "../../../scripts/matrix/utilities/content";
   import VoicePlayer from "./VoicePlayer.svelte";
+  import VideoPlayer from "./VideoPlayer.svelte";
 
-  let { content, sticker = false }: { content: Record<string, any>; sticker?: boolean } = $props();
+  let { content, sticker = false, sender, ts }: { content: Record<string, any>; sticker?: boolean; sender?: string; ts?: number } = $props();
 
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
 
@@ -24,7 +25,10 @@
   );
   const thumbnailType = $derived(String(info.thumbnail_info?.mimetype ?? "image/jpeg"));
   const name = $derived(sanitiseFilename(content.filename ?? content.body));
-  const inline = $derived(kind !== "file" && isInline(mimetype, kind) && !!(source.url || source.file));
+  let unplayable = $state(false);
+  const inline = $derived(kind !== "file" && !unplayable && isInline(mimetype, kind) && !!(source.url || source.file));
+  const playType = $derived(kind === "video" ? (MEDIA.videoPlaybackTypes[mimetype] ?? mimetype) : mimetype);
+  const framePreview = $derived(kind === "video" && !thumbnail && Number(info.size) > 0 && Number(info.size) <= MEDIA.framePreviewLimit);
   const looping = $derived(kind === "video" && !!(info["fi.mau.gif"] || content["fi.mau.gif"] || info["fi.mau.loop"]));
 
   const size = $derived.by(() => {
@@ -55,13 +59,14 @@
 
   const onvisible = () => {
     if (kind === "image") return useThumbnail && thumbnail ? acquire(thumbnail, thumbnailType, (value) => (link = value)) : acquire(source, mimetype, (value) => (link = value));
-    if (kind === "audio" || looping) return acquire(source, mimetype, (value) => (link = value));
+    if (kind === "audio") return acquire(source, mimetype, (value) => (link = value));
+    if (looping || framePreview) return acquire(source, playType, (value) => (link = value));
     if (kind === "video" && thumbnail) acquire(thumbnail, thumbnailType, (value) => (poster = value));
   };
 
   const play = () => {
     playing = true;
-    acquire(source, mimetype, (value) => (link = value));
+    if (!link) acquire(source, playType, (value) => (link = value));
   };
 
   const open = () => lightbox.set({ source, mimetype, name, w: info.w, h: info.h });
@@ -89,12 +94,15 @@
         {#if link}<img src={link} alt={content.body ?? ""} draggable="false" />{/if}
       </button>
     {:else if looping}
-      {#if link}<video src={link} autoplay muted loop playsinline disablepictureinpicture aria-label={name}></video>{/if}
+      {#if link}<video src={link} autoplay muted loop playsinline disablepictureinpicture aria-label={name} onerror={() => (unplayable = true)}></video>{/if}
     {:else if playing && link}
-      <!-- svelte-ignore a11y_media_has_caption -->
-      <video src={link} controls preload="metadata" playsinline></video>
+      <VideoPlayer {link} {name} size={Number(info.size) || undefined} width={Number(info.w) || undefined} height={Number(info.h) || undefined} {sender} {ts} onerror={() => (unplayable = true)} ondownload={downloading ? undefined : download} />
     {:else}
-      {#if poster}<img src={poster} alt="" draggable="false" />{/if}
+      {#if poster}
+        <img src={poster} alt="" draggable="false" />
+      {:else if link}
+        <video class="still" src={`${link}#t=0.001`} muted playsinline preload="metadata" disablepictureinpicture aria-hidden="true" tabindex="-1" onerror={() => (unplayable = true)}></video>
+      {/if}
       <button type="button" class="play ghost press" aria-label={text("media", "play_video")} onclick={play} disabled={playing}>
         <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M8 5.5v13l11-6.5-11-6.5Z" /></svg>
       </button>
@@ -149,6 +157,10 @@
 
   .frame.sized {
     min-height: 0;
+  }
+
+  .still {
+    pointer-events: none;
   }
 
   .frame img,
