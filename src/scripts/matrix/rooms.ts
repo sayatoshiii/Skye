@@ -28,6 +28,7 @@ const createRoom = (roomId: RoomId, membership: Membership): RoomSummary => ({
   notificationCount: 0,
   highlightCount: 0,
   lastActivity: 0,
+  pinned: [],
   state: {},
 });
 
@@ -48,6 +49,10 @@ const deriveFromState = (room: RoomSummary) => {
   room.isSpace = room.roomType === "m.space";
   room.encryption = getState(room, "m.room.encryption");
   room.powerLevels = getState<PowerLevels>(room, "m.room.power_levels");
+  const pinned = getState<{ pinned?: unknown }>(room, "m.room.pinned_events")?.pinned;
+  room.pinned = Array.isArray(pinned)
+    ? [...new Set(pinned.filter((id): id is string => typeof id === "string"))]
+    : [];
 
   room.children = Object.entries(room.state["m.space.child"] ?? {})
     .filter(([, event]) => !isEmpty(event.content))
@@ -211,9 +216,23 @@ export const createRoomStore = (ownUserId: UserId) => {
     emitter.emit("change", { ...rooms });
   };
 
+  const setPinned = (roomId: RoomId, pinned: string[]) => {
+    const room = rooms[roomId];
+    if (!room) return;
+
+    const previous = room.state["m.room.pinned_events"]?.[""];
+    (room.state["m.room.pinned_events"] ??= {})[""] = {
+      ...(previous ?? { type: "m.room.pinned_events", state_key: "", event_id: "", sender: ownUserId, origin_server_ts: Date.now() }),
+      content: { pinned },
+    } as StateEvent;
+    deriveFromState(room);
+    emitter.emit("change", { ...rooms });
+  };
+
   return {
     applySync,
     markRead,
+    setPinned,
     on: emitter.on,
     getRoom: (roomId: RoomId) => rooms[roomId],
     getRooms: () => ({ ...rooms }),
@@ -302,6 +321,9 @@ export const getUnreadTotals = (roomList: RoomSummary[]) =>
     }),
     { notificationCount: 0, highlightCount: 0 },
   );
+
+export const canPin = (room: RoomSummary, userId: UserId) =>
+  canSendEvent(room, userId, "m.room.pinned_events", true);
 
 export const canRedact = (room: RoomSummary, userId: UserId, sender: UserId) =>
   canSendEvent(room, userId, "m.room.redaction") &&

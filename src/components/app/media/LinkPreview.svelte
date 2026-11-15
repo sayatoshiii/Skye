@@ -27,6 +27,8 @@
 
   $effect(() => mediaSettings.subscribe((value) => (settings = value)));
 
+  const EMBED_ICON = "M4 5h16a1 1 0 0 1 1 1v12a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1zM10 10l-2 2 2 2M14 10l2 2-2 2";
+
   const alwaysAllowed = $derived(!!embed && !!settings?.alwaysAllowEmbeds[embed.provider]);
   const active = $derived(playing || alwaysAllowed);
   const source = $derived(
@@ -57,10 +59,10 @@
           allowfullscreen
         ></iframe>
       </div>
-      <label class="allow under row-nw align-centre gap-sm xs muted">
-        <input type="checkbox" checked={alwaysAllowed} onchange={(event) => setAlwaysAllowEmbed(embed.provider, event.currentTarget.checked)} />
+      <button type="button" class="allow under row-nw align-centre gap-sm xs ghost" class:on={alwaysAllowed} aria-pressed={alwaysAllowed} onclick={() => embed && setAlwaysAllowEmbed(embed.provider, !alwaysAllowed)}>
+        <span class="embed-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={EMBED_ICON} /></svg></span>
         {text("media", "always_allow").replace("{provider}", embed.name)}
-      </label>
+      </button>
     {:else if embed || preview}
       <div class="card col">
         {#if embed && image}
@@ -92,10 +94,10 @@
           {#if preview?.description}<p class="description sm muted">{preview.description}</p>{/if}
           {#if embed}
             <p class="note xs faint">{text("media", "embed_note").replace("{provider}", embed.name)}</p>
-            <label class="allow row-nw align-centre gap-sm xs muted">
-              <input type="checkbox" checked={alwaysAllowed} onchange={(event) => setAlwaysAllowEmbed(embed.provider, event.currentTarget.checked)} />
-              {text("media", "always_allow").replace("{provider}", embed.name)}
-            </label>
+            <button type="button" class="allow row-nw align-centre gap-sm xs ghost" class:on={alwaysAllowed} aria-pressed={alwaysAllowed} onclick={() => embed && setAlwaysAllowEmbed(embed.provider, !alwaysAllowed)}>
+        <span class="embed-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={EMBED_ICON} /></svg></span>
+        {text("media", "always_allow").replace("{provider}", embed.name)}
+      </button>
           {/if}
         </div>
         {#if image && !embed}
@@ -210,15 +212,37 @@
     cursor: pointer;
   }
 
-  .allow input {
-    accent-color: var(--colours-accent);
+  .allow {
+    color: var(--colours-text-faint);
+    transition: color var(--azure-duration-fast) var(--azure-ease-out);
   }
 
-  .thumb {
-    display: block;
-    width: 100%;
-    max-height: 220px;
-    object-fit: cover;
+  .allow:hover {
+    color: var(--colours-text);
+  }
+
+  .embed-icon {
+    display: grid;
+    place-items: center;
+    flex: none;
+    transition:
+      color var(--azure-duration-fast) var(--azure-ease-out),
+      filter var(--azure-duration-md) var(--azure-ease-out),
+      transform var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .allow.on {
+    color: var(--colours-text);
+  }
+
+  .allow.on .embed-icon {
+    color: var(--colours-accent);
+    filter: drop-shadow(0 0 6px var(--colours-accent-glow));
+  }
+
+  .allow:active .embed-icon {
+    transform: scale(0.85);
+    transition-duration: var(--azure-duration-instant);
   }
 
   .stage,

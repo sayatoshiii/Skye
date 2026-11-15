@@ -4,6 +4,7 @@
   import { getPowerLevel } from "../../scripts/matrix/rooms";
   import { currentRoom, joinedMembers, presence } from "../../scripts/stores/matrix";
   import Avatar from "../ui/Avatar.svelte";
+  import { openMiniProfile } from "../../scripts/stores/profile";
 
   let { onclose }: { onclose?: () => void } = $props();
 
@@ -98,12 +99,14 @@
     <h2 class="heading xs bold">{group.name} — {group.members.length}</h2>
     <ul class="col gap-xs">
       {#each group.visible as member (member.userId)}
-        <li class="member item press row-nw align-centre gap-md" class:offline={hasPresence && (!member.presence || member.presence === "offline")} title={member.userId}>
+        <li class="member-row">
+        <button type="button" class="member item press ghost row-nw align-centre gap-md" class:offline={hasPresence && (!member.presence || member.presence === "offline")} title={member.userId} data-profile-trigger aria-label={text("user_profile", "open").replace("{name}", member.displayName)} onclick={(event) => room && openMiniProfile(member.userId, event.currentTarget, "left", room.roomId)}>
           <span class="presence-wrap" data-presence={hasPresence ? (member.presence ?? "offline") : undefined}>
             <Avatar name={member.displayName} url={member.avatar} size="32px" radius="50%" />
           </span>
           <span class="md truncate" class:admin={member.powerLevel >= 100}
             class:moderator={member.powerLevel >= 50 && member.powerLevel < 100}><EmojiText text={member.displayName} /></span>
+        </button>
         </li>
       {/each}
     </ul>
@@ -115,6 +118,11 @@
 </aside>
 
 <style>
+  .member {
+    width: 100%;
+    text-align: left;
+  }
+
   .sentinel {
     height: 1px;
     flex: none;

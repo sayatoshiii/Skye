@@ -4,7 +4,7 @@
   import EmojiText from "../ui/EmojiText.svelte";
   import { tick, untrack } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
-  import { canRedact, getPowerLevel } from "../../scripts/matrix/rooms";
+  import { canPin, canRedact, getPowerLevel } from "../../scripts/matrix/rooms";
   import type { TimelineEvent } from "../../scripts/matrix/types";
   import { formatBytes, getUploadLimit, isInline, prepareAttachment, sanitiseFilename, uploadAttachment } from "../../scripts/matrix/utilities/attachments";
   import { downloadMedia } from "../../scripts/matrix/utilities/download";
@@ -20,6 +20,13 @@
     currentTimeline,
     discardMessage,
     editRoomMessage,
+    detached,
+    canLoadNewer,
+    jumpToEvent,
+    loadNewerMessages,
+    returnToPresent,
+    pinMessage,
+    unpinMessage,
     joinedMembers,
     loadOlderMessages,
     markRoomRead,
@@ -37,6 +44,8 @@
   import MessageBody from "./media/MessageBody.svelte";
   import MessageMedia from "./media/MessageMedia.svelte";
   import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
+  import PinnedMessages from "./PinnedMessages.svelte";
+  import { openFullProfile, openMiniProfile } from "../../scripts/stores/profile";
 
   let {
     onchannels,
@@ -61,6 +70,8 @@
     retry: "M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4",
     download: "M12 4v11m-5-5 5 5 5-5M5 20h14",
     open: "M14 4h6v6m0-6-8 8M10 5H5v14h14v-5",
+    pin: "M9 4h6l-1 6 4 4H6l4-4-1-6Zm3 10v6",
+    unpin: "M9 4h6l-1 6 4 4H6l4-4-1-6Zm3 10v6M4 4l16 16",
   };
 
   const text = (...path: string[]) =>
@@ -88,14 +99,30 @@
   let menu: { message: Message; x: number; y: number } | null = $state(null);
   let confirming: Message | null = $state(null);
   let swipe: { id: string; dx: number } | null = $state(null);
+  let pinsOpen = $state(false);
+  let pinsButton: HTMLButtonElement | undefined = $state();
+  let note: string | null = $state(null);
+  let isDetached = $state(false);
+  let farFromBottom = $state(false);
+  let unseenAfter: string | null = $state(null);
+  let loadingNewer = $state(false);
+  let travel: "" | "out-down" | "in-top" | "out-up" | "in-bottom" = $state("");
+  const TRAVEL_MS = 350;
+  const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+  const quick = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let noteTimer: ReturnType<typeof setTimeout> | undefined;
 
   $effect(() => undecryptable.subscribe((value) => (lockedOut = value)));
+  $effect(() => detached.subscribe((value) => (isDetached = value)));
   $effect(() => mediaSettings.subscribe((value) => (settings = value)));
   $effect(() => () => pending.forEach((item) => item.preview && URL.revokeObjectURL(item.preview)));
 
   const room = $derived($currentRoom && toEntity($currentRoom, $session?.userId));
   const ownUserId = $derived($session?.userId);
   const encrypted = $derived(!!$currentRoom?.encryption);
+  const pinnedIds = $derived($currentRoom?.pinned ?? []);
+  const pinnedSet = $derived(new Set(pinnedIds));
+  const mayPin = $derived(!!$currentRoom && !!ownUserId && canPin($currentRoom, ownUserId));
   const previewsOn = $derived(!!settings && !!$currentRoom && linkPreviewsEnabled(settings, $currentRoom.roomId, encrypted));
 
   $effect(() => {
@@ -104,6 +131,9 @@
       replying = null;
       editing = null;
       menu = null;
+      pinsOpen = false;
+      unseenAfter = null;
+      farFromBottom = false;
     });
   });
 
@@ -206,11 +236,55 @@
     if (loaded) fillViewport();
   };
 
+  const loadNewer = async () => {
+    if (loadingNewer || !isDetached) return;
+    loadingNewer = true;
+    const more = await loadNewerMessages();
+    await tick();
+    loadingNewer = false;
+    if (more && timeline && timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < LOAD_THRESHOLD) loadNewer();
+  };
+
+  const newCount = $derived.by(() => {
+    if (isDetached || unseenAfter === null) return 0;
+    const index = timelineMessages.findIndex((message) => message.id === unseenAfter);
+    return index === -1 ? 0 : timelineMessages.length - 1 - index;
+  });
+
+  const showPresent = $derived(isDetached || farFromBottom || newCount > 0);
+
+  const jumpToPresent = async () => {
+    if (isDetached) {
+      travel = "out-up";
+      await pause(quick() ? 120 : TRAVEL_MS);
+      returnToPresent();
+      stuck = true;
+      unseenAfter = null;
+      farFromBottom = false;
+      await tick();
+      if (timeline) timeline.scrollTop = timeline.scrollHeight;
+      travel = "in-bottom";
+      markRoomRead();
+      return;
+    }
+    stuck = true;
+    unseenAfter = null;
+    farFromBottom = false;
+    await tick();
+    timeline?.scrollTo({ top: timeline.scrollHeight, behavior: isDetached ? "auto" : "smooth" });
+    markRoomRead();
+  };
+
   const onscroll = () => {
     if (!timeline) return;
 
-    stuck = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < STICK_THRESHOLD;
+    const distance = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight;
+    stuck = !isDetached && distance < STICK_THRESHOLD;
+    farFromBottom = distance > timeline.clientHeight;
+    if (stuck) unseenAfter = null;
+    else if (!isDetached && unseenAfter === null) unseenAfter = timelineMessages.at(-1)?.id ?? null;
     if (timeline.scrollTop < LOAD_THRESHOLD) loadOlder();
+    if (isDetached && distance < LOAD_THRESHOLD) loadNewer();
     if (stuck && document.visibilityState === "visible") markRoomRead();
   };
 
@@ -293,8 +367,9 @@
     stuck = true;
     replying = null;
 
+    if (isDetached) jumpToPresent();
     if (body) sendMessage(body, reply).catch(() => undefined);
-    if (items.length) uploadPending(items, room.roomId, encrypted, body ? undefined : reply);
+    if (items.length) uploadPending(items, room.id, encrypted, body ? undefined : reply);
 
     draft = "";
     tick().then(resize);
@@ -393,6 +468,10 @@
       add("link", text("chat", "copy_link"), ICONS.link, () => copy(`https://matrix.to/#/${encodeURIComponent($currentRoom!.roomId)}/${encodeURIComponent(message.eventId)}`));
       add("id", text("chat", "copy_id"), ICONS.id, () => copy(message.eventId));
     }
+    if (!message.local && message.kind !== "redacted" && mayPin)
+      pinnedSet.has(message.eventId)
+        ? add("unpin", text("chat", "unpin"), ICONS.unpin, () => unpinMessage(message.eventId).catch(() => undefined))
+        : add("pin", text("chat", "pin"), ICONS.pin, () => pinMessage(message.eventId).catch(() => undefined));
     if (!message.local && message.kind !== "redacted" && $currentRoom && ownUserId && canRedact($currentRoom, ownUserId, message.sender))
       add("delete", text("chat", "delete"), ICONS.delete, (event) => remove(message, event), true);
 
@@ -448,6 +527,61 @@
     target.classList.add("flash");
   };
 
+  const openProfile = (userId: string, element: HTMLElement) =>
+    openMiniProfile(userId, element, "right", $currentRoom?.roomId);
+
+  const onmentionclick = (event: MouseEvent) => {
+    const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>("a.mention");
+    const match = anchor?.href.match(/matrix\.to\/#\/(@[^/?]+)/);
+    if (!anchor || !match) return;
+    event.preventDefault();
+    anchor.dataset.profileTrigger = "";
+    openProfile(decodeURIComponent(match[1]), anchor);
+  };
+
+  const showNote = (value: string) => {
+    clearTimeout(noteTimer);
+    note = value;
+    noteTimer = setTimeout(() => (note = null), 3200);
+  };
+
+  const jumpToMessage = async (eventId: string) => {
+    pinsOpen = false;
+    const loaded = () => timeline?.querySelector(`[data-event-id="${CSS.escape(eventId)}"]`);
+    stuck = false;
+
+    if (!loaded()) {
+      travel = "out-down";
+      const [ok] = await Promise.all([jumpToEvent(eventId), pause(quick() ? 120 : TRAVEL_MS)]);
+      await tick();
+      if (!ok || !loaded()) {
+        travel = "in-bottom";
+        return showNote(text("chat", "too_far_back"));
+      }
+      loaded()?.scrollIntoView({ block: "center" });
+      travel = "in-top";
+    }
+
+    stuck = false;
+    jumpTo(eventId);
+  };
+
+  const onwindowkey = (event: KeyboardEvent) => {
+    if (event.defaultPrevented || !room) return;
+    const field = (event.target as HTMLElement).closest?.("input, textarea, [contenteditable]");
+    const composerEmpty = event.target === composer && !draft;
+    const busy = !!(menu || pinsOpen || confirming || editing || replying);
+
+    if (event.key === "End" && (!field || composerEmpty) && showPresent) {
+      event.preventDefault();
+      jumpToPresent();
+    }
+    if (event.key === "Escape" && (!field || composerEmpty) && !busy && showPresent && !document.querySelector("[aria-modal=true], [role=dialog]")) {
+      event.preventDefault();
+      jumpToPresent();
+    }
+  };
+
   const onkeydown = (event: KeyboardEvent) => {
     if (event.key === "ArrowUp" && !draft && !event.shiftKey) {
       const last = timelineMessages.findLast((message) => canEdit(message));
@@ -458,6 +592,7 @@
       return;
     }
     if (event.key === "Escape" && replying) {
+      event.preventDefault();
       replying = null;
       return;
     }
@@ -512,6 +647,8 @@
   const roomLabel = $derived(room ? `${room.isDirect ? "" : "#"}${room.name}` : "");
 </script>
 
+<svelte:window onkeydown={onwindowkey} />
+
 <section
   class="chat col min-0"
   style:--composer-space="{dockHeight + 24}px"
@@ -528,14 +665,35 @@
       </svg>
     </button>
     {#if room}
-      <h2 class="name md bold truncate">
-        <span class="faint">{room.isDirect ? "@" : "#"}</span><EmojiText text={room.name} />
-      </h2>
+      {#if room.isDirect && room.directUserId}
+        <h2 class="name md bold truncate">
+          <button type="button" class="name-button ghost truncate" aria-label={text("user_profile", "open").replace("{name}", room.name)} onclick={() => room.directUserId && openFullProfile(room.directUserId, room.id)}><span class="faint">@</span><EmojiText text={room.name} /></button>
+        </h2>
+      {:else}
+        <h2 class="name md bold truncate">
+          <span class="faint">{room.isDirect ? "@" : "#"}</span><EmojiText text={room.name} />
+        </h2>
+      {/if}
       {#if room.topic}
         <span class="topic sm muted truncate">{room.topic}</span>
       {/if}
     {/if}
     <span class="flex-max"></span>
+    {#if room}
+      <button
+        class="icon pins-button ghost press"
+        class:active={pinsOpen}
+        aria-label={pinnedIds.length ? text("chat", "pins_count").replace("{count}", String(pinnedIds.length)) : text("chat", "pins")}
+        aria-haspopup="dialog"
+        aria-expanded={pinsOpen}
+        title={text("chat", "pins")}
+        bind:this={pinsButton}
+        onclick={() => (pinsOpen = !pinsOpen)}
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.pin} /></svg>
+        {#if pinnedIds.length}<span class="pin-count xs bold" aria-hidden="true">{pinnedIds.length > 99 ? "99+" : pinnedIds.length}</span>{/if}
+      </button>
+    {/if}
     <button class="icon ghost press" aria-label={text("navigation", "open_members")} onclick={onmembers}>
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
         <path fill="currentColor" d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 19c0-3.3 3.1-6 7-6s7 2.7 7 6v1H2v-1Zm15.5 1H22v-1c0-2.6-2.2-4.6-5-5 1.2 1.3 1.9 3 2 4.9V20h-1.5Z" />
@@ -544,22 +702,23 @@
   </header>
 
   {#if room}
-    {#if lockedOut && dismissedRoom !== room.roomId}
+    {#if lockedOut && dismissedRoom !== room.id}
       <div class="decrypt-banner row-nw align-centre gap-sm sm" role="status">
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
           <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z" />
         </svg>
         <span class="flex-max min-0 muted">{text("encryption", "banner")}</span>
         <button type="button" class="banner-action ghost press bold" onclick={() => restoreOpen.set(true)}>{text("encryption", "banner_action")}</button>
-        <button type="button" class="banner-close ghost press" aria-label={text("encryption", "dismiss")} onclick={() => (dismissedRoom = room.roomId)}>
+        <button type="button" class="banner-close ghost press" aria-label={text("encryption", "dismiss")} onclick={() => (dismissedRoom = room.id)}>
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
             <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" />
           </svg>
         </button>
       </div>
     {/if}
-    {#key room.roomId}
-    <ol class="timeline col flex-max min-0" bind:this={timeline} {onscroll}>
+    {#key room.id}
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
+    <ol class="timeline col flex-max min-0 travel-{travel || 'idle'}" bind:this={timeline} onanimationend={(event) => event.target === timeline && travel.startsWith("in") && (travel = "")} {onscroll} onclick={onmentionclick}>
       {#if $canLoadOlder}
         <li class="history row centre" aria-busy="true">
           <span class="dots row-nw gap-sm" aria-label={text("chat", "loading_history")}><span></span><span></span><span></span></span>
@@ -604,8 +763,7 @@
               type="button"
               class="reply-quote row-nw align-centre gap-sm ghost xs"
               aria-label={text("chat", "jump_to_reply")}
-              onclick={() => message.replyTo && jumpTo(message.replyTo)}
-              disabled={!original}
+              onclick={() => message.replyTo && jumpToMessage(message.replyTo)}
             >
               <span class="connector" aria-hidden="true"></span>
               {#if original && author}
@@ -621,15 +779,20 @@
             {#if message.grouped && !message.replyTo}
               <time class="hover-time xs faint" datetime={new Date(message.ts).toISOString()}>{formatTime(message.ts)}</time>
             {:else}
-              <Avatar name={sender.name} url={sender.avatar} size="38px" radius="50%" />
+              <button type="button" class="author-avatar ghost press" data-profile-trigger aria-label={text("user_profile", "open").replace("{name}", sender.name)} onclick={(event) => openProfile(message.sender, event.currentTarget)}>
+                <Avatar name={sender.name} url={sender.avatar} size="38px" radius="50%" />
+              </button>
             {/if}
           </div>
           <div class="content col min-0">
             {#if !message.grouped || message.replyTo}
               <div class="meta row-nw align-centre gap-sm">
-                <span class="sender md bold" class:admin={sender.powerLevel >= 100}><EmojiText text={sender.name} /></span>
+                <button type="button" class="sender md bold ghost" class:admin={sender.powerLevel >= 100} data-profile-trigger onclick={(event) => openProfile(message.sender, event.currentTarget)}><EmojiText text={sender.name} /></button>
                 <time class="xs faint" datetime={new Date(message.ts).toISOString()}>{formatTime(message.ts)}</time>
+                {#if pinnedSet.has(message.eventId)}{@render pinMark()}{/if}
               </div>
+            {:else if pinnedSet.has(message.eventId)}
+              <span class="pin-float">{@render pinMark()}</span>
             {/if}
             {#if editing?.eventId === message.eventId}
               <div class="editor col gap-xs">
@@ -700,8 +863,26 @@
           {/if}
         </li>
       {/each}
+      {#if isDetached && $canLoadNewer}
+        <li class="history row centre" aria-busy="true">
+          <span class="dots row-nw gap-sm" aria-label={text("chat", "loading_newer")}><span></span><span></span><span></span></span>
+        </li>
+      {/if}
     </ol>
     {/key}
+
+    <div class="present-wrap row centre" class:shown={showPresent} inert={!showPresent}>
+        <button type="button" class="present row-nw align-centre gap-sm sm bold press" class:fresh={newCount > 0} onclick={jumpToPresent}>
+          {#if newCount > 0}
+            <span>{text("chat", newCount === 1 ? "new_message" : "new_messages").replace("{count}", String(newCount))}</span>
+            <span class="present-sep" aria-hidden="true">·</span>
+            <span>{text("chat", "jump_short")}</span>
+          {:else}
+            <span>{isDetached ? text("chat", "viewing_older") : ""}{isDetached ? " · " : ""}{text("chat", "jump_present")}</span>
+          {/if}
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-6-6 6 6 6-6" /></svg>
+        </button>
+      </div>
 
     <form class="composer" onsubmit={(event) => { event.preventDefault(); send(); }}>
       <div class="dock col" bind:clientHeight={dockHeight}>
@@ -786,6 +967,24 @@
     </div>
   {/if}
 
+  {#if pinsOpen && room}
+    <PinnedMessages
+      roomId={room.id}
+      pinned={pinnedIds}
+      anchor={pinsButton}
+      canUnpin={mayPin}
+      {ownUserId}
+      {getSender}
+      onjump={jumpToMessage}
+      onunpin={(eventId) => unpinMessage(eventId).catch(() => undefined)}
+      onclose={() => (pinsOpen = false)}
+    />
+  {/if}
+
+  {#if note}
+    <div class="note sm row-nw align-centre gap-sm" role="status" use:portal>{note}</div>
+  {/if}
+
   {#if menu}
     <MessageMenu items={menuItems(menu.message)} x={menu.x} y={menu.y} label={text("chat", "actions")} onclose={() => (menu = null)} />
   {/if}
@@ -807,7 +1006,236 @@
 
 </section>
 
+{#snippet pinMark()}
+  <span class="pin-mark" title={text("chat", "pinned")} aria-label={text("chat", "pinned")} role="img">
+    <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.pin} /></svg>
+  </span>
+{/snippet}
+
 <style>
+  .travel-out-down {
+    animation: travel-out-down 350ms var(--azure-ease-fluid) forwards;
+  }
+
+  .travel-in-top {
+    animation: travel-in-top 420ms var(--azure-ease-fluid);
+  }
+
+  .travel-out-up {
+    animation: travel-out-up 350ms var(--azure-ease-fluid) forwards;
+  }
+
+  .travel-in-bottom {
+    animation: travel-in-bottom 420ms var(--azure-ease-fluid);
+  }
+
+  @keyframes travel-out-down {
+    to {
+      opacity: 0;
+      transform: translateY(18%);
+      filter: blur(6px);
+    }
+  }
+
+  @keyframes travel-in-top {
+    from {
+      opacity: 0;
+      transform: translateY(-14%);
+      filter: blur(6px);
+    }
+  }
+
+  @keyframes travel-out-up {
+    to {
+      opacity: 0;
+      transform: translateY(-18%);
+      filter: blur(6px);
+    }
+  }
+
+  @keyframes travel-in-bottom {
+    from {
+      opacity: 0;
+      transform: translateY(14%);
+      filter: blur(6px);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .travel-out-down,
+    .travel-out-up {
+      animation: travel-fade-out 120ms linear forwards;
+    }
+
+    .travel-in-top,
+    .travel-in-bottom {
+      animation: travel-fade-in 160ms linear;
+    }
+  }
+
+  @keyframes travel-fade-out {
+    to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes travel-fade-in {
+    from {
+      opacity: 0;
+    }
+  }
+
+  .present-wrap {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--composer-space) + env(safe-area-inset-bottom));
+    z-index: var(--azure-z-sticky);
+    pointer-events: none;
+  }
+
+  .present {
+    height: 32px;
+    padding: 0 var(--azure-spacing-md);
+    border-radius: var(--azure-radius-pill);
+    border: 1px solid var(--colours-outline-hairline);
+    color: var(--colours-text-strong);
+    background-color: color-mix(in oklab, var(--colours-surface-raised) 92%, transparent);
+    backdrop-filter: blur(8px);
+    box-shadow:
+      0 10px 28px -12px black,
+      0 0 22px -10px var(--colours-accent-glow);
+    cursor: pointer;
+    opacity: 0;
+    translate: 0 10px;
+    scale: 0.96;
+    transition:
+      opacity var(--azure-duration-md) var(--azure-ease-fluid),
+      translate var(--azure-duration-glide) var(--azure-ease-fluid),
+      scale var(--azure-duration-glide) var(--azure-ease-fluid),
+      background-color var(--azure-duration-fast) var(--azure-ease-out),
+      color var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .present-wrap.shown .present {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+    pointer-events: auto;
+  }
+
+  .present:hover,
+  .present:focus-visible {
+    color: var(--colours-accent);
+  }
+
+  .present.fresh {
+    color: white;
+    border-color: transparent;
+    background-color: var(--colours-accent);
+  }
+
+  .present-sep {
+    opacity: 0.6;
+  }
+
+  .author-avatar {
+    display: block;
+    align-self: flex-start;
+    height: fit-content;
+    line-height: 0;
+    border-radius: 50%;
+  }
+
+  button.sender:hover,
+  button.sender:focus-visible {
+    text-decoration: underline;
+    text-underline-offset: 2px;
+  }
+
+  .name-button {
+    padding: 0;
+    max-width: 100%;
+    font: inherit;
+    color: inherit;
+  }
+
+  .name-button:hover,
+  .name-button:focus-visible {
+    text-decoration: underline;
+    text-decoration-color: var(--colours-text-strong);
+    text-underline-offset: 3px;
+  }
+
+  .pins-button {
+    position: relative;
+    color: var(--colours-text-faint);
+    transition: color var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .pins-button:hover,
+  .pins-button.active {
+    color: var(--colours-accent);
+  }
+
+  .pin-count {
+    position: absolute;
+    top: 3px;
+    right: 1px;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    display: grid;
+    place-items: center;
+    border-radius: var(--azure-radius-pill);
+    font-size: 10px;
+    line-height: 1;
+    color: var(--colours-background);
+    background-color: var(--colours-accent);
+    box-shadow: 0 0 10px -2px var(--colours-accent-glow);
+  }
+
+  .pin-mark {
+    display: inline-grid;
+    place-items: center;
+    color: var(--colours-text-faint);
+    rotate: 30deg;
+  }
+
+  .message:hover .pin-mark {
+    color: var(--colours-accent);
+  }
+
+  .pin-float {
+    position: absolute;
+    top: 4px;
+    right: var(--azure-spacing-lg);
+  }
+
+  .note {
+    position: fixed;
+    left: 50%;
+    bottom: calc(96px + env(safe-area-inset-bottom));
+    translate: -50% 0;
+    z-index: var(--azure-z-popover);
+    padding: var(--azure-spacing-sm) var(--azure-spacing-lg);
+    border-radius: var(--azure-radius-pill);
+    border: 1px solid var(--colours-outline-hairline);
+    background-color: var(--colours-surface-raised);
+    color: var(--colours-text-strong);
+    box-shadow:
+      0 12px 32px -12px black,
+      0 0 24px -12px var(--colours-accent-glow);
+    animation: note-in var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  @keyframes note-in {
+    from {
+      opacity: 0;
+      translate: -50% 8px;
+    }
+  }
+
   .chat {
     --composer-space: 84px;
 
@@ -833,13 +1261,15 @@
     min-height: 32px;
     padding: 0 var(--azure-spacing-md);
     color: var(--colours-accent);
-    border-radius: var(--azure-radius-pill);
-    background-color: color-mix(in oklab, var(--colours-accent) 10%, transparent);
+    background: none;
+    text-underline-offset: 3px;
+    transition: color var(--azure-duration-fast) var(--azure-ease-out);
   }
 
-  .banner-action:hover {
-    color: var(--colours-text-strong);
-    background-color: color-mix(in oklab, var(--colours-accent) 18%, transparent);
+  .banner-action:hover,
+  .banner-action:focus-visible {
+    color: var(--colours-accent-strong);
+    text-decoration: underline;
   }
 
   .banner-close {
@@ -875,6 +1305,7 @@
       height: var(--azure-touch);
     }
   }
+
 
   .header {
     height: 52px;

@@ -319,6 +319,99 @@ export const createTimeline = ({
     notify();
   };
 
+  const fetchEvent = async (eventId: EventId) => {
+    const loaded = findEvent(eventId);
+    if (loaded) return loaded;
+
+    const raw = await request<MatrixEvent>({
+      endpoint: `${roomPath}/event/${encodeURIComponent(eventId)}`,
+      method: "GET",
+    });
+    return settle(await decrypt({ ...raw, room_id: raw.room_id ?? roomId }));
+  };
+
+  const foldInto = async (list: TimelineEvent[], raws: MatrixEvent[], prepend: boolean) => {
+    const fresh: TimelineEvent[] = [];
+    const known = new Set(list.map((event) => event.event_id));
+    const all = () => [...list, ...fresh];
+
+    for (const raw of raws) {
+      const event = await decrypt({ ...raw, room_id: raw.room_id ?? roomId });
+      if (known.has(event.event_id)) continue;
+      known.add(event.event_id);
+
+      if (event.type === "m.room.redaction") {
+        const target = all().find((candidate) => candidate.event_id === (event.redacts ?? event.content.redacts));
+        if (target) redactLocal(target);
+        continue;
+      }
+
+      if (isReplacement(event)) {
+        const target = all().find((candidate) => candidate.event_id === event.content["m.relates_to"].event_id);
+        if (target) applyEdit(target, event);
+        continue;
+      }
+
+      if (event.unsigned?.redacted_because) redactLocal(event);
+      fresh.push(event);
+    }
+
+    return prepend ? [...fresh, ...list] : [...list, ...fresh];
+  };
+
+  const loadContext = async (eventId: EventId, limit = 30) => {
+    const response = await request<{
+      start?: string;
+      end?: string;
+      event: MatrixEvent;
+      events_before?: MatrixEvent[];
+      events_after?: MatrixEvent[];
+    }>({
+      endpoint: `${roomPath}/context/${encodeURIComponent(eventId)}`,
+      method: "GET",
+      query: { limit },
+    });
+
+    const ordered = [...(response.events_before ?? [])].reverse().concat(response.event, response.events_after ?? []);
+
+    return {
+      events: await foldInto([], ordered, false),
+      start: response.start ?? null,
+      end: response.end ?? null,
+    };
+  };
+
+  const fetchPage = async (list: TimelineEvent[], from: string, dir: "b" | "f", limit = pageSize) => {
+    const response = await request<MessagesResponse>({
+      endpoint: `${roomPath}/messages`,
+      method: "GET",
+      query: { dir, from, limit },
+    });
+    const chunk = dir === "b" ? [...response.chunk].reverse() : response.chunk;
+
+    return {
+      events: await foldInto(list, chunk, dir === "b"),
+      chunkIds: response.chunk.map((event) => event.event_id as EventId),
+      token: !response.chunk.length || response.end === from ? null : (response.end ?? null),
+    };
+  };
+
+  const adoptOlder = (older: TimelineEvent[], token: string | null) => {
+    const known = new Set(events.map((event) => event.event_id));
+    events = [...older.filter((event) => !known.has(event.event_id)), ...events];
+    backToken = token;
+    notify();
+  };
+
+  const hasEvent = (eventId: EventId) => !!findEvent(eventId);
+
+  const setPinned = (pinned: EventId[]) =>
+    request({
+      endpoint: `${roomPath}/state/m.room.pinned_events`,
+      method: "PUT",
+      body: { pinned },
+    });
+
   const sendReadReceipt = (eventId: EventId) =>
     request({
       endpoint: `${roomPath}/receipt/m.read/${encodeURIComponent(eventId)}`,
@@ -336,6 +429,12 @@ export const createTimeline = ({
     retry,
     discard,
     sendReadReceipt,
+    fetchEvent,
+    setPinned,
+    loadContext,
+    fetchPage,
+    adoptOlder,
+    hasEvent,
     retryDecryption,
     on: emitter.on,
     getEvents: () => [...events],

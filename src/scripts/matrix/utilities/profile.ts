@@ -1,3 +1,4 @@
+import { getWideMediaLink, isMxc } from "./media";
 import { loadSession, sessionRequest } from "../session";
 import type { UserId } from "../types";
 
@@ -41,3 +42,12 @@ export const fetchProfile = (userId: UserId) =>
     delete profileCache[userId];
     return null;
   }));
+
+export const fetchProfileCard = async (userId: UserId) => {
+  const profile = await fetchProfile(userId);
+  const banner = isMxc(profile?.banner) ? await getWideMediaLink(profile.banner) : undefined;
+  return { profile, banner: banner ?? undefined };
+};
+
+export const hueOf = (userId: string) =>
+  [...userId].reduce((hash, character) => (hash * 31 + character.charCodeAt(0)) >>> 0, 7) % 360;
