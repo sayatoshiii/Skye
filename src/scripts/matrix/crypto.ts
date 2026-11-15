@@ -55,7 +55,7 @@ const STORE_SUFFIXES = ["matrix-sdk-crypto", "matrix-sdk-crypto-meta"];
 
 let wasmReady: Promise<void> | null = null;
 
-const loadWasm = () => (wasmReady ??= initAsync());
+export const loadWasm = () => (wasmReady ??= initAsync());
 
 export const getStoreName = (session: Pick<Session, "userId" | "deviceId">) =>
   `skye-crypto-${session.userId}-${session.deviceId}`;
@@ -77,10 +77,6 @@ const getPassphrase = (session: Session) => {
   localStorage.setItem(key, created);
   return created;
 };
-
-const isKeyConflict = (outgoing: { type: RequestType }, error: unknown) =>
-  outgoing.type === RequestType.KeysUpload &&
-  String((error as Error)?.message ?? error).includes("already exists");
 
 const deleteDatabase = (name: string) =>
   new Promise<void>((resolve) => {
@@ -248,7 +244,6 @@ export const createCrypto = (context: CryptoContext) => {
         requests.map((outgoing) =>
           sendAndMark(machine, outgoing).catch((error) => {
             console.warn("Skye crypto request failed", outgoing.type, error);
-            if (isKeyConflict(outgoing, error)) context.onStoreLocked();
           }),
         ),
       );
