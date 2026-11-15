@@ -28,10 +28,17 @@
     const at = { x, y };
     tick().then(() => {
       if (!menu) return;
-      const rect = menu.getBoundingClientRect();
       const gap = 8;
+      const room = innerHeight - gap * 2;
+      menu.style.maxHeight = `${room}px`;
+
+      const rect = menu.getBoundingClientRect();
+      const below = innerHeight - gap - at.y;
+      const above = at.y - gap;
+      const flip = rect.height > below && above > below;
+
       left = Math.max(gap, Math.min(at.x, innerWidth - rect.width - gap));
-      top = Math.max(gap, Math.min(at.y, innerHeight - rect.height - gap));
+      top = Math.max(gap, Math.min(flip ? at.y - rect.height : at.y, innerHeight - rect.height - gap));
       menu.querySelector<HTMLButtonElement>("[role=menuitem]")?.focus();
     });
   });
@@ -86,6 +93,8 @@
   }
 
   .menu {
+    overflow-y: auto;
+    overscroll-behavior: contain;
     position: fixed;
     min-width: 200px;
     padding: var(--azure-spacing-sm);
