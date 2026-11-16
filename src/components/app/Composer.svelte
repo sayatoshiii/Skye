@@ -6,7 +6,7 @@
   import { tooltip } from "../../scripts/misc/tooltip";
   import EmojiText from "../ui/EmojiText.svelte";
   import { portal } from "../../scripts/misc/portal";
-  import { getEmojiURL } from "../../scripts/misc/emoji";
+  import { getEmojiURL, isEmojiGrapheme, isJumbo, renderEmoji } from "../../scripts/misc/emoji";
   import { loadEmojiIndex, peekEmojiIndex, searchEmoji, twemojiFile, type EmojiEntry } from "../../scripts/misc/emoji-data";
   import { recentEmoji, useEmoji } from "../../scripts/settings/emoji";
   import EmojiPicker from "./EmojiPicker.svelte";
@@ -80,8 +80,7 @@
     if (codeCache.has(key)) return codeCache.get(key)!;
     if (codeCache.size >= CODE_CACHE) codeCache.clear();
     codeCache.set(key, null);
-    import("../../scripts/misc/highlight").then(async ({ highlightCode, resolveLanguage }) => {
-      if (!resolveLanguage(language)) return;
+    import("../../scripts/misc/highlight").then(async ({ highlightCode }) => {
       const html = await highlightCode(source, language).catch(() => null);
       if (!html || codeCache.get(key) !== null) return;
       codeCache.set(key, html);
@@ -90,18 +89,41 @@
     return null;
   };
 
+  const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+  const emojify = (chunk: string) =>
+    /[^\x00-\x7f]/.test(chunk)
+      ? Array.from(graphemes.segment(chunk), ({ segment }) => {
+          if (!isEmojiGrapheme(segment)) return segment;
+          const image = renderEmoji(segment);
+          return image.startsWith("<img") ? `<span class="md-emoji">${segment}${image}</span>` : segment;
+        }).join("")
+      : chunk;
+
   const highlighted = $derived.by(() => {
     codeVersion;
-    return highlightMarkdown(draft, highlightBlock);
+    return highlightMarkdown(draft, highlightBlock).replace(/(^|>)([^<]+)/g, (_, edge, chunk) => edge + emojify(chunk));
   });
   const hasJpeg = $derived(pending.some((item) => item.file.type === "image/jpeg"));
   const ready = $derived(!!draft.trim() || pending.some((item) => !item.error && item.progress === null));
   const replyParts = $derived(text("chat", "replying_to").split("{name}"));
 
+  const scale = $derived(isJumbo(draft) ? "jumbo" : draft.includes("\n") ? "" : (/^(#{1,3}) (?=\S)/.exec(draft)?.[1].length ?? "").toString());
+  let lastScale = "";
+
   const resize = () => {
     if (!field) return;
+    const from = field.offsetHeight;
     field.style.height = "auto";
-    field.style.height = `${field.scrollHeight}px`;
+    const to = field.scrollHeight;
+    const animate = scale !== lastScale;
+    lastScale = scale;
+    field.classList.toggle("composer-grow", animate);
+    field.style.height = `${animate ? from : to}px`;
+    if (animate) {
+      field.offsetHeight;
+      field.style.height = `${to}px`;
+    }
     syncScroll();
   };
 
@@ -111,6 +133,7 @@
 
   $effect(() => {
     draft;
+    scale;
     resize();
   });
 
@@ -290,6 +313,27 @@
     apply(formatEdit(action, field.value, field.selectionStart, field.selectionEnd, text("format", "link_placeholder")));
   };
 
+  const replaceRange = (target: HTMLTextAreaElement, from: number, to: number, value: string) => {
+    target.setSelectionRange(from, to);
+    if (!document.execCommand("insertText", false, value)) {
+      target.setRangeText(value, from, to, "end");
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  };
+
+  const indent = (target: HTMLTextAreaElement, outdent: boolean) => {
+    const { value, selectionStart: start, selectionEnd: end } = target;
+    if (!outdent && !value.slice(start, end).includes("\n")) return replaceRange(target, start, end, "\t");
+    const from = value.lastIndexOf("\n", start - 1) + 1;
+    const block = value.slice(from, end);
+    const lines = block.split("\n");
+    const next = lines.map((line) => (outdent ? line.replace(/^(\t| {1,4})/, "") : `\t${line}`)).join("\n");
+    if (next === block) return;
+    replaceRange(target, from, end, next);
+    const shift = (outdent ? -(lines[0].length - lines[0].replace(/^(\t| {1,4})/, "").length) : 1);
+    target.setSelectionRange(Math.max(from, start + shift), from + next.length);
+  };
+
   const onkeydown = (event: KeyboardEvent) => {
     if (suggestKeys(event)) return;
     if ((mac ? event.metaKey : event.ctrlKey) && !event.altKey) {
@@ -307,6 +351,11 @@
     if (event.key === "Escape" && replying) {
       event.preventDefault();
       oncancelreply();
+      return;
+    }
+    if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey && field && insideFence(field.value, field.selectionStart)) {
+      event.preventDefault();
+      indent(field, event.shiftKey);
       return;
     }
 
@@ -443,7 +492,7 @@
         </svg>
       </button>
       <input class="sr-only" type="file" multiple tabindex="-1" aria-hidden="true" bind:this={picker} onchange={onpick} />
-      <div class="editor flex-max">
+      <div class="editor flex-max" data-scale={scale || undefined}>
         <div class="mirror" aria-hidden="true" bind:this={mirror}>{@html highlighted}</div>
         <textarea
           rows="1"
@@ -533,7 +582,7 @@
     {#each FORMAT_KEYS as bind (bind.action)}
       <button type="button" class="format ghost press" aria-label={text("format", bind.action)} use:tooltip={text("format", bind.action)} aria-keyshortcuts="{mac ? 'Meta' : 'Control'}+{bind.label}" onclick={() => format(bind.action)}>
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={FORMAT_ICONS[bind.action]} /></svg>
-        <span class="tip row-nw align-centre gap-sm xs">{text("format", bind.action)}<kbd>{modLabel}+{bind.label}</kbd></span>
+        <span class="tip row-nw align-centre gap-sm xs">{text("format", bind.action)}<span class="keys row-nw align-centre"><kbd class="key">{modLabel}</kbd><kbd class="key">{bind.label}</kbd></span></span>
       </button>
       {#if bind.action === "code"}<span class="divider" aria-hidden="true"></span>{/if}
     {/each}
@@ -548,7 +597,7 @@
     transform: translateZ(0);
     pointer-events: none;
     padding: 0 var(--azure-spacing-lg) var(--azure-spacing-lg);
-    padding-bottom: max(var(--azure-spacing-lg), env(safe-area-inset-bottom));
+    padding-bottom: calc(26px + env(safe-area-inset-bottom));
   }
 
   .dock {
@@ -573,6 +622,10 @@
   }
 
   .editor {
+    --composer-text: var(--text-md);
+    --composer-line: 20px;
+    --composer-weight: inherit;
+    --composer-emoji: 1.25em;
     position: relative;
     display: grid;
     min-width: 0;
@@ -584,10 +637,11 @@
     padding: 9px 0;
     border: 0;
     font: inherit;
-    font-size: var(--text-md);
+    font-size: var(--composer-text);
+    font-weight: var(--composer-weight);
     font-kerning: normal;
     letter-spacing: normal;
-    line-height: 20px;
+    line-height: var(--composer-line);
     white-space: pre-wrap;
     overflow-wrap: break-word;
     word-break: normal;
@@ -606,6 +660,35 @@
     -webkit-text-fill-color: transparent;
     caret-color: var(--colours-text-strong);
     scrollbar-width: none;
+  }
+
+  textarea:global(.composer-grow) {
+    transition: height var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .editor[data-scale="jumbo"] {
+    --composer-text: 30px;
+    --composer-line: 40px;
+    --composer-emoji: 36px;
+  }
+
+  .editor:is([data-scale="1"], [data-scale="2"], [data-scale="3"]) {
+    --composer-weight: 700;
+  }
+
+  .editor[data-scale="1"] {
+    --composer-text: calc(var(--composer-base, var(--text-md)) * 1.5);
+    --composer-line: 1.3;
+  }
+
+  .editor[data-scale="2"] {
+    --composer-text: calc(var(--composer-base, var(--text-md)) * 1.3);
+    --composer-line: 1.3;
+  }
+
+  .editor[data-scale="3"] {
+    --composer-text: calc(var(--composer-base, var(--text-md)) * 1.1);
+    --composer-line: 1.3;
   }
 
   textarea::-webkit-scrollbar {
@@ -695,6 +778,23 @@
     background-color: var(--colours-accent-faint);
     box-shadow: 0 0 0 2px var(--colours-accent-faint);
     border-radius: var(--azure-radius-sm);
+  }
+
+  .mirror :global(.md-emoji) {
+    position: relative;
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    text-shadow: none;
+  }
+
+  .mirror :global(.md-emoji img.emoji) {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: var(--composer-emoji);
+    height: var(--composer-emoji);
+    margin: 0;
+    translate: -50% -50%;
   }
 
   .mirror :global(.md-sym.md-sym) {
@@ -1053,9 +1153,8 @@
     transition-delay: 300ms;
   }
 
-  kbd {
-    font: inherit;
-    color: var(--colours-text-faint);
+  .keys {
+    gap: 3px;
   }
 
   @keyframes rise-in {
@@ -1085,9 +1184,9 @@
       height: var(--azure-touch);
     }
 
-    textarea,
-    .mirror {
-      font-size: 16px;
+    .editor {
+      --composer-base: 16px;
+      --composer-text: 16px;
     }
 
     .chip-close {
