@@ -6,12 +6,14 @@
   import { getOrphanRooms } from "../../scripts/matrix/rooms";
   import type { RoomSummary } from "../../scripts/matrix/types";
   import { toEntity } from "../../scripts/stores/entities";
-  import { directMessages, markRoomRead, rooms, session, spaces } from "../../scripts/stores/matrix";
+  import { dismissNotificationPrompt, enableNotifications, formatCount, notificationPrompt } from "../../scripts/stores/unread";
+  import { directMessages, markAsRead, markUnread, rooms, session, spaces } from "../../scripts/stores/matrix";
   import { HOME, navigateAwayFrom, navigation, openBrowse, openRoom, openRoomMenu, openSpaceMenu, roomMenu } from "../../scripts/stores/navigation.svelte";
   import { hiddenRooms, setRoomsHidden } from "../../scripts/stores/hidden";
   import { serverNameFromUserId } from "../../scripts/matrix/discovery";
   import { toMatrixTo } from "../../scripts/matrix/utilities/links";
-  import { describeMembershipError, forgetRoom, leaveRoom, type MembershipError } from "../../scripts/matrix/utilities/membership";
+  import { joinRoom } from "../../scripts/matrix/utilities/hierarchy";
+  import { addDirectRoom, describeMembershipError, forgetRoom, leaveRoom, type MembershipError } from "../../scripts/matrix/utilities/membership";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { longpress } from "../../scripts/misc/longpress";
   import type { RoomEntity } from "../../scripts/stores/entities";
@@ -109,7 +111,44 @@
     ];
   });
 
-  const empty = $derived(categories.every((category) => category.rooms.length === 0));
+  const inviteInfo = (room: RoomSummary) => {
+    const own = room.state["m.room.member"]?.[$session?.userId ?? ""];
+    const inviter = own?.sender;
+    const profile = inviter ? room.state["m.room.member"]?.[inviter]?.content : undefined;
+    const direct = own?.content?.is_direct === true && !!inviter;
+    const entity = toEntity(room, $session?.userId);
+    return {
+      entity,
+      inviter,
+      direct,
+      name: direct ? ((profile?.displayname as string | undefined) ?? inviter!) : entity.name,
+    };
+  };
+
+  const invites = $derived(
+    tree ? [] : Object.values($rooms).filter((room) => room.membership === "invite").map(inviteInfo),
+  );
+  let inviteBusy: string | null = $state(null);
+
+  const respond = async (invite: ReturnType<typeof inviteInfo>, accept: boolean) => {
+    if (!$session || inviteBusy) return;
+    const id = invite.entity.id;
+    inviteBusy = id;
+    try {
+      if (accept) {
+        await joinRoom($session, id, []);
+        if (invite.direct && invite.inviter) await addDirectRoom($session, invite.inviter, id).catch(() => undefined);
+        openRoom(HOME, id);
+        onpick?.();
+      } else await leaveRoom($session, id);
+    } catch {
+      toastKey(accept ? "join_failed" : "decline_failed", { icon: "leave", tone: "danger" });
+    } finally {
+      inviteBusy = null;
+    }
+  };
+
+  const empty = $derived(invites.length === 0 && categories.every((category) => category.rooms.length === 0));
 
   const browse = () => {
     openBrowse(navigation.spaceId);
@@ -159,7 +198,8 @@
     const inSpace = navigation.spaceId !== HOME;
 
     return [
-      { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, run: () => (markRoomRead(room.id), toastKey("marked_read", { icon: "check", tone: "success" })) },
+      { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, run: () => (markAsRead(room.id), toastKey("marked_read", { icon: "check", tone: "success" })) },
+      { id: "unread", label: text("room_menu", "mark_unread"), icon: MENU_ICONS.unread, run: () => markUnread(room.id) && toastKey("marked_unread", { icon: "unread", tone: "accent" }) },
       { id: "link", label: text("room_menu", "copy_link"), icon: MENU_ICONS.link, run: () => copy(toMatrixTo(room.alias ?? room.id, via), "link_copied", "link") },
       { id: "id", label: text("room_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(room.id, "id_copied", "id") },
       ...(inSpace
@@ -196,11 +236,21 @@
         <svg class="title-chevron" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" /></svg>
       </button>
     {:else}
-      <h1 class="title bold md truncate">{text("navigation", "direct_messages")}</h1>
+      <h1 class="title bold md truncate">{text("navigation", "home")}</h1>
     {/if}
   </header>
 
   <div class="list col flex-max min-0">
+    {#if $notificationPrompt}
+      <div class="notify-banner col gap-xs" role="region" aria-label={text("notifications", "prompt")}>
+        <p class="sm bold">{text("notifications", "prompt")}</p>
+        <p class="xs muted">{text("notifications", "prompt_body")}</p>
+        <div class="notify-actions row-nw gap-sm">
+          <button type="button" class="notify-enable press xs bold" onclick={enableNotifications}>{text("notifications", "enable")}</button>
+          <button type="button" class="notify-later ghost press xs" onclick={dismissNotificationPrompt}>{text("notifications", "later")}</button>
+        </div>
+      </div>
+    {/if}
     {#if tree}
       <button
         class="room browse item ghost press row-nw align-centre gap-sm md"
@@ -214,6 +264,22 @@
         </svg>
         <span class="truncate flex-max">{text("navigation", "browse")}</span>
       </button>
+    {/if}
+    {#if invites.length}
+      <div class="category col">
+        <h2 class="category-toggle category-label truncate">{text("navigation", "invites")}</h2>
+        <ul class="col">
+          {#each invites as invite (invite.entity.id)}
+            <li class="notify-banner col gap-xs">
+              <p class="sm bold truncate"><EmojiText text={invite.name} /></p>
+              <div class="notify-actions row-nw gap-sm">
+                <button type="button" class="notify-enable press xs bold" disabled={inviteBusy === invite.entity.id} onclick={() => respond(invite, true)}>{text("navigation", "invite_accept")}</button>
+                <button type="button" class="notify-later ghost press xs" disabled={inviteBusy === invite.entity.id} onclick={() => respond(invite, false)}>{text("navigation", "invite_decline")}</button>
+              </div>
+            </li>
+          {/each}
+        </ul>
+      </div>
     {/if}
     {#if empty}
       <p class="empty sm faint">{text("navigation", tree ? "empty_space" : "empty_home")}</p>
@@ -242,13 +308,17 @@
           <ul class="col">
             {#each category.rooms as room (room.id)}
               {@const active = navigation.roomId === room.id}
-              {@const hidden = isCollapsed && !active && !room.unread && !room.mentions}
+              {@const lit = room.hasUnread && !room.muted}
+              {@const count = room.isDirect ? Math.max(room.unread, room.mentions) : room.mentions}
+              {@const hidden = isCollapsed && !active && !lit && !room.mentions}
                 <li class="room-slot" class:hidden inert={hidden}>
+                  <span class="unread-pill" class:lit={lit && !active} aria-hidden="true"></span>
                   <div class="room-inner">
                   <button
                     class="room item ghost press row-nw align-centre gap-sm md"
                     class:direct={room.isDirect}
-                    class:unread={room.unread || room.mentions}
+                    class:unread={lit || room.mentions > 0}
+                    class:silenced={room.muted && !room.mentions}
                     aria-current={active ? "page" : undefined}
                     onclick={() => pick(room.id)}
                     oncontextmenu={(event) => {
@@ -273,8 +343,8 @@
                       <span class="hash faint" aria-hidden="true">#</span>
                       <span class="truncate flex-max"><EmojiText text={room.name} /></span>
                     {/if}
-                    {#if room.mentions}
-                      <span class="badge xs bold">{room.mentions}</span>
+                    {#if count > 0 && (!room.muted || room.mentions)}
+                      <span class="count-badge xs bold" aria-label={text("navigation", "unread_count").replace("{count}", String(count))}>{formatCount(count)}</span>
                     {/if}
                   </button>
                   </div>
@@ -475,6 +545,38 @@
     transition: padding-block var(--azure-duration-md) var(--azure-ease-out);
   }
 
+  .notify-banner {
+    margin: 0 0 var(--azure-spacing-sm);
+    padding: var(--azure-spacing-md);
+    border-radius: var(--azure-radius-lg);
+    background-color: var(--colours-accent-faint);
+    border: 1px solid var(--colours-outline-hairline);
+  }
+
+  .notify-banner p {
+    margin: 0;
+  }
+
+  .notify-banner .xs {
+    line-height: 1.45;
+  }
+
+  .notify-actions {
+    margin-top: var(--azure-spacing-sm);
+  }
+
+  .notify-enable,
+  .notify-later {
+    padding: 6px 14px;
+    border-radius: var(--azure-radius-md);
+  }
+
+  .notify-enable {
+    border: 0;
+    color: var(--colours-on-accent);
+    background-color: var(--colours-accent);
+  }
+
   .empty {
     margin: 0;
     padding: var(--azure-spacing-sm) var(--azure-spacing-md);
@@ -512,13 +614,51 @@
     font-size: var(--text-lg);
   }
 
-  .badge {
+  .count-badge {
+    flex: none;
     min-width: 18px;
     padding: 1px 6px;
     border-radius: var(--azure-radius-pill);
     text-align: center;
     color: white;
     background-color: var(--colours-danger);
+    animation: badge-pop var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  @keyframes badge-pop {
+    from {
+      transform: scale(0.4);
+      opacity: 0;
+    }
+  }
+
+  .room-slot {
+    position: relative;
+  }
+
+  .unread-pill {
+    position: absolute;
+    left: calc(-1 * var(--azure-spacing-sm));
+    top: 50%;
+    width: 4px;
+    height: 8px;
+    border-radius: 0 var(--azure-radius-pill) var(--azure-radius-pill) 0;
+    background-color: var(--colours-text-strong);
+    transform: translate(-100%, -50%);
+    transition: transform var(--azure-duration-md) var(--azure-ease-spring);
+    pointer-events: none;
+  }
+
+  .unread-pill.lit {
+    transform: translate(0, -50%);
+  }
+
+  .room.silenced {
+    opacity: 0.5;
+  }
+
+  .room.silenced.unread {
+    font-weight: inherit;
   }
 
   @media (max-width: 767px) {

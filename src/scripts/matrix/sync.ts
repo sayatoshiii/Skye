@@ -28,6 +28,7 @@ export type SyncOptions = {
   presence?: () => "online" | "unavailable" | "offline";
 };
 
+const CRYPTO_TIMEOUT = 10000;
 const SINCE_KEY = "sync_since";
 const FILTER_KEY = "sync_filter_id_v2";
 
@@ -105,13 +106,18 @@ export const createSync = ({
     });
 
   const handleResponse = async (response: SyncResponse) => {
-    await crypto.onSync?.({
+    const cryptoSync = Promise.resolve()
+      .then(() =>
+        crypto.onSync?.({
       toDevice: response.to_device?.events ?? [],
       deviceLists: response.device_lists ?? {},
       oneTimeKeyCounts: response.device_one_time_keys_count ?? {},
       unusedFallbackKeyTypes: response.device_unused_fallback_key_types,
-      nextBatch: response.next_batch,
-    });
+          nextBatch: response.next_batch,
+        }),
+      )
+      .catch((error) => console.warn("Crypto sync failed", error));
+    await Promise.race([cryptoSync, sleep(CRYPTO_TIMEOUT).catch(() => undefined)]);
 
     emitter.emit("sync", response);
 

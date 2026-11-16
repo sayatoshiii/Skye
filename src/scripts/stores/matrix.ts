@@ -7,6 +7,9 @@ import {
   getOrphanRooms,
   getSpaceTrees,
   getUnreadTotals,
+  isVisible,
+  isUnread,
+  unreadCountOf,
   type RoomStore,
 } from "../matrix/rooms";
 import { DeviceId as WasmDeviceId, UserId as WasmUserId } from "@matrix-org/matrix-sdk-crypto-wasm";
@@ -31,6 +34,8 @@ import { createTimeline, type TimelineHandle } from "../matrix/timeline";
 import type {
   CryptoHooks,
   EventId,
+  MatrixEvent,
+  SyncResponse,
   RoomId,
   RoomMember,
   RoomSummary,
@@ -89,6 +94,20 @@ export const registerAccountDataHook = (hook: AccountDataHook) => {
 };
 
 export const registerNotesHook = registerAccountDataHook;
+
+type LiveSyncHook = (response: SyncResponse) => void;
+
+const liveSyncHooks = new Set<LiveSyncHook>();
+
+export const registerLiveSyncHook = (hook: LiveSyncHook) => {
+  liveSyncHooks.add(hook);
+};
+
+export const decryptPreview = async (event: MatrixEvent, roomId: RoomId) => {
+  if (event.type !== "m.room.encrypted") return event;
+  if (!crypto.decryptEvent) return null;
+  return Promise.resolve(crypto.decryptEvent(event, roomId)).catch(() => null);
+};
 
 const RESTORED_PREFIX = "history_restored";
 
@@ -178,6 +197,88 @@ const leaveContext = () => {
   canLoadOlder.set(timeline.canPaginate());
 };
 const receipts: Record<RoomId, EventId> = {};
+
+export type UnreadMarker = { eventId: EventId; armed: boolean };
+export const unreadMarkers = writable<Record<RoomId, UnreadMarker>>({});
+export type UnreadDivider = { roomId: RoomId; eventId: EventId; after?: boolean; count?: number; ts?: number };
+export const unreadDivider = writable<UnreadDivider | null>(null);
+
+const MARKER_PREFIX = "skye:unread:";
+
+const markerKey = (roomId: RoomId) => {
+  const active = get(session);
+  return active ? `${MARKER_PREFIX}${active.userId}:${roomId}` : null;
+};
+
+const loadMarkers = (userId: UserId) => {
+  const prefix = `${MARKER_PREFIX}${userId}:`;
+  const found: Record<RoomId, UnreadMarker> = {};
+  try {
+    for (let index = 0; index < localStorage.length; index++) {
+      const key = localStorage.key(index);
+      if (!key?.startsWith(prefix)) continue;
+      const value = JSON.parse(localStorage.getItem(key) ?? "null");
+      if (typeof value?.eventId === "string") found[key.slice(prefix.length)] = { eventId: value.eventId, armed: !!value.armed };
+    }
+  } catch {}
+  unreadMarkers.set(found);
+};
+
+const saveMarker = (roomId: RoomId, marker: UnreadMarker | null) => {
+  try {
+    const key = markerKey(roomId);
+    if (!key) return;
+    if (marker) localStorage.setItem(key, JSON.stringify(marker));
+    else localStorage.removeItem(key);
+  } catch {}
+};
+
+const countFromMarker = (roomId: RoomId) => {
+  const marker = get(unreadMarkers)[roomId];
+  if (!marker) return undefined;
+  const events = timelines[roomId]?.getEvents() ?? [];
+  const index = events.findIndex((event) => event.event_id === marker.eventId);
+  if (index === -1) return 1;
+  return Math.max(1, events.slice(index).filter((event) => isVisible(event)).length);
+};
+
+const refreshLocalUnread = (roomId: RoomId) => roomStore?.setLocalUnread(roomId, countFromMarker(roomId));
+
+const setMarker = (roomId: RoomId, marker: UnreadMarker | null) => {
+  unreadMarkers.update((current) => {
+    const next = { ...current };
+    if (marker) next[roomId] = marker;
+    else delete next[roomId];
+    return next;
+  });
+  saveMarker(roomId, marker);
+  refreshLocalUnread(roomId);
+};
+
+export const hasUnreadMarker = (roomId: RoomId) => !!get(unreadMarkers)[roomId];
+
+export const markUnread = (roomId: RoomId, eventId?: EventId) => {
+  const target =
+    eventId ??
+    (timelines[roomId]?.getEvents() ?? []).findLast((event) => isVisible(event) && !event.event_id.startsWith("~"))?.event_id ??
+    get(rooms)[roomId]?.latestForeign?.eventId;
+  if (!target) return false;
+  unreadDivider.set(null);
+  setMarker(roomId, { eventId: target, armed: false });
+  return true;
+};
+
+export const clearUnreadMarker = (roomId: RoomId) => {
+  if (!get(unreadMarkers)[roomId]) return;
+  setMarker(roomId, null);
+};
+
+export const markAsRead = (roomId: RoomId | null = get(currentRoomId)) => {
+  if (!roomId) return;
+  clearUnreadMarker(roomId);
+  if (get(unreadDivider)?.roomId === roomId) unreadDivider.set(null);
+  markRoomRead(roomId);
+};
 
 let syncPresence: Presence = "online";
 
@@ -473,6 +574,7 @@ export const startMatrix = (
   session.set(activeSession);
   roomStore = createRoomStore(activeSession.userId);
   roomStore.on("change", (next) => rooms.set(next));
+  loadMarkers(activeSession.userId);
 
   sync = createSync({ ...options, crypto, session: activeSession, presence: () => syncPresence });
   sync.on("state", (state) => syncState.set(state));
@@ -487,12 +589,22 @@ export const startMatrix = (
     sessionExpired.set(true);
   });
   sync.on("sync", (response) => {
-    roomStore?.applySync(response);
-    Object.keys(response.rooms?.leave ?? {}).forEach(dropRoomCache);
-    applyPresence(response.presence?.events ?? []);
-    applyEphemeral(response.rooms?.join ?? {});
+    const live = get(synced);
+    const safely = (run: () => void) => {
+      try {
+        run();
+      } catch (error) {
+        console.error("Sync hook failed", error);
+      }
+    };
+    safely(() => roomStore?.applySync(response));
+    if (!live) Object.keys(get(unreadMarkers)).forEach(refreshLocalUnread);
+    if (live) liveSyncHooks.forEach((hook) => safely(() => hook(response)));
+    Object.keys(response.rooms?.leave ?? {}).forEach((id) => safely(() => dropRoomCache(id)));
+    safely(() => applyPresence(response.presence?.events ?? []));
+    safely(() => applyEphemeral(response.rooms?.join ?? {}));
     const accountData = response.account_data?.events ?? [];
-    accountDataHooks.forEach((hook) => hook(accountData));
+    accountDataHooks.forEach((hook) => safely(() => hook(accountData)));
     if (!get(synced)) queueMicrotask(() => promptVerification(activeSession));
     synced.set(true);
   });
@@ -500,7 +612,8 @@ export const startMatrix = (
     const timeline =
       timelines[roomId] ??
       (roomId === get(currentRoomId) ? getTimeline(roomId) : undefined);
-    timeline?.appendLive(events, limited, prevBatch);
+    const pending = timeline?.appendLive(events, limited, prevBatch);
+    if (get(unreadMarkers)[roomId]) pending?.then(() => refreshLocalUnread(roomId));
   });
   sync.start();
   loadProfile(activeSession);
@@ -526,13 +639,24 @@ export const stopMatrix = () => {
   presenceDetails.set({});
   typingUsers.set({});
   readReceipts.set({});
+  unreadMarkers.set({});
+  unreadDivider.set(null);
   ownProfile.set(null);
   synced.set(false);
   session.set(null);
 };
 
+type SignOutHook = (session: Session) => Promise<unknown>;
+
+const signOutHooks = new Set<SignOutHook>();
+
+export const registerSignOutHook = (hook: SignOutHook) => {
+  signOutHooks.add(hook);
+};
+
 export const signOut = async () => {
   const active = get(session) ?? loadSession();
+  if (active) await Promise.all([...signOutHooks].map((hook) => hook(active)));
   stopMatrix();
   clearSyncToken();
   await stopCrypto();
@@ -542,6 +666,23 @@ export const signOut = async () => {
 export const selectRoom = async (roomId: RoomId | null) => {
   unsubscribeTimeline?.();
   unsubscribeTimeline = null;
+  const previous = get(currentRoomId);
+  const markers = get(unreadMarkers);
+  if (previous && previous !== roomId && markers[previous] && !markers[previous].armed)
+    setMarker(previous, { ...markers[previous], armed: true });
+  if (roomId && roomId !== previous) {
+    const marker = get(unreadMarkers)[roomId];
+    const summary = get(rooms)[roomId];
+    const readFrom = summary?.readEventId ?? summary?.fullyRead;
+    unreadDivider.set(
+      marker?.armed
+        ? { roomId, eventId: marker.eventId, count: summary?.localUnread }
+        : !marker && summary && readFrom && isUnread(summary) && summary.latestForeign?.eventId !== readFrom
+          ? { roomId, eventId: readFrom, after: true, count: unreadCountOf(summary), ts: summary.readTs || undefined }
+          : null,
+    );
+    if (marker?.armed) setMarker(roomId, null);
+  }
   currentRoomId.set(roomId);
 
   if (!roomId) return currentTimeline.set([]);
@@ -567,13 +708,13 @@ export const selectRoom = async (roomId: RoomId | null) => {
 };
 
 export const markRoomRead = (roomId: RoomId | null = get(currentRoomId)) => {
-  if (!roomId) return;
+  if (!roomId || get(unreadMarkers)[roomId]) return;
 
   roomStore?.markRead(roomId);
 
   const latest = getTimeline(roomId)
     .getEvents()
-    .findLast((event) => !event.txnId || event.localStatus === "sent");
+    .findLast((event) => !event.txnId || event.localStatus === "sent") ?? (get(rooms)[roomId]?.latestForeign ? { event_id: get(rooms)[roomId].latestForeign!.eventId } : undefined);
 
   if (
     !latest ||

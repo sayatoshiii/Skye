@@ -148,7 +148,7 @@ export const createTimeline = ({
         : -1;
 
       if (echoIndex !== -1) {
-        events[echoIndex] = settle({ ...event, localStatus: "sent" });
+        events[echoIndex] = settle({ ...event, txnId, localStatus: "sent" });
         continue;
       }
 
@@ -251,7 +251,11 @@ export const createTimeline = ({
       localStatus: "sending",
     };
 
-    events.push(echo);
+    const replacing = isReplacement(echo);
+    if (replacing) {
+      const target = findEvent(content["m.relates_to"].event_id);
+      if (target) applyEdit(target, echo);
+    } else events.push(echo);
     notify();
 
     try {

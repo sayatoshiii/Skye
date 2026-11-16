@@ -17,7 +17,13 @@ export const createEmitter = <Events extends Record<string, unknown>>() => {
   ) => listeners[event]?.delete(listener);
 
   const emit = <K extends keyof Events>(event: K, payload: Events[K]) =>
-    listeners[event]?.forEach((listener) => listener(payload));
+    listeners[event]?.forEach((listener) => {
+      try {
+        listener(payload);
+      } catch (error) {
+        console.error(`Listener for "${String(event)}" failed`, error);
+      }
+    });
 
   return { on, off, emit };
 };
