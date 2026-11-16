@@ -11,6 +11,7 @@
   import MiniProfile from "../../components/profile/MiniProfile.svelte";
   import FullProfile from "../../components/profile/FullProfile.svelte";
   import SpaceRail from "../../components/navigation/SpaceRail.svelte";
+  import { openFullProfile } from "../../scripts/stores/profile";
   import { ROUTES } from "../../scripts/settings/config";
   import { currentRoom, joinedMembers, selectRoom, sessionExpired, startMatrix, synced } from "../../scripts/stores/matrix";
   import {
@@ -73,7 +74,9 @@
   const go = (pane: Pane) => (navigation.pane = pane);
 
   const toggleMembers = () =>
-    mobile ? go(navigation.pane === "members" ? "chat" : "members") : (membersOpen = !membersOpen);
+    mobile && directProfile && room?.directUserId
+      ? openFullProfile(room.directUserId, room.roomId)
+      : mobile ? go(navigation.pane === "members" ? "chat" : "members") : (membersOpen = !membersOpen);
 
   const onpointerdown = (event: PointerEvent) => {
     if (!mobile || event.pointerType === "mouse") return;
@@ -92,7 +95,7 @@
 
     if (!axis) {
       if (Math.max(Math.abs(dx), Math.abs(dy)) < AXIS_LOCK) return;
-      axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+      axis = Math.abs(dx) > Math.abs(dy) && !(dx < 0 && navigation.pane === "chat") ? "x" : "y";
       if (axis === "x") {
         dragging = true;
         (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);

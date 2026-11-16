@@ -75,6 +75,9 @@ export const canLoadOlder = writable(true);
 export const restoreOpen = writable(false);
 export const detached = writable(false);
 export const canLoadNewer = writable(false);
+export type ReadReceipt = { eventId: EventId; ts: number };
+export const typingUsers = writable<Record<RoomId, UserId[]>>({});
+export const readReceipts = writable<Record<RoomId, Record<UserId, ReadReceipt>>>({});
 export const verification = writable<VerificationState>(initialVerification);
 
 type AccountDataHook = (events: { type: string; content?: Record<string, unknown> }[]) => void;
@@ -214,6 +217,40 @@ export const applyPresence = (events: { sender?: UserId; content: any }[], fetch
         ]),
     ),
   }));
+};
+
+const applyEphemeral = (join: Record<RoomId, { ephemeral?: { events: { type: string; content: any }[] } }>) => {
+  const typing: Record<RoomId, UserId[]> = {};
+  const receipts: Record<RoomId, Record<UserId, ReadReceipt>> = {};
+
+  for (const [roomId, room] of Object.entries(join)) {
+    for (const event of room.ephemeral?.events ?? []) {
+      if (event.type === "m.typing" && Array.isArray(event.content?.user_ids)) typing[roomId] = event.content.user_ids;
+      if (event.type !== "m.receipt" || !event.content) continue;
+      const target = (receipts[roomId] ??= {});
+      for (const [eventId, kinds] of Object.entries<Record<string, Record<UserId, { ts?: number }>>>(event.content)) {
+        for (const kind of ["m.read", "m.read.private"]) {
+          for (const [userId, data] of Object.entries(kinds?.[kind] ?? {})) {
+            const ts = typeof data?.ts === "number" ? data.ts : Date.now();
+            if (!target[userId] || target[userId].ts <= ts) target[userId] = { eventId, ts };
+          }
+        }
+      }
+    }
+  }
+
+  if (Object.keys(typing).length) typingUsers.update((current) => ({ ...current, ...typing }));
+  if (!Object.keys(receipts).length) return;
+  readReceipts.update((current) => {
+    const next = { ...current };
+    for (const [roomId, users] of Object.entries(receipts)) {
+      const merged = { ...next[roomId] };
+      for (const [userId, receipt] of Object.entries(users))
+        if (!merged[userId] || merged[userId].ts <= receipt.ts) merged[userId] = receipt;
+      next[roomId] = merged;
+    }
+    return next;
+  });
 };
 
 const loadProfile = async (active: Session) => {
@@ -453,6 +490,7 @@ export const startMatrix = (
     roomStore?.applySync(response);
     Object.keys(response.rooms?.leave ?? {}).forEach(dropRoomCache);
     applyPresence(response.presence?.events ?? []);
+    applyEphemeral(response.rooms?.join ?? {});
     const accountData = response.account_data?.events ?? [];
     accountDataHooks.forEach((hook) => hook(accountData));
     if (!get(synced)) queueMicrotask(() => promptVerification(activeSession));
@@ -486,6 +524,8 @@ export const stopMatrix = () => {
   joinedMembers.set({});
   presence.set({});
   presenceDetails.set({});
+  typingUsers.set({});
+  readReceipts.set({});
   ownProfile.set(null);
   synced.set(false);
   session.set(null);
@@ -767,6 +807,14 @@ export const sendRoomEvent = (type: string, content: Record<string, any>, roomId
 
 export const fetchRelations = (eventId: EventId, relType = "m.reference", roomId: RoomId = requireRoom()) =>
   getTimeline(roomId).fetchRelations(eventId, relType);
+
+export const sendReaction = (eventId: EventId, key: string, roomId: RoomId = requireRoom()) =>
+  getTimeline(roomId).sendEvent("m.reaction", {
+    "m.relates_to": { rel_type: "m.annotation", event_id: eventId, key },
+  });
+
+export const sendTyping = (roomId: RoomId, typing: boolean) =>
+  getTimeline(roomId).sendTyping(typing).catch(() => undefined);
 
 export const discardMessage = (txnId: string) =>
   getTimeline(requireRoom()).discard(txnId);

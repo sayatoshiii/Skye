@@ -141,6 +141,14 @@
       "mod_mac": "⌘"
     },
     "chat": {
+      "add_reaction": "Add reaction",
+      "reacted": "{names} reacted with {emoji}",
+      "react_with": "React with {emoji}",
+      "and": "{rest} and {last}",
+      "typing_one": "{name} is typing…",
+      "typing_two": "{first} and {second} are typing…",
+      "typing_many": "Several people are typing…",
+      "seen_by": "Seen by {names}",
       "copy_code": "Copy",
       "copied_code": "Copied",
       "view_code": "View full",
@@ -570,6 +578,23 @@
       "open_link": "Open link",
       "copy_link": "Copy link"
     },
+    "toast": {
+      "copied": "Copied to clipboard",
+      "link_copied": "Link copied",
+      "id_copied": "ID copied",
+      "message_id_copied": "Message ID copied",
+      "user_id_copied": "User ID copied",
+      "coordinates_copied": "Coordinates copied",
+      "image_copied": "Image copied",
+      "media_copied": "Copied to clipboard",
+      "saved": "Saved",
+      "pinned": "Message pinned",
+      "unpinned": "Message unpinned",
+      "deleted": "Message deleted",
+      "marked_read": "Marked as read",
+      "hidden": "Room hidden",
+      "shown": "Room shown"
+    },
     "room_menu": {
       "actions": "Room actions",
       "mark_read": "Mark as read",
@@ -621,6 +646,11 @@
       "matching": "Emoji matching {query}",
       "default": "A default emoji. You can use this emoji everywhere on Skye.",
       "picker": "Emoji picker",
+      "add_favourite": "Add to favourites",
+      "remove_favourite": "Remove from favourites",
+      "remove_recent": "Remove from recent",
+      "emoji_actions": "Emoji actions",
+      "quick_reactions": "Quick reactions",
       "open_picker": "Choose an emoji",
       "search": "Find the perfect emoji",
       "no_results": "No emoji found",
@@ -634,6 +664,7 @@
         "Dark"
       ],
       "categories": {
+        "favourites": "Favourites",
         "recent": "Frequently used",
         "people": "Smileys & People",
         "nature": "Animals & Nature",

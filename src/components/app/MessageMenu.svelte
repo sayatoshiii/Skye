@@ -15,6 +15,7 @@
   import { dismissible } from "../../scripts/misc/dismiss.svelte";
   import { portal } from "../../scripts/misc/portal";
   import { tick } from "svelte";
+  import EmojiText from "../ui/EmojiText.svelte";
 
   let {
     items,
@@ -22,10 +23,26 @@
     y,
     label,
     minWidth,
+    quick,
+    quickLabel,
     onclose,
-  }: { items: MenuItem[]; x: number; y: number; label: string; minWidth?: number; onclose: () => void } = $props();
+  }: {
+    items: MenuItem[];
+    x: number;
+    y: number;
+    label: string;
+    minWidth?: number;
+    quick?: { key: string; active: boolean; run: () => void }[];
+    quickLabel?: string;
+    onclose: () => void;
+  } = $props();
 
   const exit = dismissible(() => onclose());
+  const openedAt = performance.now();
+  const dismiss = (event: Event) => {
+    event.preventDefault();
+    if (performance.now() - openedAt > 450) exit.close();
+  };
 
   let menu: HTMLElement | undefined = $state();
   let left = $state(0);
@@ -74,9 +91,16 @@
 </script>
 
 <div class="layer" class:closing={exit.closing} role="presentation" use:portal>
-  <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={exit.close} oncontextmenu={(event) => { event.preventDefault(); exit.close(); }}></button>
+  <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={dismiss} oncontextmenu={dismiss}></button>
   <div class="menu col" role="menu" onanimationend={exit.onanimationend} inert={exit.closing} aria-label={label} tabindex="-1" bind:this={menu} style:left="{left}px" style:top="{top}px" style:min-width={minWidth ? `${minWidth}px` : undefined} {onkeydown}>
     <span class="handle" aria-hidden="true"></span>
+    {#if quick?.length}
+      <div class="quick row-nw" role="group" aria-label={quickLabel}>
+        {#each quick as option (option.key)}
+          <button type="button" role="menuitem" class="quick-option ghost press" class:active={option.active} aria-pressed={option.active} aria-label={option.key} onclick={() => { exit.close(); option.run(); }}><EmojiText text={option.key} /></button>
+        {/each}
+      </div>
+    {/if}
     {#each items as item (item.id)}
       <button type="button" role="menuitem" class="entry row-nw align-centre gap-md ghost press sm" class:danger={item.danger} disabled={item.disabled} onclick={(event) => choose(item, event)}>
         <span class="flex-max truncate">{item.label}</span>
@@ -122,6 +146,41 @@
 
   .handle {
     display: none;
+  }
+
+  .quick {
+    justify-content: space-between;
+    gap: 2px;
+    padding-bottom: var(--azure-spacing-sm);
+    margin-bottom: var(--azure-spacing-xs);
+    border-bottom: 1px solid var(--colours-outline-hairline);
+  }
+
+  .quick-option {
+    display: grid;
+    place-items: center;
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    background-color: var(--colours-surface-hover);
+    transition:
+      background-color var(--azure-duration-fast) var(--azure-ease-out),
+      scale var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .quick-option:hover,
+  .quick-option:focus-visible {
+    scale: 1.12;
+  }
+
+  .quick-option.active {
+    background-color: color-mix(in oklab, var(--colours-accent) 22%, transparent);
+    box-shadow: inset 0 0 0 1px var(--colours-accent);
+  }
+
+  .quick-option :global(img.emoji) {
+    width: 22px;
+    height: 22px;
   }
 
   .layer.closing {

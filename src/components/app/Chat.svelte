@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { copied, toastKey, type ToastIcon } from "../../scripts/stores/toast";
   import { tooltip } from "../../scripts/misc/tooltip";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { canCopyMedia, copyMedia } from "../../scripts/misc/clipboard";
@@ -42,8 +43,15 @@
     rooms,
     session,
     undecryptable,
+    readReceipts,
+    sendReaction,
+    sendTyping,
+    typingUsers,
+    type ReadReceipt,
     type ReplyTarget,
   } from "../../scripts/stores/matrix";
+  import EmojiPicker from "./EmojiPicker.svelte";
+  import { quickEmoji, useEmoji } from "../../scripts/settings/emoji";
   import Avatar from "../ui/Avatar.svelte";
   import LinkPreview from "./media/LinkPreview.svelte";
   import MessageBody from "./media/MessageBody.svelte";
@@ -69,6 +77,7 @@
   const STICK_THRESHOLD = 120;
   const LONG_PRESS = 480;
   const SWIPE_REPLY = 64;
+  const SWIPE_EDIT = 140;
   const VISIBLE_TYPES = ["m.room.message", "m.room.encrypted", "m.sticker", ...LOCATION_KEYS, ...POLL_START, ...BEACON_INFO, ...SYSTEM_TYPES];
   const MEMBER_GROUP = 3;
   const MEMBER_VERBS: MemberVerb[] = ["joined", "left", "invited", "removed", "profile"];
@@ -87,6 +96,7 @@
     pin: "M9 4h6l-1 6 4 4H6l4-4-1-6Zm3 10v6",
     unpin: "M9 4h6l-1 6 4 4H6l4-4-1-6Zm3 10v6M4 4l16 16",
     end: "M6 6h12v12H6z",
+    react: "M12 21a9 9 0 1 1 9-9M8.5 14.5a4.5 4.5 0 0 0 7 0M9 9.5h.01M15 9.5h.01M19 15v6m-3-3h6",
     chevron: "m9 6 6 6-6 6",
   };
 
@@ -117,9 +127,9 @@
   let confirmDialog: ConfirmDialog | undefined = $state();
 
   const CONFIRM_ACTIONS: Record<ConfirmKind, (eventId: string) => Promise<unknown>> = {
-    delete: (eventId) => redactMessage(eventId),
-    pin: (eventId) => pinMessage(eventId),
-    unpin: (eventId) => unpinMessage(eventId),
+    delete: (eventId) => redactMessage(eventId).then(() => toastKey("deleted", { icon: "trash", tone: "danger" })),
+    pin: (eventId) => pinMessage(eventId).then(() => toastKey("pinned", { icon: "pin", tone: "accent" })),
+    unpin: (eventId) => unpinMessage(eventId).then(() => toastKey("unpinned", { icon: "unpin", tone: "danger" })),
     end_poll: (eventId) => endPoll(eventId),
   };
 
@@ -139,6 +149,7 @@
     confirmDialog?.dismiss();
   };
   let swipe: { id: string; dx: number } | null = $state(null);
+  let swiped: { id: string; size: number } | null = $state.raw(null);
   let pinsOpen = $state(false);
   let pinsButton: HTMLButtonElement | undefined = $state();
   let note: string | null = $state(null);
@@ -151,10 +162,20 @@
   const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
   const quick = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
   let noteTimer: ReturnType<typeof setTimeout> | undefined;
+  let typingMap: Record<string, string[]> = $state.raw({});
+  let receiptMap: Record<string, Record<string, ReadReceipt>> = $state.raw({});
+  let quickKeys: string[] = $state.raw([]);
+  const QUICK_TOOLBAR = 3;
+  let reacting: { eventId: string; anchor: HTMLElement } | null = $state.raw(null);
+  const SEEN_LIMIT = 3;
+  const TYPING_REFRESH = 4000;
 
   $effect(() => undecryptable.subscribe((value) => (lockedOut = value)));
   $effect(() => detached.subscribe((value) => (isDetached = value)));
   $effect(() => mediaSettings.subscribe((value) => (settings = value)));
+  $effect(() => typingUsers.subscribe((value) => (typingMap = value)));
+  $effect(() => readReceipts.subscribe((value) => (receiptMap = value)));
+  $effect(() => quickEmoji.subscribe((value) => (quickKeys = value)));
   $effect(() => () => pending.forEach((item) => item.preview && URL.revokeObjectURL(item.preview)));
 
   const room = $derived($currentRoom && toEntity($currentRoom, $session?.userId));
@@ -172,6 +193,7 @@
       editing = null;
       menu = null;
       pinsOpen = false;
+      reacting = null;
       unseenAfter = null;
       farFromBottom = false;
     });
@@ -322,6 +344,130 @@
         last: !isChained(message, all[index + 1]),
       })),
   );
+
+  type ReactionGroup = { key: string; senders: string[]; own?: string };
+
+  const reactions = $derived.by(() => {
+    const map = new Map<string, ReactionGroup[]>();
+    const seen = new Set<string>();
+    for (const event of $currentTimeline) {
+      if (event.type !== "m.reaction" || event.redacted || event.localStatus === "failed") continue;
+      const relation = event.content["m.relates_to"];
+      if (relation?.rel_type !== "m.annotation" || typeof relation.key !== "string" || typeof relation.event_id !== "string") continue;
+      const unique = `${relation.event_id}\n${relation.key}\n${event.sender}`;
+      if (seen.has(unique)) continue;
+      seen.add(unique);
+      const groups = map.get(relation.event_id) ?? [];
+      if (!groups.length) map.set(relation.event_id, groups);
+      let group = groups.find((item) => item.key === relation.key);
+      if (!group) groups.push((group = { key: relation.key, senders: [] }));
+      group.senders.push(event.sender);
+      if (event.sender === ownUserId) group.own = event.event_id;
+    }
+    return map;
+  });
+
+  const joinNames = (names: string[]) =>
+    names.length < 2 ? (names[0] ?? "") : text("chat", "and").replace("{rest}", names.slice(0, -1).join(", ")).replace("{last}", names.at(-1)!);
+
+  const reactedLabel = (group: ReactionGroup) =>
+    text("chat", "reacted").replace("{names}", joinNames(group.senders.map(resolveName))).replace("{emoji}", group.key);
+
+  const toggleReaction = (eventId: string, key: string) => {
+    const own = reactions.get(eventId)?.find((group) => group.key === key)?.own;
+    if (own) return void (own.startsWith("~") || redactMessage(own).catch(() => undefined));
+    sendReaction(eventId, key).catch(() => undefined);
+  };
+
+  const pickReaction = (unicode: string) => {
+    if (!reacting) return;
+    useEmoji(unicode);
+    if (!reactions.get(reacting.eventId)?.find((group) => group.key === unicode)?.own) toggleReaction(reacting.eventId, unicode);
+  };
+
+  const openReactions = (message: Message, anchor?: HTMLElement | null) => {
+    const target = anchor ?? findEvent(message.eventId)?.querySelector<HTMLElement>(".react-tool") ?? findEvent(message.eventId);
+    if (target) reacting = { eventId: message.eventId, anchor: target };
+  };
+
+  const reactedWith = (eventId: string, key: string) => !!reactions.get(eventId)?.find((group) => group.key === key)?.own;
+
+  const quickOptions = (message: Message) =>
+    canReact(message) && matchMedia("(pointer: coarse)").matches
+      ? quickKeys.map((key) => ({ key, active: reactedWith(message.eventId, key), run: () => toggleReaction(message.eventId, key) }))
+      : undefined;
+
+  const canReact = (message: Message) => !message.local && message.kind !== "redacted" && message.status !== "failed";
+
+  const seenBy = $derived.by(() => {
+    const result = new Map<string, string[]>();
+    const users = $currentRoom ? receiptMap[$currentRoom.roomId] : undefined;
+    if (!users) return result;
+    const owner = new Map<string, string>();
+    for (const message of timelineMessages) {
+      owner.set(message.eventId, message.id);
+      message.members?.forEach((item) => owner.set(item.eventId, message.id));
+    }
+    const position = new Map<string, string>();
+    let last: string | undefined;
+    for (const event of $currentTimeline) {
+      last = owner.get(event.event_id) ?? last;
+      if (last) position.set(event.event_id, last);
+    }
+    for (const [userId, receipt] of Object.entries(users)) {
+      const id = userId === ownUserId ? undefined : position.get(receipt.eventId);
+      if (!id) continue;
+      const list = result.get(id);
+      list ? list.push(userId) : result.set(id, [userId]);
+    }
+    return result;
+  });
+
+  const typingNames = $derived(
+    ($currentRoom ? (typingMap[$currentRoom.roomId] ?? []) : []).filter((userId) => userId !== ownUserId).map(resolveName),
+  );
+
+  const typingLabel = $derived(
+    typingNames.length === 0
+      ? ""
+      : typingNames.length === 1
+        ? text("chat", "typing_one").replace("{name}", typingNames[0])
+        : typingNames.length === 2
+          ? text("chat", "typing_two").replace("{first}", typingNames[0]).replace("{second}", typingNames[1])
+          : text("chat", "typing_many"),
+  );
+
+  let typingRoom: string | null = null;
+  let typingSentAt = 0;
+
+  const stopTyping = () => {
+    if (!typingRoom) return;
+    sendTyping(typingRoom, false);
+    typingRoom = null;
+    typingSentAt = 0;
+  };
+
+  $effect(() => {
+    const value = draft;
+    const roomId = $currentRoom?.roomId;
+    untrack(() => {
+      if (typingRoom && typingRoom !== roomId) stopTyping();
+      if (!roomId || !value.trim() || document.activeElement !== composer) return stopTyping();
+      if (typingRoom === roomId && Date.now() - typingSentAt < TYPING_REFRESH) return;
+      typingRoom = roomId;
+      typingSentAt = Date.now();
+      sendTyping(roomId, true);
+    });
+  });
+
+  $effect(() => {
+    const field = composer;
+    if (!field) return;
+    field.addEventListener("blur", stopTyping);
+    return () => field.removeEventListener("blur", stopTyping);
+  });
+
+  $effect(() => () => stopTyping());
 
   const formatLine = (line: SystemLine) =>
     Object.entries(line.params).reduce((value, [key, param]) => value.replaceAll(`{${key}}`, param), text("system", line.key));
@@ -510,13 +656,17 @@
     if (loadingOlder || !stuck) return;
 
     scrollToBottom().then(fillViewport);
-    if (document.visibilityState === "visible") queueMicrotask(() => markRoomRead(roomId));
+    if (document.visibilityState === "visible" && document.hasFocus()) queueMicrotask(() => markRoomRead(roomId));
   });
 
   $effect(() => {
-    const read = () => document.visibilityState === "visible" && stuck && markRoomRead();
+    const read = () => document.visibilityState === "visible" && document.hasFocus() && stuck && markRoomRead();
     document.addEventListener("visibilitychange", read);
-    return () => document.removeEventListener("visibilitychange", read);
+    window.addEventListener("focus", read);
+    return () => {
+      document.removeEventListener("visibilitychange", read);
+      window.removeEventListener("focus", read);
+    };
   });
 
   const addFiles = async (files: Iterable<File>) => {
@@ -623,7 +773,7 @@
 
   const remove = (message: Message, event?: MouseEvent | KeyboardEvent) => ask("delete", message.eventId, event);
 
-  const copy = (value: string) => navigator.clipboard?.writeText(value).catch(() => undefined);
+  const copy = (value: string, key?: string, icon?: ToastIcon) => copied(value, key, icon);
 
   const mediaSource = (content: Record<string, any>): MediaSource => ({
     url: isMxc(content.url) ? content.url : undefined,
@@ -637,7 +787,7 @@
 
     if (link) {
       add("open-link", text("context_menu", "open_link"), MENU_ICONS.open, () => window.open(link, "_blank", "noopener,noreferrer"));
-      add("copy-link", text("context_menu", "copy_link"), MENU_ICONS.link, () => navigator.clipboard?.writeText(link).catch(() => undefined));
+      add("copy-link", text("context_menu", "copy_link"), MENU_ICONS.link, () => copy(link, "link_copied", "link"));
     }
 
     if (failed) {
@@ -646,6 +796,7 @@
       return items;
     }
 
+    if (canReact(message)) add("react", text("chat", "add_reaction"), ICONS.react, () => openReactions(message));
     if (!message.local && message.kind !== "redacted") add("reply", text("chat", "reply"), ICONS.reply, () => startReply(message));
     if (canEdit(message)) add("edit", text("chat", "edit"), ICONS.edit, () => startEdit(message));
 
@@ -658,21 +809,21 @@
       const gif = mimetype === "image/gif" || !!message.content.info?.["fi.mau.gif"];
       const copyKind = gif ? "copy_gif" : mimetype.startsWith("video/") ? "copy_video" : mimetype.startsWith("image/") ? "copy_image" : null;
       if (copyKind && isInline(mimetype, mimetype.split("/")[0] as "image" | "video") && canCopyMedia(mimetype))
-        add("copy-media", text("chat", copyKind), ICONS.copy, () => copyMedia(source, mimetype).catch(() => undefined));
-      add("download", text("chat", "download"), ICONS.download, () => downloadMedia(source, name).catch(() => undefined));
+        add("copy-media", text("chat", copyKind), ICONS.copy, () => copyMedia(source, mimetype).then(() => toastKey(copyKind === "copy_image" ? "image_copied" : "media_copied", { icon: "copy" }), () => undefined));
+      add("download", text("chat", "download"), ICONS.download, () => downloadMedia(source, name).then(() => toastKey("saved", { icon: "save", tone: "success" }), () => undefined));
     }
 
     if (message.location) {
       const location = message.location;
-      add("coordinates", text("chat", "copy_coordinates"), ICONS.copy, () => copy(formatCoordinates(location, 6)));
+      add("coordinates", text("chat", "copy_coordinates"), ICONS.copy, () => copy(formatCoordinates(location, 6), "coordinates_copied"));
     }
     if (message.kind === "poll" && !message.local && ownUserId && (message.sender === ownUserId || mayModerate(ownUserId)) && !pollEnded(message))
       add("end-poll", text("chat", "end_poll"), ICONS.end, (event) => ask("end_poll", message.eventId, event), true);
 
     if (message.plain) add("copy", text("chat", "copy_text"), ICONS.copy, () => copy(editableText(message)));
     if (!message.local && $currentRoom) {
-      add("link", text("chat", "copy_link"), ICONS.link, () => copy(`https://matrix.to/#/${encodeURIComponent($currentRoom!.roomId)}/${encodeURIComponent(message.eventId)}`));
-      add("id", text("chat", "copy_id"), ICONS.id, () => copy(message.eventId));
+      add("link", text("chat", "copy_link"), ICONS.link, () => copy(`https://matrix.to/#/${encodeURIComponent($currentRoom!.roomId)}/${encodeURIComponent(message.eventId)}`, "link_copied", "link"));
+      add("id", text("chat", "copy_id"), ICONS.id, () => copy(message.eventId, "message_id_copied", "id"));
     }
     if (!message.local && message.kind !== "redacted" && mayPin)
       pinnedSet.has(message.eventId)
@@ -714,14 +865,27 @@
     const dx = event.clientX - press.x;
     const dy = event.clientY - press.y;
     if (Math.abs(dx) > 10 || Math.abs(dy) > 10) clearTimeout(press.timer);
-    if (!press.swiping && dx > 14 && Math.abs(dy) < 12 && !message.local) press.swiping = true;
-    if (press.swiping) swipe = { id: message.id, dx: Math.max(0, Math.min(dx, SWIPE_REPLY * 1.4)) };
-    else if (Math.abs(dy) > 12) press = null;
+    if (!press.swiping && dx < -14 && Math.abs(dx) > Math.abs(dy) * 2 && !message.local && message.kind !== "redacted") {
+      press.swiping = true;
+      swiped = { id: message.id, size: Math.round(Math.min(36, Math.max(26, (event.currentTarget as HTMLElement).offsetHeight - 12))) };
+    }
+    if (!press.swiping) {
+      if (Math.abs(dy) > 12) press = null;
+      return;
+    }
+    const next = Math.max(0, Math.min(-dx, canEdit(message) ? SWIPE_EDIT * 1.2 : SWIPE_REPLY * 1.4));
+    const before = swipe?.id === message.id ? swipe.dx : 0;
+    if (canEdit(message) && (before < SWIPE_EDIT) !== (next < SWIPE_EDIT)) navigator.vibrate?.(8);
+    swipe = { id: message.id, dx: next };
   };
 
   const onpointerup = (message: Message) => {
     if (press) clearTimeout(press.timer);
-    if (swipe?.id === message.id && swipe.dx >= SWIPE_REPLY) startReply(message);
+    if (swipe?.id === message.id && swipe.dx >= SWIPE_REPLY) {
+      navigator.vibrate?.(12);
+      if (swipe.dx >= SWIPE_EDIT && canEdit(message)) startEdit(message);
+      else startReply(message);
+    }
     press = null;
     swipe = null;
   };
@@ -964,11 +1128,15 @@
           onpointermove={(event) => onpointermove(event, message)}
           onpointerup={() => onpointerup(message)}
           onpointercancel={() => onpointerup(message)}
-          style:translate={offset ? `${offset}px 0` : undefined}
+          class:swiping={!!offset}
+          class:swiped={swiped?.id === message.id}
+          style:--swipe={offset ? `${offset}px` : undefined}
+          style:--cue={swiped?.id === message.id ? `${swiped.size}px` : undefined}
         >
-          {#if offset}
-            <span class="swipe-cue row centre" class:armed={offset >= SWIPE_REPLY} style:opacity={Math.min(1, offset / SWIPE_REPLY)} aria-hidden="true">
-              <svg viewBox="0 0 24 24" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.reply} /></svg>
+          {#if swiped?.id === message.id}
+            <span class="swipe-cue row centre" class:armed={offset >= SWIPE_REPLY} class:edit={offset >= SWIPE_EDIT && canEdit(message)} aria-hidden="true">
+              <svg class="cue-reply" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.reply} /></svg>
+              <svg class="cue-edit" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.edit} /></svg>
             </span>
           {/if}
           {#if message.replyTo}
@@ -1056,9 +1224,36 @@
                 <button type="button" class="retry ghost press xs bold" onclick={() => retry(message.txnId)}>{text("chat", "retry")}</button>
               </p>
             {/if}
+            {#if canReact(message) && reactions.get(message.eventId)?.length}
+              {@const groups = reactions.get(message.eventId) ?? []}
+              <div class="reactions row align-centre gap-xs">
+                {#each groups as group (group.key)}
+                  <button
+                    type="button"
+                    class="reaction row-nw align-centre gap-xs sm bold press"
+                    class:own={!!group.own}
+                    aria-pressed={!!group.own}
+                    aria-label={reactedLabel(group)}
+                    use:tooltip={reactedLabel(group)}
+                    onclick={() => toggleReaction(message.eventId, group.key)}
+                  ><span class="reaction-key"><EmojiText text={group.key} /></span><span>{group.senders.length}</span></button>
+                {/each}
+                <button type="button" class="reaction reaction-add row centre press" aria-label={text("chat", "add_reaction")} use:tooltip={text("chat", "add_reaction")} aria-haspopup="dialog" onclick={(event) => openReactions(message, event.currentTarget)}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.react} /></svg>
+                </button>
+              </div>
+            {/if}
           </div>
           {#if editing?.eventId !== message.eventId && !message.local}
             <div class="toolbar row-nw" role="toolbar" aria-label={text("chat", "actions")}>
+              {#if canReact(message)}
+                {#each quickKeys.slice(0, QUICK_TOOLBAR) as key (key)}
+                  <button type="button" class="tool quick-tool ghost press" class:active={reactedWith(message.eventId, key)} aria-pressed={reactedWith(message.eventId, key)} aria-label={text("chat", "react_with").replace("{emoji}", key)} use:tooltip={text("chat", "react_with").replace("{emoji}", key)} onclick={() => toggleReaction(message.eventId, key)}><EmojiText text={key} /></button>
+                {/each}
+                <button type="button" class="tool react-tool ghost press" aria-label={text("chat", "add_reaction")} use:tooltip={text("chat", "add_reaction")} aria-haspopup="dialog" onclick={(event) => openReactions(message, event.currentTarget)}>
+                  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.react} /></svg>
+                </button>
+              {/if}
               {#if message.kind !== "redacted"}
                 <button type="button" class="tool ghost press" aria-label={text("chat", "reply")} use:tooltip={text("chat", "reply")} onclick={() => startReply(message)}>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.reply} /></svg>
@@ -1086,6 +1281,19 @@
           {/if}
         </li>
         {/if}
+        {@const readers = seenBy.get(message.id)}
+        {#if readers?.length}
+          {@const names = joinNames(readers.map(resolveName))}
+          <li class="seen row-nw align-centre" aria-label={text("chat", "seen_by").replace("{names}", names)}>
+            <span class="seen-stack row-nw align-centre" use:tooltip={{ text: text("chat", "seen_by").replace("{names}", names), placement: "left" }}>
+              {#each readers.slice(0, SEEN_LIMIT) as userId (userId)}
+                {@const reader = getSender(userId)}
+                <span class="seen-avatar"><Avatar name={reader.name} url={reader.avatar} size="16px" radius="50%" /></span>
+              {/each}
+              {#if readers.length > SEEN_LIMIT}<span class="seen-more xs bold">+{readers.length - SEEN_LIMIT}</span>{/if}
+            </span>
+          </li>
+        {/if}
       {/each}
       {#if isDetached && $canLoadNewer}
         <li class="history row centre" aria-busy="true">
@@ -1107,6 +1315,13 @@
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-6-6 6 6 6-6" /></svg>
         </button>
       </div>
+
+    <div class="typing row-nw align-centre gap-sm xs" class:shown={!!typingLabel} aria-live="polite">
+      {#if typingLabel}
+        <span class="typing-dots row-nw align-centre" aria-hidden="true"><span></span><span></span><span></span></span>
+        <span class="typing-text truncate muted"><EmojiText text={typingLabel} /></span>
+      {/if}
+    </div>
 
     <Composer
       bind:draft
@@ -1155,7 +1370,11 @@
   {/if}
 
   {#if menu}
-    <MessageMenu items={menuItems(menu.message, menu.link)} x={menu.x} y={menu.y} label={text("chat", "actions")} onclose={() => (menu = null)} />
+    <MessageMenu items={menuItems(menu.message, menu.link)} x={menu.x} y={menu.y} label={text("chat", "actions")} quick={quickOptions(menu.message)} quickLabel={text("emoji", "quick_reactions")} onclose={() => (menu = null)} />
+  {/if}
+
+  {#if reacting}
+    <EmojiPicker anchor={reacting.anchor} oninsert={pickReaction} onclose={() => (reacting = null)} />
   {/if}
 
   {#if confirming}
@@ -1548,6 +1767,7 @@
     overflow-x: hidden;
     overscroll-behavior: contain;
     touch-action: pan-y;
+    isolation: isolate;
     --fade-end: calc(var(--composer-space) * 0.55 + env(safe-area-inset-bottom));
     --fade-start: calc(var(--fade-end) + 48px);
     mask-image: linear-gradient(
@@ -1850,8 +2070,7 @@
     position: relative;
     flex-wrap: wrap;
     transition:
-      background-color var(--azure-duration-fast) var(--azure-ease-out),
-      translate var(--azure-duration-md) var(--azure-ease-spring);
+      background-color var(--azure-duration-fast) var(--azure-ease-out);
   }
 
   .content {
@@ -1886,23 +2105,74 @@
 
   .swipe-cue {
     position: absolute;
-    left: -40px;
+    left: calc(100% + 2px - min(var(--swipe), var(--cue) + 14px));
     top: 50%;
-    width: 32px;
-    height: 32px;
-    margin-top: -16px;
+    z-index: 1;
+    pointer-events: none;
+    display: grid;
+    place-items: center;
+    width: var(--cue);
+    height: var(--cue);
+    margin-top: calc(var(--cue) / -2);
     border-radius: 50%;
     color: var(--colours-text-muted);
-    background-color: var(--colours-surface-raised);
+    background-color: color-mix(in oklab, var(--colours-text-faint) 18%, var(--colours-surface));
     transition:
       color var(--azure-duration-fast) var(--azure-ease-out),
+      background-color var(--azure-duration-fast) var(--azure-ease-out),
       transform var(--azure-duration-md) var(--azure-ease-spring);
   }
 
+  @property --swipe {
+    syntax: "<length>";
+    inherits: true;
+    initial-value: 0px;
+  }
+
+  .message {
+    --cue: 36px;
+    transition:
+      background-color var(--azure-duration-fast) var(--azure-ease-out),
+      --swipe 600ms linear(0, 0.016, 0.059, 0.122, 0.197, 0.28, 0.366, 0.452, 0.535, 0.613, 0.685, 0.75, 0.808, 0.859, 0.902, 0.938, 0.968, 0.991, 1.01, 1.024, 1.034, 1.041, 1.044, 1.046, 1.046, 1.044, 1.041, 1.038, 1.034, 1.031, 1.027, 1.023, 1.019, 1.016, 1.012, 1.01, 1.007, 1.005, 1.003, 1.002, 1);
+  }
+
+  .message > :not(.swipe-cue) {
+    translate: calc(var(--swipe) * -1) 0;
+  }
+
+  .message.swiping {
+    transition: none;
+  }
+
+  li.message.swiped.swiped {
+    overflow-x: clip;
+    background-color: transparent;
+    box-shadow: none;
+  }
+
+  .swipe-cue svg {
+    grid-area: 1 / 1;
+    width: calc(var(--cue) * 0.5);
+    height: calc(var(--cue) * 0.5);
+    transition:
+      opacity var(--azure-duration-fast) var(--azure-ease-out),
+      rotate var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .swipe-cue .cue-edit,
+  .swipe-cue.edit .cue-reply {
+    opacity: 0;
+    rotate: -45deg;
+  }
+
+  .swipe-cue.edit .cue-edit {
+    opacity: 1;
+    rotate: 0deg;
+  }
+
   .swipe-cue.armed {
-    color: var(--colours-accent);
-    transform: scale(1.12);
-    box-shadow: 0 0 18px -4px var(--colours-accent-glow);
+    color: white;
+    background-color: var(--colours-accent);
   }
 
   .reply-quote {
@@ -1980,6 +2250,162 @@
     color: var(--colours-text-faint);
   }
 
+  .reactions {
+    flex-wrap: wrap;
+    margin-top: var(--azure-spacing-xs);
+  }
+
+  .reaction {
+    height: 26px;
+    padding: 0 var(--azure-spacing-sm);
+    border-radius: var(--azure-radius-pill);
+    border: 1px solid var(--colours-outline-hairline);
+    background-color: var(--colours-surface-raised);
+    color: var(--colours-text-muted);
+    cursor: pointer;
+    transition:
+      background-color var(--azure-duration-fast) var(--azure-ease-out),
+      border-color var(--azure-duration-fast) var(--azure-ease-out),
+      color var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .reaction:hover {
+    background-color: var(--colours-surface-hover);
+  }
+
+  .reaction.own {
+    color: var(--colours-accent);
+    border-color: color-mix(in oklab, var(--colours-accent) 60%, transparent);
+    background-color: color-mix(in oklab, var(--colours-accent) 14%, transparent);
+  }
+
+  .reaction-key :global(img.emoji) {
+    width: 16px;
+    height: 16px;
+    vertical-align: -3px;
+  }
+
+  .reaction-add {
+    width: 34px;
+    padding: 0;
+    color: var(--colours-text-faint);
+    opacity: 0;
+    transition: opacity var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .message:hover .reaction-add,
+  .reaction-add:focus-visible {
+    opacity: 1;
+  }
+
+  .reaction-add:hover {
+    color: var(--colours-accent);
+  }
+
+  .seen {
+    justify-content: flex-end;
+    padding: 0 var(--azure-spacing-lg);
+    margin-top: -2px;
+  }
+
+  .seen-stack {
+    padding-left: 4px;
+  }
+
+  .seen-avatar {
+    display: inline-flex;
+    margin-left: -4px;
+    border-radius: 50%;
+    box-shadow: 0 0 0 2px var(--colours-surface);
+    animation: seen-in var(--azure-duration-md) var(--azure-ease-fluid);
+  }
+
+  .seen-more {
+    margin-left: 4px;
+    color: var(--colours-text-faint);
+  }
+
+  @keyframes seen-in {
+    from {
+      opacity: 0;
+      scale: 0.6;
+    }
+  }
+
+  .typing {
+    position: absolute;
+    left: var(--azure-spacing-lg);
+    right: var(--azure-spacing-lg);
+    bottom: calc(var(--composer-space) - 22px + env(safe-area-inset-bottom));
+    height: 20px;
+    z-index: var(--azure-z-sticky);
+    pointer-events: none;
+    opacity: 0;
+    translate: 0 4px;
+    transition:
+      opacity var(--azure-duration-md) var(--azure-ease-fluid),
+      translate var(--azure-duration-md) var(--azure-ease-fluid);
+  }
+
+  .typing.shown {
+    opacity: 1;
+    translate: 0 0;
+  }
+
+  .typing-dots {
+    gap: 3px;
+  }
+
+  .typing-dots span {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background-color: var(--colours-text-muted);
+    animation: typing-bounce 1.2s var(--azure-ease-in-out) infinite;
+  }
+
+  .typing-dots span:nth-child(2) {
+    animation-delay: 0.15s;
+  }
+
+  .typing-dots span:nth-child(3) {
+    animation-delay: 0.3s;
+  }
+
+  @keyframes typing-bounce {
+    0%,
+    60%,
+    100% {
+      opacity: 0.35;
+      translate: 0 0;
+    }
+    30% {
+      opacity: 1;
+      translate: 0 -3px;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .typing-dots span {
+      animation-duration: 2.4s;
+      translate: none;
+    }
+  }
+
+  .quick-tool :global(img.emoji) {
+    width: 18px;
+    height: 18px;
+    transition: scale var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .quick-tool:hover :global(img.emoji) {
+    scale: 1.18;
+  }
+
+  .quick-tool.active {
+    background-color: color-mix(in oklab, var(--colours-accent) 18%, transparent);
+  }
+
   .tool:hover {
     color: var(--colours-accent);
     background-color: var(--colours-surface-hover);
@@ -2039,6 +2465,10 @@
     .toolbar {
       display: none;
     }
+
+    .reaction-add {
+      opacity: 1;
+    }
   }
 
   @media (max-width: 767px) {
@@ -2048,6 +2478,19 @@
 
     .connector {
       left: 28px;
+    }
+  }
+
+  @media (pointer: coarse) {
+    .message {
+      -webkit-touch-callout: none;
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    .message :is(textarea, input) {
+      -webkit-user-select: text;
+      user-select: text;
     }
   }
 </style>
