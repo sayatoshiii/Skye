@@ -1062,6 +1062,23 @@
       event.preventDefault();
       jumpToPresent();
     } else if (event.key === "Escape" && !busy && $currentRoom && markerMap[$currentRoom.roomId] && !document.querySelector("[aria-modal=true], [role=dialog]")) markAsRead();
+
+    if (
+      composer &&
+      !field &&
+      !editing &&
+      !menu &&
+      !event.altKey &&
+      !event.isComposing &&
+      (event.ctrlKey || event.metaKey ? event.key.toLowerCase() === "v" && !event.shiftKey : event.key.length === 1 || event.key === "Enter") &&
+      !(event.target as HTMLElement).closest?.("button, a, [role=button], [role=menuitem], select, summary") &&
+      !document.querySelector("[aria-modal=true], [role=dialog], [role=menu]") &&
+      !matchMedia("(pointer: coarse)").matches &&
+      !getSelection()?.toString()
+    ) {
+      if (event.key === "Enter") event.preventDefault();
+      composer.focus({ preventScroll: true });
+    }
   };
 
   const editLast = () => {
