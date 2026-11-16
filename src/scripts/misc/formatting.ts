@@ -17,6 +17,7 @@ const LINK_SCHEMES = ["http:", "https:", "mailto:", "matrix:"];
 const URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<>"'`]+[^\s<>"'`.,;:!?)\]}]/gi;
 const COLOUR_PATTERN = /^#[0-9a-f]{6}$/i;
 const MENTION_PATTERN = /^https:\/\/matrix\.to\/#\/(@[^/?]+)/;
+const ROOM_PATTERN = /^https:\/\/matrix\.to\/#\/((?:[#!]|%23|%21)[^/?]+)\/?(?:\?.*)?$/;
 
 const SPOILER = {
   name: "spoiler",
@@ -98,6 +99,8 @@ const hardenLink = (anchor: HTMLAnchorElement) => {
 export type RenderOptions = {
   ownUserId?: string;
   resolveName?: (userId: string) => string | undefined;
+  resolveRoom?: (roomIdOrAlias: string) => string | undefined;
+  everyone?: boolean;
 };
 
 export type RenderedBody = { html: string; mentionsMe: boolean };
@@ -118,6 +121,22 @@ const parseEmoji = (root: Node) => {
   });
 };
 
+const EVERYONE = /(^|\s)(@room)\b/g;
+const EVERYONE_HTML = '$1<span class="mention everyone">$2</span>';
+
+const markEveryone = (root: Node) => {
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const nodes: Text[] = [];
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    if (node.textContent?.includes("@room") && !node.parentElement?.closest("code, pre, a")) nodes.push(node as Text);
+  }
+  nodes.forEach((node) => {
+    const span = document.createElement("span");
+    span.innerHTML = escapeHTML(node.data).replace(EVERYONE, EVERYONE_HTML);
+    node.replaceWith(...span.childNodes);
+  });
+};
+
 const decorate = (root: DocumentFragment | HTMLElement, options: RenderOptions) => {
   let mentionsMe = false;
 
@@ -127,6 +146,16 @@ const decorate = (root: DocumentFragment | HTMLElement, options: RenderOptions) 
 
     anchor.setAttribute("href", href);
     hardenLink(anchor);
+
+    const room = href.match(ROOM_PATTERN)?.[1];
+    if (room) {
+      const roomId = decodeURIComponent(room);
+      anchor.classList.add("mention", "room");
+      anchor.dataset.roomId = roomId;
+      anchor.removeAttribute("target");
+      anchor.textContent = `#${options.resolveRoom?.(roomId) ?? anchor.textContent?.replace(/^#/, "") ?? roomId}`;
+      return;
+    }
 
     const userId = decodeURIComponent(href.match(MENTION_PATTERN)?.[1] ?? "");
     if (!userId) return;
@@ -139,6 +168,8 @@ const decorate = (root: DocumentFragment | HTMLElement, options: RenderOptions) 
       mentionsMe = true;
     }
   });
+
+  if (options.everyone) markEveryone(root);
 
   root.querySelectorAll("img").forEach((image) => {
     const src = image.getAttribute("src") ?? "";
@@ -183,7 +214,12 @@ export const renderFormatted = (html: string, options: RenderOptions = {}): Rend
   return { html: serialise(fragment), mentionsMe };
 };
 
-export const renderPlain = (text: string): RenderedBody => {
+export const renderPlain = (text: string, everyone = false): RenderedBody => {
+  const result = renderLinks(text);
+  return everyone ? { ...result, html: result.html.replace(EVERYONE, EVERYONE_HTML) } : result;
+};
+
+const renderLinks = (text: string): RenderedBody => {
   let html = "";
   let index = 0;
 
@@ -218,8 +254,8 @@ const unwrapParagraph = (html: string) => {
   return single && !single[1].includes("<p>") ? single[1] : trimmed;
 };
 
-export const markdownToContent = (body: string): { body: string; format?: string; formatted_body?: string } => {
-  const rendered = unwrapParagraph(marked.parse(body) as string);
+export const markdownToContent = (body: string, source = body): { body: string; format?: string; formatted_body?: string } => {
+  const rendered = unwrapParagraph(marked.parse(source) as string);
   const fragment = sanitiseToFragment(rendered);
   fragment.querySelectorAll("a").forEach((anchor) => {
     const href = safeHref(anchor.getAttribute("href"));
