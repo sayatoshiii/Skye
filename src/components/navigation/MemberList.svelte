@@ -3,7 +3,8 @@
   import EmojiText from "../ui/EmojiText.svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { getPowerLevel } from "../../scripts/matrix/rooms";
-  import { currentRoom, joinedMembers, presence } from "../../scripts/stores/matrix";
+  import { currentRoom, joinedMembers } from "../../scripts/stores/matrix";
+  import { presenceKinds } from "../../scripts/stores/presence";
   import PresenceDot from "../ui/PresenceDot.svelte";
   import Avatar from "../ui/Avatar.svelte";
   import { openMiniProfile } from "../../scripts/stores/profile";
@@ -28,7 +29,7 @@
         userId: member.userId,
         displayName: member.displayName ?? room.members[member.userId]?.displayName ?? member.userId,
         avatar: member.avatarUrl ?? room.members[member.userId]?.avatarUrl,
-        presence: $presence[member.userId],
+        presence: $presenceKinds(member.userId),
         powerLevel: getPowerLevel(room, member.userId),
       }))
       .sort((a, b) => b.powerLevel - a.powerLevel || a.displayName.localeCompare(b.displayName));
@@ -55,23 +56,24 @@
     return () => observer.disconnect();
   });
 
-  const hasPresence = $derived(members.some((member) => member.presence));
-
   const groups = $derived(
-    hasPresence
-      ? [
-          {
-            id: "online",
-            name: text("navigation", "online"),
-            members: members.filter((member) => member.presence && member.presence !== "offline"),
-          },
-          {
-            id: "offline",
-            name: text("navigation", "offline"),
-            members: members.filter((member) => !member.presence || member.presence === "offline"),
-          },
-        ].filter((group) => group.members.length)
-      : [{ id: "all", name: text("navigation", "members"), members }],
+    [
+      {
+        id: "online",
+        name: text("navigation", "online"),
+        members: members.filter((member) => member.presence !== "offline" && member.presence !== "unsupported"),
+      },
+      {
+        id: "offline",
+        name: text("navigation", "offline"),
+        members: members.filter((member) => member.presence === "offline"),
+      },
+      {
+        id: "unknown",
+        name: text("navigation", "unknown"),
+        members: members.filter((member) => member.presence === "unsupported"),
+      },
+    ].filter((group) => group.members.length),
   );
 
   const shown = $derived.by(() => {
@@ -102,7 +104,7 @@
     <ul class="col gap-xs">
       {#each group.visible as member (member.userId)}
         <li class="member-row">
-        <button type="button" class="member item press ghost row-nw align-centre gap-md" class:offline={hasPresence && (!member.presence || member.presence === "offline")} use:tooltip={member.userId} data-profile-trigger aria-label={text("user_profile", "open").replace("{name}", member.displayName)} onclick={(event) => room && openMiniProfile(member.userId, event.currentTarget, "left", room.roomId)}>
+        <button type="button" class="member item press ghost row-nw align-centre gap-md" class:offline={member.presence === "offline"} use:tooltip={member.userId} data-profile-trigger aria-label={text("user_profile", "open").replace("{name}", member.displayName)} onclick={(event) => room && openMiniProfile(member.userId, event.currentTarget, "left", room.roomId)}>
           <PresenceDot userId={member.userId} size={32}>
             <Avatar name={member.displayName} url={member.avatar} size="32px" radius="50%" />
           </PresenceDot>
