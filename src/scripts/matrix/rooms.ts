@@ -427,3 +427,8 @@ export const canPin = (room: RoomSummary, userId: UserId) =>
 export const canRedact = (room: RoomSummary, userId: UserId, sender: UserId) =>
   canSendEvent(room, userId, "m.room.redaction") &&
   (sender === userId || getPowerLevel(room, userId) >= (room.powerLevels?.redact ?? 50));
+
+export const canModerate = (room: RoomSummary, userId: UserId, target: UserId, action: "kick" | "ban") =>
+  userId !== target &&
+  getPowerLevel(room, userId) >= (room.powerLevels?.[action] ?? 50) &&
+  getPowerLevel(room, userId) > getPowerLevel(room, target);

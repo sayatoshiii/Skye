@@ -5,17 +5,21 @@
 <script lang="ts">
   import { tooltip } from "../../scripts/misc/tooltip";
   import EmojiText from "../ui/EmojiText.svelte";
-  import { portal } from "../../scripts/misc/portal";
-  import { getEmojiURL, isEmojiGrapheme, isJumbo, renderEmoji } from "../../scripts/misc/emoji";
-  import { loadEmojiIndex, peekEmojiIndex, searchEmoji, twemojiFile, type EmojiEntry } from "../../scripts/misc/emoji-data";
-  import { recentEmoji, useEmoji } from "../../scripts/settings/emoji";
+  import { getEmojiURL } from "../../scripts/misc/emoji";
+  import { twemojiFile } from "../../scripts/misc/emoji-data";
+  import { useEmoji } from "../../scripts/settings/emoji";
   import EmojiPicker from "./EmojiPicker.svelte";
+  import EditorField from "./EditorField.svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { formatBytes, sanitiseFilename } from "../../scripts/matrix/utilities/attachments";
-  import { FORMAT_KEYS, formatEdit, highlightMarkdown, insideFence, type Edit, type FormatAction } from "../../scripts/misc/markdown-highlight";
+  import type { Pill } from "../../scripts/misc/mentions";
+  import { entityText, menu } from "../../scripts/misc/entitymenu.svelte";
+  import { MENU_ICONS } from "../../scripts/misc/icons";
+  import { copied } from "../../scripts/stores/toast";
 
   type Props = {
     draft: string;
+    pills?: Pill[];
     field?: HTMLTextAreaElement;
     dockHeight?: number;
     label: string;
@@ -32,6 +36,7 @@
 
   let {
     draft = $bindable(),
+    pills = $bindable([]),
     field = $bindable(),
     dockHeight = $bindable(60),
     label,
@@ -52,394 +57,41 @@
     reply: "M10 8 5 12l5 4M5 12h9a5 5 0 0 1 5 5v1",
   };
 
-  const FORMAT_ICONS: Record<FormatAction, string> = {
-    bold: "M7 5h6a3.5 3.5 0 0 1 0 7H7zm0 7h7a3.5 3.5 0 0 1 0 7H7z",
-    italic: "M10 5h8M6 19h8M14 5l-4 14",
-    underline: "M7 4v7a5 5 0 0 0 10 0V4M5 20h14",
-    strike: "M5 12h14M16 7.5C15.4 6 14 5 12 5c-2.5 0-4 1.3-4 3 0 1.4 1 2.3 3 2.8M8 16.5c.6 1.5 2 2.5 4 2.5 2.5 0 4-1.3 4-3",
-    spoiler: "m3 3 18 18M10.6 6.1Q11.3 6 12 6c5 0 9 6 9 6a17 17 0 0 1-2.6 3.2M6.5 7.5C4.3 9.1 3 12 3 12s4 6 9 6a9 9 0 0 0 4-1M10 10a3 3 0 0 0 4 4",
-    code: "m8 8-4 4 4 4m8-8 4 4-4 4",
-    link: "M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1",
-    quote: "M5 5v14M10 8h9M10 12h9M10 16h6",
-  };
-
-  const mac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.userAgent);
-  const modLabel = text("format", mac ? "mod_mac" : "mod");
-  const touch = () => matchMedia("(pointer: coarse)").matches;
-
-  let picker: HTMLInputElement | undefined = $state();
-  let mirror: HTMLDivElement | undefined = $state();
-  let toolbar: { x: number; y: number; below: boolean } | null = $state(null);
-
-  const CODE_CACHE = 64;
-  const codeCache = new Map<string, string | null>();
-  let codeVersion = $state(0);
-
-  const highlightBlock = (source: string, language: string) => {
-    const key = `${language}\n${source}`;
-    if (codeCache.has(key)) return codeCache.get(key)!;
-    if (codeCache.size >= CODE_CACHE) codeCache.clear();
-    codeCache.set(key, null);
-    import("../../scripts/misc/highlight").then(async ({ highlightCode }) => {
-      const html = await highlightCode(source, language).catch(() => null);
-      if (!html || codeCache.get(key) !== null) return;
-      codeCache.set(key, html);
-      codeVersion++;
-    });
-    return null;
-  };
-
-  const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-
-  const emojify = (chunk: string) =>
-    /[^\x00-\x7f]/.test(chunk)
-      ? Array.from(graphemes.segment(chunk), ({ segment }) => {
-          if (!isEmojiGrapheme(segment)) return segment;
-          const image = renderEmoji(segment);
-          return image.startsWith("<img") ? `<span class="md-emoji">${segment}${image}</span>` : segment;
-        }).join("")
-      : chunk;
-
-  const highlighted = $derived.by(() => {
-    codeVersion;
-    return highlightMarkdown(draft, highlightBlock).replace(/(^|>)([^<]+)/g, (_, edge, chunk) => edge + emojify(chunk));
-  });
-  const hasJpeg = $derived(pending.some((item) => item.file.type === "image/jpeg"));
-  const ready = $derived(!!draft.trim() || pending.some((item) => !item.error && item.progress === null));
-  const replyParts = $derived(text("chat", "replying_to").split("{name}"));
-
-  const scale = $derived(isJumbo(draft) ? "jumbo" : draft.includes("\n") ? "" : (/^(#{1,3}) (?=\S)/.exec(draft)?.[1].length ?? "").toString());
-  let lastScale = "";
-
-  const resize = () => {
-    if (!field) return;
-    const from = field.offsetHeight;
-    field.style.height = "auto";
-    const to = field.scrollHeight;
-    const animate = scale !== lastScale;
-    lastScale = scale;
-    field.classList.toggle("composer-grow", animate);
-    field.style.height = `${animate ? from : to}px`;
-    if (animate) {
-      field.offsetHeight;
-      field.style.height = `${to}px`;
-    }
-    syncScroll();
-  };
-
-  const syncScroll = () => {
-    if (mirror && field) mirror.scrollTop = field.scrollTop;
-  };
-
-  $effect(() => {
-    draft;
-    scale;
-    resize();
-  });
-
-  const locate = (offset: number): [Node, number] | null => {
-    if (!mirror) return null;
-    const walker = document.createTreeWalker(mirror, NodeFilter.SHOW_TEXT);
-    let last: Text | null = null;
-    for (let node = walker.nextNode() as Text | null; node; node = walker.nextNode() as Text | null) {
-      if (offset <= node.length) return [node, offset];
-      offset -= node.length;
-      last = node;
-    }
-    return last ? [last, last.length] : null;
-  };
-
-  const updateToolbar = () => {
-    if (!field || !mirror || document.activeElement !== field || field.selectionStart === field.selectionEnd || touch()) {
-      toolbar = null;
-      return;
-    }
-    syncScroll();
-    const start = locate(field.selectionStart);
-    const end = locate(field.selectionEnd);
-    if (!start || !end) return;
-    const range = document.createRange();
-    range.setStart(...start);
-    range.setEnd(...end);
-    const rects = [...range.getClientRects()].filter((rect) => rect.width > 0);
-    const bounds = field.getBoundingClientRect();
-    const first = rects.find((rect) => rect.bottom > bounds.top && rect.top < bounds.bottom) ?? rects[0];
-    if (!first) return;
-    const line = rects.filter((rect) => Math.abs(rect.top - first.top) < 2);
-    const left = Math.min(...line.map((rect) => rect.left));
-    const right = Math.max(...line.map((rect) => rect.right));
-    const top = Math.max(first.top, bounds.top);
-    const below = top < 56;
-    toolbar = {
-      x: Math.min(Math.max((left + right) / 2, 160), innerWidth - 160),
-      y: below ? first.bottom : top,
-      below,
-    };
-  };
-
-  const EMOJI_QUERY = /(?:^|\s):([\w+-]{2,})$/;
-  const EMOJI_CODE = /(?:^|\s):([\w+-]+):$/;
-
-  let recent: string[] = $state.raw([]);
-  let suggest: { start: number; end: number; items: { entry: EmojiEntry; code: string }[]; x: number; y: number } | null = $state.raw(null);
-  let active = $state(0);
-
-  $effect(() => recentEmoji.subscribe((value) => (recent = value)));
-
-  const twemojiSrc = (unicode: string) => getEmojiURL(twemojiFile(unicode));
-
-  const inCode = (before: string) => {
-    if ((before.match(/```/g)?.length ?? 0) % 2) return true;
-    const line = before.slice(before.lastIndexOf("\n") + 1).replace(/```/g, "");
-    return (line.match(/`/g)?.length ?? 0) % 2 === 1;
-  };
-
-  const closeSuggest = () => {
-    suggest = null;
-    active = 0;
-  };
-
-  const updateSuggest = () => {
-    if (!field || document.activeElement !== field || field.selectionStart !== field.selectionEnd) return closeSuggest();
-    const caret = field.selectionStart;
-    const before = field.value.slice(0, caret);
-    const match = before.match(EMOJI_QUERY);
-    if (!match || inCode(before)) return closeSuggest();
-    const index = peekEmojiIndex();
-    if (!index) {
-      loadEmojiIndex().then(updateSuggest).catch(() => {});
-      return;
-    }
-    const items = searchEmoji(index, match[1], recent);
-    if (!items.length) return closeSuggest();
-    const start = caret - match[1].length - 1;
-    const point = locate(start);
-    const bounds = field.closest(".field")?.getBoundingClientRect() ?? field.getBoundingClientRect();
-    let x = bounds.left;
-    if (point) {
-      const range = document.createRange();
-      range.setStart(...point);
-      range.setEnd(...point);
-      x = range.getBoundingClientRect().left || x;
-    }
-    if (suggest?.start !== start) active = 0;
-    suggest = {
-      start,
-      end: caret,
-      items,
-      x: Math.min(Math.max(x - 12, 12), innerWidth - 332),
-      y: innerHeight - bounds.top + 8,
-    };
-  };
-
-  const insertEmoji = (unicode: string, from: number, to: number) => {
-    const insert = `${unicode} `;
-    apply({ from, to, insert, start: from + insert.length, end: from + insert.length });
-    useEmoji(unicode);
-    closeSuggest();
-  };
-
   const FACES = ["😀", "😄", "😁", "😆", "😊", "😉", "😎", "🤩", "🥳", "😺", "🙂", "🤗"];
 
+  let picker: HTMLInputElement | undefined = $state();
+  let editor: EditorField | undefined = $state();
   let pickerButton: HTMLButtonElement | undefined = $state();
   let pickerOpen = $state(false);
   let emojiPicker: EmojiPicker | undefined = $state();
   let face = $state(FACES[0]);
 
+  const hasJpeg = $derived(pending.some((item) => item.file.type === "image/jpeg"));
+  const ready = $derived(!!draft.trim() || pending.some((item) => !item.error && item.progress === null));
+  const replyParts = $derived(text("chat", "replying_to").split("{name}"));
+
+  const twemojiSrc = (unicode: string) => getEmojiURL(twemojiFile(unicode));
   const shuffleFace = () => (face = FACES[Math.floor(Math.random() * FACES.length)]);
 
   const insertPicked = (unicode: string, keepOpen: boolean) => {
-    if (!field) return;
-    const from = field.selectionStart;
-    const to = field.selectionEnd;
-    apply({ from, to, insert: unicode, start: from + unicode.length, end: from + unicode.length });
+    editor?.insert(unicode);
     useEmoji(unicode);
     if (keepOpen) pickerOpen = true;
   };
 
-  const pickSuggestion = (position = active) => {
-    const item = suggest?.items[position];
-    if (suggest && item) insertEmoji(item.entry.unicode, suggest.start, suggest.end);
-  };
-
-  const oninput = (event: Event) => {
-    if (!field) return;
-    if ((event as InputEvent).inputType === "insertText" && field.value[field.selectionStart - 1] === ":" && field.selectionStart === field.selectionEnd) {
-      const caret = field.selectionStart;
-      const before = field.value.slice(0, caret);
-      const match = before.match(EMOJI_CODE);
-      const entry = match && !inCode(before) ? peekEmojiIndex()?.byShortcode.get(match[1].toLowerCase()) : null;
-      if (match && entry) {
-        insertEmoji(entry.unicode, caret - match[1].length - 2, caret);
-        return;
-      }
-    }
-    updateSuggest();
-  };
-
-  const suggestKeys = (event: KeyboardEvent) => {
-    if (!suggest) return false;
-    const count = suggest.items.length;
-    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
-      active = (active + (event.key === "ArrowDown" ? 1 : count - 1)) % count;
-    } else if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
-      pickSuggestion();
-    } else if (event.key === "Escape") {
-      closeSuggest();
-    } else {
-      return false;
-    }
-    event.preventDefault();
-    return true;
-  };
-
-  const apply = (edit: Edit) => {
-    if (!field) return;
-    field.focus();
-    field.setSelectionRange(edit.from, edit.to);
-    const done = edit.insert
-      ? document.execCommand("insertText", false, edit.insert)
-      : edit.from === edit.to || document.execCommand("delete");
-    if (!done) {
-      field.setRangeText(edit.insert, edit.from, edit.to, "end");
-      field.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-    field.setSelectionRange(edit.start, edit.end);
-    updateToolbar();
-  };
-
-  const format = (action: FormatAction) => {
-    if (!field) return;
-    apply(formatEdit(action, field.value, field.selectionStart, field.selectionEnd, text("format", "link_placeholder")));
-  };
-
-  const replaceRange = (target: HTMLTextAreaElement, from: number, to: number, value: string) => {
-    target.setSelectionRange(from, to);
-    if (!document.execCommand("insertText", false, value)) {
-      target.setRangeText(value, from, to, "end");
-      target.dispatchEvent(new Event("input", { bubbles: true }));
-    }
-  };
-
-  const indent = (target: HTMLTextAreaElement, outdent: boolean) => {
-    const { value, selectionStart: start, selectionEnd: end } = target;
-    if (!outdent && !value.slice(start, end).includes("\n")) return replaceRange(target, start, end, "\t");
-    const from = value.lastIndexOf("\n", start - 1) + 1;
-    const block = value.slice(from, end);
-    const lines = block.split("\n");
-    const next = lines.map((line) => (outdent ? line.replace(/^(\t| {1,4})/, "") : `\t${line}`)).join("\n");
-    if (next === block) return;
-    replaceRange(target, from, end, next);
-    const shift = (outdent ? -(lines[0].length - lines[0].replace(/^(\t| {1,4})/, "").length) : 1);
-    target.setSelectionRange(Math.max(from, start + shift), from + next.length);
-  };
-
-  const onkeydown = (event: KeyboardEvent) => {
-    if (suggestKeys(event)) return;
-    if ((mac ? event.metaKey : event.ctrlKey) && !event.altKey) {
-      const bind = FORMAT_KEYS.find((entry) => entry.code === event.code && entry.shift === event.shiftKey);
-      if (bind) {
-        event.preventDefault();
-        format(bind.action);
-        return;
-      }
-    }
+  const onkey = (event: KeyboardEvent) => {
     if (event.key === "ArrowUp" && !draft && !event.shiftKey) {
       if (oneditlast()) event.preventDefault();
-      return;
-    }
-    if (event.key === "Escape" && replying) {
+    } else if (event.key === "Escape" && replying) {
       event.preventDefault();
       oncancelreply();
-      return;
     }
-    if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey && field && insideFence(field.value, field.selectionStart)) {
-      event.preventDefault();
-      indent(field, event.shiftKey);
-      return;
-    }
-
-    if (event.key !== "Enter" || event.shiftKey || touch()) return;
-
-    event.preventDefault();
-    if (!(mac ? event.metaKey : event.ctrlKey) && field && insideFence(field.value, field.selectionStart)) {
-      if (!document.execCommand("insertText", false, "\n")) {
-        field.setRangeText("\n", field.selectionStart, field.selectionEnd, "end");
-        field.dispatchEvent(new Event("input", { bubbles: true }));
-      }
-      return;
-    }
-    onsend();
-  };
-
-  const SHORTCODE_IN_TEXT = /(^|\s):([a-z0-9_+-]+):(?=\s|$)/gi;
-
-  const convertShortcodes = (text: string, lookup: (code: string) => string | undefined, startsInCode: boolean) => {
-    let fenced = startsInCode;
-    return text
-      .split(/(```)/)
-      .map((part) => {
-        if (part === "```") {
-          fenced = !fenced;
-          return part;
-        }
-        if (fenced) return part;
-        return part
-          .split(/(`[^`\n]*`)/)
-          .map((chunk) =>
-            chunk.startsWith("`") && chunk.endsWith("`") && chunk.length > 1
-              ? chunk
-              : chunk.replace(SHORTCODE_IN_TEXT, (whole, lead, code) => {
-                  const unicode = lookup(code.toLowerCase());
-                  return unicode ? `${lead}${unicode}` : whole;
-                }),
-          )
-          .join("");
-      })
-      .join("");
-  };
-
-  const onpaste = (event: ClipboardEvent) => {
-    const files = [...(event.clipboardData?.files ?? [])];
-    if (files.length) {
-      event.preventDefault();
-      onfiles(files);
-      return;
-    }
-
-    const text = event.clipboardData?.getData("text/plain") ?? "";
-    if (!field || !/:[a-z0-9_+-]+:/i.test(text)) return;
-
-    event.preventDefault();
-    const from = field.selectionStart;
-    const to = field.selectionEnd;
-    const before = field.value.slice(0, from);
-    const startsInCode = (before.match(/```/g)?.length ?? 0) % 2 === 1;
-
-    loadEmojiIndex()
-      .then((index) => convertShortcodes(text, (code) => index.byShortcode.get(code)?.unicode, startsInCode))
-      .catch(() => text)
-      .then((insert) => apply({ from, to, insert, start: from + insert.length, end: from + insert.length }));
   };
 
   const onpick = () => {
     if (picker?.files?.length) onfiles([...picker.files]);
     if (picker) picker.value = "";
   };
-
-  $effect(() => {
-    const onselection = () => {
-      if (document.activeElement !== field) return;
-      updateToolbar();
-      if (suggest && (field!.selectionStart < suggest.start || field!.selectionStart !== field!.selectionEnd)) closeSuggest();
-    };
-    document.addEventListener("selectionchange", onselection);
-    addEventListener("resize", updateToolbar);
-    return () => {
-      document.removeEventListener("selectionchange", onselection);
-      removeEventListener("resize", updateToolbar);
-    };
-  });
 </script>
 
 <form class="composer" onsubmit={(event) => { event.preventDefault(); onsend(); }}>
@@ -457,7 +109,10 @@
       <ul class="tray row-nw gap-sm">
         {#each pending as item (item.id)}
           {@const name = sanitiseFilename(item.file.name)}
-          <li class="chip col" class:error={!!item.error} class:busy={item.progress !== null} use:tooltip={item.error ?? name}>
+          <li class="chip col" class:error={!!item.error} class:busy={item.progress !== null} use:tooltip={item.error ?? name} use:menu={() => [
+            { id: "chip-name", label: entityText("copy_file_name"), icon: MENU_ICONS.copy, run: () => copied(name) },
+            { id: "chip-remove", label: entityText("remove_attachment"), icon: MENU_ICONS.delete, danger: true, separated: true, disabled: item.progress !== null, run: () => onremove(item.id) },
+          ]}>
             <span class="chip-preview row centre">
               {#if item.preview}
                 <img src={item.preview} alt="" draggable="false" />
@@ -492,26 +147,7 @@
         </svg>
       </button>
       <input class="sr-only" type="file" multiple tabindex="-1" aria-hidden="true" bind:this={picker} onchange={onpick} />
-      <div class="editor flex-max" data-scale={scale || undefined}>
-        <div class="mirror" aria-hidden="true" bind:this={mirror}>{@html highlighted}</div>
-        <textarea
-          rows="1"
-          enterkeyhint="send"
-          placeholder={label}
-          aria-label={label}
-          bind:value={draft}
-          bind:this={field}
-          onscroll={syncScroll}
-          onblur={() => {
-            toolbar = null;
-            closeSuggest();
-          }}
-          {oninput}
-          onselect={updateToolbar}
-          {onkeydown}
-          {onpaste}
-        ></textarea>
-      </div>
+      <EditorField bind:this={editor} bind:value={draft} bind:pills bind:field {label} composer onsubmit={onsend} {onkey} {onfiles} />
       <button
         type="button"
         class="icon emoji-button ghost press"
@@ -536,57 +172,6 @@
 
 {#if pickerOpen && pickerButton}
   <EmojiPicker bind:this={emojiPicker} anchor={pickerButton} oninsert={insertPicked} onclose={() => (pickerOpen = false)} />
-{/if}
-
-{#if suggest}
-  <div
-    class="emoji-suggest col"
-    role="listbox"
-    tabindex="-1"
-    aria-label={text("emoji", "suggestions")}
-    style:left="{suggest.x}px"
-    style:bottom="{suggest.y}px"
-    use:portal
-    onmousedown={(event) => event.preventDefault()}
-  >
-    <span class="suggest-title xs bold faint">{text("emoji", "matching").replace("{query}", draft.slice(suggest.start, suggest.end))}</span>
-    {#each suggest.items as item, position (item.entry.hexcode)}
-      <button
-        type="button"
-        class="suggestion row-nw align-centre gap-sm press"
-        class:active={position === active}
-        role="option"
-        aria-selected={position === active}
-        onmousemove={() => (active = position)}
-        onclick={() => pickSuggestion(position)}
-      >
-        <img class="suggest-glyph" src={twemojiSrc(item.entry.unicode)} alt={item.entry.unicode} draggable="false" />
-        <span class="sm bold">:{item.code}:</span>
-      </button>
-    {/each}
-  </div>
-{/if}
-
-{#if toolbar}
-  <div
-    class="format-bar row-nw align-centre"
-    class:below={toolbar.below}
-    role="toolbar"
-    tabindex="-1"
-    aria-label={text("format", "toolbar")}
-    style:left="{toolbar.x}px"
-    style:top="{toolbar.y}px"
-    use:portal
-    onmousedown={(event) => event.preventDefault()}
-  >
-    {#each FORMAT_KEYS as bind (bind.action)}
-      <button type="button" class="format ghost press" aria-label={text("format", bind.action)} use:tooltip={text("format", bind.action)} aria-keyshortcuts="{mac ? 'Meta' : 'Control'}+{bind.label}" onclick={() => format(bind.action)}>
-        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={FORMAT_ICONS[bind.action]} /></svg>
-        <span class="tip row-nw align-centre gap-sm xs">{text("format", bind.action)}<span class="keys row-nw align-centre"><kbd class="key">{modLabel}</kbd><kbd class="key">{bind.label}</kbd></span></span>
-      </button>
-      {#if bind.action === "code"}<span class="divider" aria-hidden="true"></span>{/if}
-    {/each}
-  </div>
 {/if}
 
 <style>
@@ -619,189 +204,6 @@
   .field:focus-within {
     border-color: color-mix(in oklab, var(--colours-accent) 45%, transparent);
     box-shadow: 0 0 24px -8px var(--colours-accent-glow);
-  }
-
-  .editor {
-    --composer-text: var(--text-md);
-    --composer-line: 20px;
-    --composer-weight: inherit;
-    --composer-emoji: 1.25em;
-    position: relative;
-    display: grid;
-    min-width: 0;
-  }
-
-  textarea,
-  .mirror {
-    margin: 0;
-    padding: 9px 0;
-    border: 0;
-    font: inherit;
-    font-size: var(--composer-text);
-    font-weight: var(--composer-weight);
-    font-kerning: normal;
-    letter-spacing: normal;
-    line-height: var(--composer-line);
-    white-space: pre-wrap;
-    overflow-wrap: break-word;
-    word-break: normal;
-    tab-size: 4;
-  }
-
-  textarea {
-    position: relative;
-    width: 100%;
-    min-width: 0;
-    max-height: 40vh;
-    resize: none;
-    outline: none;
-    background: none;
-    color: transparent;
-    -webkit-text-fill-color: transparent;
-    caret-color: var(--colours-text-strong);
-    scrollbar-width: none;
-  }
-
-  textarea:global(.composer-grow) {
-    transition: height var(--azure-duration-fast) var(--azure-ease-out);
-  }
-
-  .editor[data-scale="jumbo"] {
-    --composer-text: 30px;
-    --composer-line: 40px;
-    --composer-emoji: 36px;
-  }
-
-  .editor:is([data-scale="1"], [data-scale="2"], [data-scale="3"]) {
-    --composer-weight: 700;
-  }
-
-  .editor[data-scale="1"] {
-    --composer-text: calc(var(--composer-base, var(--text-md)) * 1.5);
-    --composer-line: 1.3;
-  }
-
-  .editor[data-scale="2"] {
-    --composer-text: calc(var(--composer-base, var(--text-md)) * 1.3);
-    --composer-line: 1.3;
-  }
-
-  .editor[data-scale="3"] {
-    --composer-text: calc(var(--composer-base, var(--text-md)) * 1.1);
-    --composer-line: 1.3;
-  }
-
-  textarea::-webkit-scrollbar {
-    display: none;
-  }
-
-  textarea::selection {
-    background-color: color-mix(in oklab, var(--colours-accent) 35%, transparent);
-  }
-
-  textarea::placeholder {
-    color: var(--colours-text-faint);
-    -webkit-text-fill-color: var(--colours-text-faint);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .mirror {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    pointer-events: none;
-    color: var(--colours-text-strong);
-  }
-
-  .mirror :global(.md-bold),
-  .mirror :global(.md-h1),
-  .mirror :global(.md-h2),
-  .mirror :global(.md-h3) {
-    text-shadow:
-      0.35px 0 0 currentColor,
-      -0.35px 0 0 currentColor;
-  }
-
-  .mirror :global(.md-h1) {
-    color: var(--colours-accent-strong);
-  }
-
-  .mirror :global(.md-italic) {
-    font-family: "Montserrat Upright", sans-serif;
-    font-style: italic;
-    font-synthesis: style;
-  }
-
-  .mirror :global(.md-underline) {
-    text-decoration-line: underline;
-    text-underline-offset: 3px;
-  }
-
-  .mirror :global(.md-strike) {
-    text-decoration-line: line-through;
-    color: var(--colours-text-muted);
-  }
-
-  .mirror :global(.md-underline.md-strike) {
-    text-decoration-line: underline line-through;
-  }
-
-  .mirror :global(.md-code),
-  .mirror :global(.md-block) {
-    color: var(--colours-text);
-    background-color: var(--colours-surface-active);
-    box-shadow: 0 0 0 1px var(--colours-surface-active);
-  }
-
-  .mirror :global(.md-spoiler) {
-    color: var(--colours-text-muted);
-    background-color: color-mix(in oklab, var(--colours-text-faint) 22%, transparent);
-  }
-
-  .mirror :global(.md-quote) {
-    box-shadow: inset 3px 0 0 var(--colours-outline-strong);
-  }
-
-  .mirror :global(.md-link) {
-    color: var(--colours-accent);
-  }
-
-  .mirror :global(.md-url) {
-    text-decoration-line: underline;
-    text-decoration-color: color-mix(in oklab, var(--colours-accent) 50%, transparent);
-  }
-
-  .mirror :global(.md-mention) {
-    color: var(--colours-accent);
-    background-color: var(--colours-accent-faint);
-    box-shadow: 0 0 0 2px var(--colours-accent-faint);
-    border-radius: var(--azure-radius-sm);
-  }
-
-  .mirror :global(.md-emoji) {
-    position: relative;
-    color: transparent;
-    -webkit-text-fill-color: transparent;
-    text-shadow: none;
-  }
-
-  .mirror :global(.md-emoji img.emoji) {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: var(--composer-emoji);
-    height: var(--composer-emoji);
-    margin: 0;
-    translate: -50% -50%;
-  }
-
-  .mirror :global(.md-sym.md-sym) {
-    color: var(--colours-text-faint);
-    text-shadow: none;
-    text-decoration-line: none;
-    font-style: normal;
   }
 
   .icon {
@@ -1010,153 +412,6 @@
     transform: scale(1.14);
   }
 
-  .emoji-suggest {
-    position: fixed;
-    z-index: var(--azure-z-popover);
-    width: 320px;
-    padding: 4px;
-    gap: 1px;
-    border-radius: var(--azure-radius-md);
-    border: 1px solid var(--colours-outline-light);
-    background-color: var(--colours-surface-raised);
-    box-shadow:
-      0 8px 24px -8px rgb(0 0 0 / 0.6),
-      0 0 24px -12px var(--colours-accent-glow);
-    transform-origin: 0 100%;
-    animation: pop-in var(--azure-duration-md) var(--azure-ease-spring);
-  }
-
-  .suggest-title {
-    padding: 4px 8px 6px;
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .suggestion {
-    min-height: 36px;
-    padding: 4px 8px;
-    border: 0;
-    border-radius: var(--azure-radius-sm);
-    text-align: left;
-    background-color: transparent;
-    color: var(--colours-text-muted);
-    transition: background-color var(--azure-duration-instant) var(--azure-ease-out);
-  }
-
-  .suggestion.active {
-    color: var(--colours-text-strong);
-    background-color: var(--colours-surface-hover);
-  }
-
-  .suggest-glyph {
-    width: 22px;
-    height: 22px;
-    flex: none;
-  }
-
-  @media (max-width: 767px) {
-    .emoji-suggest {
-      left: 8px !important;
-      right: 8px;
-      width: auto;
-    }
-
-    .suggestion {
-      min-height: 44px;
-    }
-  }
-
-  .format-bar {
-    position: fixed;
-    z-index: var(--azure-z-popover);
-    gap: 2px;
-    padding: 4px;
-    translate: -50% calc(-100% - 8px);
-    border-radius: var(--azure-radius-md);
-    border: 1px solid var(--colours-outline-light);
-    background-color: var(--colours-surface-raised);
-    box-shadow:
-      0 8px 24px -8px rgb(0 0 0 / 0.6),
-      0 0 24px -12px var(--colours-accent-glow);
-    transform-origin: 50% 100%;
-    animation: pop-in var(--azure-duration-md) var(--azure-ease-spring);
-    transition:
-      left var(--azure-duration-fast) var(--azure-ease-out),
-      top var(--azure-duration-fast) var(--azure-ease-out);
-  }
-
-  .format-bar.below {
-    translate: -50% 8px;
-    transform-origin: 50% 0;
-  }
-
-  .format {
-    position: relative;
-    display: grid;
-    place-items: center;
-    width: 30px;
-    height: 30px;
-    border-radius: var(--azure-radius-sm);
-    color: var(--colours-text-muted);
-    transition:
-      color var(--azure-duration-fast) var(--azure-ease-out),
-      background-color var(--azure-duration-fast) var(--azure-ease-out);
-  }
-
-  .format:hover,
-  .format:focus-visible {
-    color: var(--colours-text-strong);
-    background-color: var(--colours-surface-hover);
-  }
-
-  .format:active svg {
-    transform: scale(0.85);
-  }
-
-  .divider {
-    width: 1px;
-    height: 18px;
-    margin: 0 2px;
-    background-color: var(--colours-outline-hairline);
-  }
-
-  .tip {
-    position: absolute;
-    bottom: calc(100% + 10px);
-    left: 50%;
-    padding: 4px 8px;
-    white-space: nowrap;
-    pointer-events: none;
-    border-radius: var(--azure-radius-sm);
-    z-index: 1;
-    color: var(--colours-text-strong);
-    background-color: var(--colours-surface-raised);
-    border: 1px solid var(--colours-outline-light);
-    box-shadow: 0 6px 16px -6px rgb(0 0 0 / 0.7);
-    opacity: 0;
-    translate: -50% 4px;
-    transition:
-      opacity var(--azure-duration-fast) var(--azure-ease-out),
-      translate var(--azure-duration-fast) var(--azure-ease-out);
-  }
-
-  .below .tip {
-    bottom: auto;
-    top: calc(100% + 10px);
-    translate: -50% -4px;
-  }
-
-  .format:hover .tip,
-  .format:focus-visible .tip {
-    opacity: 1;
-    translate: -50% 0;
-    transition-delay: 300ms;
-  }
-
-  .keys {
-    gap: 3px;
-  }
-
   @keyframes rise-in {
     from {
       opacity: 0;
@@ -1164,29 +419,10 @@
     }
   }
 
-  @keyframes pop-in {
-    from {
-      opacity: 0;
-      transform: scale(0.92) translateY(4px);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .format-bar {
-      animation-duration: 1ms;
-      transition: none;
-    }
-  }
-
   @media (max-width: 767px) {
     .icon {
       width: var(--azure-touch);
       height: var(--azure-touch);
-    }
-
-    .editor {
-      --composer-base: 16px;
-      --composer-text: 16px;
     }
 
     .chip-close {

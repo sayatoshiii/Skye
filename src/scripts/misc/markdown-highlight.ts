@@ -16,6 +16,9 @@ const BIT = {
   h2: 4096,
   h3: 8192,
   block: 16384,
+  pill: 32768,
+  joined: 65536,
+  before: 131072,
 } as const;
 
 const NAMES = Object.entries(BIT) as [keyof typeof BIT, number][];
@@ -31,7 +34,7 @@ const DELIMS = "*_~|";
 
 type Run = { char: string; start: number; length: number; left: number; right: number; open: boolean; close: boolean };
 
-const fill = (masks: Uint16Array, from: number, to: number, bit: number) => {
+const fill = (masks: Uint32Array, from: number, to: number, bit: number) => {
   for (let index = from; index < to; index++) masks[index] |= bit;
 };
 
@@ -41,7 +44,7 @@ const pairBit = (char: string, size: number) =>
   : char === "~" ? BIT.strike
   : BIT.spoiler;
 
-const inline = (source: string, masks: Uint16Array, offset: number, end: number) => {
+const inline = (source: string, masks: Uint32Array, offset: number, end: number) => {
   const runs: Run[] = [];
   let index = offset;
 
@@ -135,11 +138,11 @@ const inline = (source: string, masks: Uint16Array, offset: number, end: number)
   }
 };
 
-const emit = (source: string, masks: Uint16Array, from = 0, to = source.length) => {
+const emit = (source: string, masks: Uint32Array, from = 0, to = source.length, breaks = new Set<number>()) => {
   let html = "";
   let start = from;
   for (let index = from + 1; index <= to; index++) {
-    if (index < to && masks[index] === masks[start] && source[index] !== "\n") continue;
+    if (index < to && masks[index] === masks[start] && source[index] !== "\n" && !breaks.has(index)) continue;
     const chunk = escapeHTML(source.slice(start, index));
     const mask = masks[start];
     if (!mask || source[start] === "\n") html += chunk;
@@ -176,8 +179,8 @@ const blockLines = (html: string) => {
 
 export type CodeHighlighter = (source: string, language: string) => string | null;
 
-export const highlightMarkdown = (source: string, code?: CodeHighlighter) => {
-  const masks = new Uint16Array(source.length);
+export const highlightMarkdown = (source: string, code?: CodeHighlighter, pills: { from: number; to: number }[] = []) => {
+  const masks = new Uint32Array(source.length);
   const blocks: { from: number; to: number; language: string }[] = [];
   let fenced = false;
   let language = "";
@@ -217,18 +220,26 @@ export const highlightMarkdown = (source: string, code?: CodeHighlighter) => {
     lineStart = newline + 1;
   }
 
+  const breaks = new Set<number>();
+  for (const pill of pills) {
+    const joined = pills.some((other) => other.to === pill.from) ? BIT.joined : 0;
+    const before = pills.some((other) => other.from === pill.to) ? BIT.before : 0;
+    masks.fill(BIT.pill | joined | before, pill.from, Math.min(pill.to, source.length));
+    breaks.add(pill.from).add(pill.to);
+  }
+
   if (fenced && source.length > bodyStart) blocks.push({ from: bodyStart, to: source.length, language });
-  if (!code || !blocks.length) return `${emit(source, masks)} `;
+  if (!code || !blocks.length) return `${emit(source, masks, 0, source.length, breaks)} `;
 
   let html = "";
   let at = 0;
   for (const block of blocks) {
     const result = code(source.slice(block.from, block.to), block.language);
     if (result === null) continue;
-    html += emit(source, masks, at, block.from) + blockLines(result);
+    html += emit(source, masks, at, block.from, breaks) + blockLines(result);
     at = block.to;
   }
-  return `${html}${emit(source, masks, at)} `;
+  return `${html}${emit(source, masks, at, source.length, breaks)} `;
 };
 
 export type Edit = { from: number; to: number; insert: string; start: number; end: number };

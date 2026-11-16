@@ -200,6 +200,7 @@ export type PowerLevels = {
   kick?: number;
   redact?: number;
   invite?: number;
+  notifications?: { room?: number };
 };
 
 export type RoomSummary = {
