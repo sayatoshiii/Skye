@@ -27,6 +27,8 @@ const createRoom = (roomId: RoomId, membership: Membership): RoomSummary => ({
   heroes: [],
   notificationCount: 0,
   highlightCount: 0,
+  readTs: 0,
+  muted: false,
   lastActivity: 0,
   pinned: [],
   state: {},
@@ -135,6 +137,8 @@ export const createRoomStore = (ownUserId: UserId) => {
   const rooms: Record<RoomId, RoomSummary> = {};
   let directRooms: Record<UserId, RoomId[]> = {};
 
+  let mutedRooms = new Set<RoomId>();
+
   const ensureRoom = (roomId: RoomId, membership: Membership) =>
     (rooms[roomId] ??= createRoom(roomId, membership));
 
@@ -169,6 +173,41 @@ export const createRoomStore = (ownUserId: UserId) => {
       room.highlightCount = sync.unread_notifications.highlight_count ?? 0;
     }
 
+    const unreadCount =
+      sync["org.matrix.msc2654.unread_count"] ??
+      sync.unread_count ??
+      sync.unread_notifications?.["org.matrix.msc2654.unread_count"] ??
+      sync.unread_notifications?.unread_count;
+    if (typeof unreadCount === "number") room.unreadCount = unreadCount;
+
+    for (const event of timelineEvents) {
+      if (!isVisible(event) || !event.event_id) continue;
+      const ts = event.origin_server_ts ?? 0;
+      if (event.sender === ownUserId) {
+        if (ts >= room.readTs) {
+          room.readTs = ts;
+          room.readEventId = event.event_id;
+        }
+      } else if (!room.latestForeign || ts >= room.latestForeign.ts)
+        room.latestForeign = { eventId: event.event_id, ts };
+    }
+
+    for (const event of sync.ephemeral?.events ?? []) {
+      if (event.type !== "m.receipt") continue;
+      for (const [eventId, kinds] of Object.entries<Record<string, Record<UserId, { ts?: number }>>>(event.content ?? {})) {
+        const mine = kinds?.["m.read"]?.[ownUserId] ?? kinds?.["m.read.private"]?.[ownUserId];
+        if (!mine) continue;
+        const ts = mine.ts ?? Date.now();
+        if (ts >= room.readTs) {
+          room.readTs = ts;
+          room.readEventId = eventId;
+        }
+      }
+    }
+
+    const marker = sync.account_data?.events.find((event) => event.type === "m.fully_read");
+    if (typeof marker?.content?.event_id === "string") room.fullyRead = marker.content.event_id;
+
     const latest = timelineEvents.at(-1)?.origin_server_ts;
     if (latest) room.lastActivity = Math.max(room.lastActivity, latest);
 
@@ -193,6 +232,11 @@ export const createRoomStore = (ownUserId: UserId) => {
     );
     if (direct) directRooms = direct.content as Record<UserId, RoomId[]>;
 
+    const pushRules = response.account_data?.events.find(
+      (event) => event.type === "m.push_rules",
+    );
+    if (pushRules) mutedRooms = getMutedRooms(pushRules.content);
+
     Object.entries(response.rooms?.join ?? {}).forEach(([id, sync]) =>
       applyJoined(id, sync),
     );
@@ -204,15 +248,28 @@ export const createRoomStore = (ownUserId: UserId) => {
     );
 
     applyDirect();
+    Object.values(rooms).forEach((room) => (room.muted = mutedRooms.has(room.roomId)));
     emitter.emit("change", { ...rooms });
   };
 
   const markRead = (roomId: RoomId) => {
     const room = rooms[roomId];
-    if (!room || (!room.notificationCount && !room.highlightCount)) return;
+    if (!room || !isUnread(room) && !room.highlightCount && !room.notificationCount) return;
 
     room.notificationCount = 0;
     room.highlightCount = 0;
+    room.unreadCount = room.unreadCount === undefined ? undefined : 0;
+    if (room.latestForeign && room.latestForeign.ts >= room.readTs) {
+      room.readTs = room.latestForeign.ts;
+      room.readEventId = room.latestForeign.eventId;
+    }
+    emitter.emit("change", { ...rooms });
+  };
+
+  const setLocalUnread = (roomId: RoomId, count?: number) => {
+    const room = rooms[roomId];
+    if (!room || room.localUnread === count) return;
+    room.localUnread = count;
     emitter.emit("change", { ...rooms });
   };
 
@@ -234,6 +291,7 @@ export const createRoomStore = (ownUserId: UserId) => {
     markRead,
     setPinned,
     on: emitter.on,
+    setLocalUnread,
     getRoom: (roomId: RoomId) => rooms[roomId],
     getRooms: () => ({ ...rooms }),
     getDirectRooms: () => ({ ...directRooms }),
@@ -312,6 +370,47 @@ export const getOrphanRooms = (rooms: Record<RoomId, RoomSummary>) => {
     )
     .sort(byActivity);
 };
+
+const VISIBLE_TYPES = new Set(["m.room.message", "m.room.encrypted", "m.sticker", "m.poll.start", "org.matrix.msc3381.poll.start"]);
+
+export const isVisible = (event: MatrixEvent) =>
+  VISIBLE_TYPES.has(event.type) &&
+  event.state_key === undefined &&
+  !event.unsigned?.redacted_because &&
+  event.content?.["m.relates_to"]?.rel_type !== "m.replace";
+
+const getMutedRooms = (content: Record<string, any> = {}) => {
+  const muted = new Set<RoomId>();
+  const silent = (actions: unknown) =>
+    Array.isArray(actions) && (actions.length === 0 || actions.includes("dont_notify")) && !actions.includes("notify");
+  const global = content.global ?? {};
+
+  for (const rule of global.room ?? [])
+    if (rule?.enabled !== false && silent(rule.actions)) muted.add(rule.rule_id);
+
+  for (const rule of global.override ?? []) {
+    if (rule?.enabled === false || !silent(rule.actions)) continue;
+    const conditions: any[] = rule.conditions ?? [];
+    const roomCondition = conditions.find((condition) => condition?.kind === "event_match" && condition.key === "room_id");
+    if (roomCondition && conditions.length === 1) muted.add(roomCondition.pattern);
+  }
+
+  return muted;
+};
+
+export const isUnread = (room: RoomSummary) => {
+  if (room.membership !== "join") return false;
+  if (room.localUnread) return true;
+  if (room.notificationCount > 0 || (room.unreadCount ?? 0) > 0) return true;
+  if (room.unreadCount === 0) return false;
+  const latest = room.latestForeign;
+  if (!latest) return false;
+  if (latest.eventId === room.readEventId || latest.eventId === room.fullyRead) return false;
+  return latest.ts > room.readTs;
+};
+
+export const unreadCountOf = (room: RoomSummary) =>
+  Math.max(room.localUnread ?? 0, room.notificationCount, room.unreadCount ?? 0, isUnread(room) ? 1 : 0);
 
 export const getUnreadTotals = (roomList: RoomSummary[]) =>
   roomList.reduce(

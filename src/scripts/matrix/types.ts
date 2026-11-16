@@ -74,6 +74,8 @@ export type StateEvent<C = Record<string, any>> = MatrixEvent<C> & {
 export type UnreadNotificationCounts = {
   notification_count?: number;
   highlight_count?: number;
+  unread_count?: number;
+  "org.matrix.msc2654.unread_count"?: number;
 };
 
 export type Timeline = {
@@ -88,6 +90,8 @@ export type JoinedRoomSync = {
   ephemeral?: { events: MatrixEvent[] };
   account_data?: { events: MatrixEvent[] };
   unread_notifications?: UnreadNotificationCounts;
+  unread_count?: number;
+  "org.matrix.msc2654.unread_count"?: number;
   summary?: {
     "m.heroes"?: UserId[];
     "m.joined_member_count"?: number;
@@ -217,6 +221,13 @@ export type RoomSummary = {
   powerLevels?: PowerLevels;
   notificationCount: number;
   highlightCount: number;
+  unreadCount?: number;
+  latestForeign?: { eventId: EventId; ts: number };
+  readTs: number;
+  readEventId?: EventId;
+  fullyRead?: EventId;
+  muted: boolean;
+  localUnread?: number;
   lastActivity: number;
   pinned: EventId[];
   state: Record<string, Record<string, StateEvent>>;

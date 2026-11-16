@@ -17,7 +17,7 @@
   import type { RoomSummary, Session } from "../../scripts/matrix/types";
   import { browseSettings, dismissBrowseIntro, type BrowseSettings } from "../../scripts/settings/browse";
   import { hiddenRooms, isRoomHidden, setRoomsHidden } from "../../scripts/stores/hidden";
-  import { markRoomRead, rooms, session } from "../../scripts/stores/matrix";
+  import { markAsRead, rooms, session } from "../../scripts/stores/matrix";
   import { navigation, openRoom } from "../../scripts/stores/navigation.svelte";
   import { toEntity } from "../../scripts/stores/entities";
 
@@ -294,7 +294,7 @@
     const shown = !isRoomHidden(hidden, spaceId, item.roomId);
     return [
       { id: "open", label: text("room_menu", "open"), icon: MENU_ICONS.open, run: () => open(item.roomId) },
-      { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, run: () => (markRoomRead(item.roomId), toastKey("marked_read", { icon: "check", tone: "success" })) },
+      { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, run: () => (markAsRead(item.roomId), toastKey("marked_read", { icon: "check", tone: "success" })) },
       { id: "hide", label: text("room_menu", shown ? "hide" : "show"), icon: MENU_ICONS.hide, run: () => (setRoomsHidden(spaceId, [item.roomId], shown), toastKey(shown ? "hidden" : "shown", shown ? { icon: "hide", tone: "danger" } : { icon: "show", tone: "accent" })) },
       ...shared,
       { id: "leave", label: text("room_menu", "leave"), icon: MENU_ICONS.leave, danger: true, run: (event) => (event instanceof MouseEvent && event.shiftKey ? void leave(item) : ((leaveError = null), (leaving = item))) },
