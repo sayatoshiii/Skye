@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { toastKey } from "../../../scripts/stores/toast";
   import { tooltip } from "../../../scripts/misc/tooltip";
   import { getLocalisedText } from "../../../scripts/accessibility/language/translation";
   import { downloadMedia } from "../../../scripts/matrix/utilities/download";
@@ -127,12 +128,13 @@
 
   const menuItems = (current: LightboxItem): MenuItem[] => [
     ...(canCopyMedia(current.mimetype)
-      ? [{ id: "copy", label: text("chat", "copy_image"), icon: MENU_ICONS.copy, run: () => void copyMedia(current.source, current.mimetype).catch(() => undefined) }]
+      ? [{ id: "copy", label: text("chat", "copy_image"), icon: MENU_ICONS.copy, run: () => void copyMedia(current.source, current.mimetype).then(() => toastKey("image_copied", { icon: "copy" }), () => undefined) }]
       : []),
-    { id: "save", label: text("chat", "save"), icon: MENU_ICONS.save, run: () => void downloadMedia(current.source, current.name).catch(() => undefined) },
+    { id: "save", label: text("chat", "save"), icon: MENU_ICONS.save, run: () => void downloadMedia(current.source, current.name).then(() => toastKey("saved", { icon: "save", tone: "success" }), () => undefined) },
   ];
 
   const oncontextmenu = (event: MouseEvent) => {
+    if ((event as PointerEvent).pointerType === "touch" || matchMedia("(pointer: coarse)").matches) return;
     event.preventDefault();
     if (!menu) menu = { x: event.clientX, y: event.clientY };
   };
@@ -192,6 +194,7 @@
           src={link}
           alt={item.name}
           draggable="false"
+          data-native-menu
           style:aspect-ratio={item.w && item.h ? `${item.w} / ${item.h}` : undefined}
           style:transform={`translate3d(${x}px, ${y}px, 0) scale(${zoom})`}
         />
@@ -295,6 +298,12 @@
     will-change: transform;
     user-select: none;
     -webkit-user-select: none;
+  }
+
+  @media (pointer: coarse) {
+    .stage img {
+      -webkit-touch-callout: default;
+    }
   }
 
   .stage.gesturing img {

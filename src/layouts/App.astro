@@ -2,6 +2,7 @@
 import "../styles/global.css";
 import "../styles/azure.css";
 import ContextMenu from "../components/app/ContextMenu.svelte";
+import Toast from "../components/ui/Toast.svelte";
 import { ACCENT_STORAGE_KEY } from "../scripts/settings/accent";
 
 const { title } = Astro.props;
@@ -29,5 +30,6 @@ const { title } = Astro.props;
   <body>
     <slot />
     <ContextMenu client:only="svelte" />
+    <Toast client:only="svelte" />
   </body>
 </html>

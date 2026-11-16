@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { copied, toastKey, type ToastIcon } from "../../scripts/stores/toast";
   import { tooltip } from "../../scripts/misc/tooltip";
   import EmojiText from "../ui/EmojiText.svelte";
   import Avatar from "../ui/Avatar.svelte";
@@ -274,13 +275,13 @@
     if (!menu) menu = { item, x, y };
   };
 
-  const copy = (value: string) => navigator.clipboard?.writeText(value).catch(() => undefined);
+  const copy = (value: string, key: string, icon: ToastIcon) => copied(value, key, icon);
 
   const menuItems = (item: Item): MenuItem[] => {
     const joined = isJoined(item.roomId);
     const shared = [
-      { id: "link", label: text("room_menu", "copy_link"), icon: MENU_ICONS.link, run: () => copy(toMatrixTo(item.roomId, viaFor(item))) },
-      { id: "id", label: text("room_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(item.roomId) },
+      { id: "link", label: text("room_menu", "copy_link"), icon: MENU_ICONS.link, run: () => copy(toMatrixTo(item.roomId, viaFor(item)), "link_copied", "link") },
+      { id: "id", label: text("room_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(item.roomId, "id_copied", "id") },
     ];
     if (!joined) {
       const entry: MenuItem[] = canJoin(item)
@@ -293,8 +294,8 @@
     const shown = !isRoomHidden(hidden, spaceId, item.roomId);
     return [
       { id: "open", label: text("room_menu", "open"), icon: MENU_ICONS.open, run: () => open(item.roomId) },
-      { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, run: () => markRoomRead(item.roomId) },
-      { id: "hide", label: text("room_menu", shown ? "hide" : "show"), icon: MENU_ICONS.hide, run: () => setRoomsHidden(spaceId, [item.roomId], shown) },
+      { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, run: () => (markRoomRead(item.roomId), toastKey("marked_read", { icon: "check", tone: "success" })) },
+      { id: "hide", label: text("room_menu", shown ? "hide" : "show"), icon: MENU_ICONS.hide, run: () => (setRoomsHidden(spaceId, [item.roomId], shown), toastKey(shown ? "hidden" : "shown", shown ? { icon: "hide", tone: "danger" } : { icon: "show", tone: "accent" })) },
       ...shared,
       { id: "leave", label: text("room_menu", "leave"), icon: MENU_ICONS.leave, danger: true, run: (event) => (event instanceof MouseEvent && event.shiftKey ? void leave(item) : ((leaveError = null), (leaving = item))) },
     ];

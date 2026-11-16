@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { writeClipboard } from "../../../scripts/stores/toast";
   import { getMediaLink } from "../../../scripts/matrix/utilities/media";
   import { HTML_FORMAT, renderFormatted, renderPlain, stripReplyFallback } from "../../../scripts/misc/formatting";
   import { isJumbo } from "../../../scripts/misc/emoji";
@@ -149,7 +150,7 @@
       viewer = { source, language: pre?.dataset.language ?? "", html: code?.classList.contains("hljs") ? code.innerHTML : null };
       return true;
     }
-    navigator.clipboard?.writeText(source).then(() => {
+    writeClipboard(source).then(() => {
       button.textContent = `\u2713 ${text("chat", "copied_code")}`;
       button.classList.add("done");
       setTimeout(() => {
