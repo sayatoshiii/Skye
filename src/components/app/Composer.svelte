@@ -545,6 +545,7 @@
     position: absolute;
     inset: auto 0 0;
     z-index: var(--azure-z-raised);
+    transform: translateZ(0);
     pointer-events: none;
     padding: 0 var(--azure-spacing-lg) var(--azure-spacing-lg);
     padding-bottom: max(var(--azure-spacing-lg), env(safe-area-inset-bottom));

@@ -430,9 +430,17 @@ export const createTimeline = ({
       body: {},
     });
 
+  const sendTyping = (typing: boolean, timeout = 5000) =>
+    request({
+      endpoint: `${roomPath}/typing/${encodeURIComponent(session.userId)}`,
+      method: "PUT",
+      body: typing ? { typing, timeout } : { typing },
+    });
+
   return {
     roomId,
     appendLive,
+    sendTyping,
     paginateBackwards,
     sendEvent,
     sendMessage,
