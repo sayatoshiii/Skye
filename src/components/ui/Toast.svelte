@@ -1,4 +1,5 @@
 <script lang="ts">
+  import KeyText from "./KeyText.svelte";
   import { currentToast, type Toast } from "../../scripts/stores/toast";
 
   const PATHS: Record<Toast["icon"], string> = {
@@ -13,6 +14,7 @@
     hide: "M3 3l18 18M10.6 6.1A9.8 9.8 0 0 1 12 6c5 0 9 6 9 6a17 17 0 0 1-2.6 3.2M6.6 6.6C4.3 8.1 3 12 3 12s4 6 9 6a8.7 8.7 0 0 0 4.4-1.2M9.9 9.9a3 3 0 0 0 4.2 4.2",
     show: "M3 12s4-6 9-6 9 6 9 6-4 6-9 6-9-6-9-6Zm9-3a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z",
     leave: "M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10",
+    unread: "M20 11v5a2 2 0 0 1-2 2H9l-5 3V7a2 2 0 0 1 2-2h7M19 2a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z",
   };
 
   let shown: Toast | null = $state.raw(null);
@@ -42,7 +44,7 @@
         <span class="toast-icon">
           <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d={PATHS[shown.icon]} /></svg>
         </span>
-        <span class="toast-text">{shown.text}</span>
+        <span class="toast-text"><KeyText text={shown.text} /></span>
       </div>
     {/key}
   {/if}

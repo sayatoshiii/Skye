@@ -1,7 +1,7 @@
 import { writable } from "svelte/store";
 import { getLocalisedText } from "../accessibility/language/translation";
 
-export type ToastIcon = "copy" | "link" | "id" | "pin" | "unpin" | "check" | "trash" | "save" | "hide" | "show" | "leave";
+export type ToastIcon = "copy" | "link" | "id" | "pin" | "unpin" | "check" | "trash" | "save" | "hide" | "show" | "leave" | "unread";
 export type ToastTone = "danger" | "success" | "accent" | "neutral";
 export type Toast = { id: number; text: string; icon: ToastIcon; tone: ToastTone };
 

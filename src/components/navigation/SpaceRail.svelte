@@ -9,12 +9,14 @@
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { longpress } from "../../scripts/misc/longpress";
   import { toEntity } from "../../scripts/stores/entities";
-  import { markRoomRead, rooms, session, spaces } from "../../scripts/stores/matrix";
-  import { HOME, getSpaceRoomIds, navigateAwayFrom, navigation, openBrowse, openRoom, openSpaceMenu, spaceMenu } from "../../scripts/stores/navigation.svelte";
+  import { markAsRead, rooms, session, spaces } from "../../scripts/stores/matrix";
+  import { HOME, getSpaceRoomIds, navigateAwayFrom, navigation, openBrowse, openRoom, openRoomMenu, openSpaceMenu, spaceMenu } from "../../scripts/stores/navigation.svelte";
   import JoinDialog from "../app/JoinDialog.svelte";
   import MessageMenu, { type MenuItem } from "../app/MessageMenu.svelte";
   import Avatar from "../ui/Avatar.svelte";
   import ConfirmDialog from "../ui/ConfirmDialog.svelte";
+  import BadgeCut from "../ui/BadgeCut.svelte";
+  import { spaceUnread, unreadDirects, type SpaceUnread } from "../../scripts/stores/unread";
 
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
 
@@ -25,6 +27,26 @@
   $effect(() => session.subscribe((value) => (activeSession = value)));
   $effect(() => rooms.subscribe((value) => (roomMap = value)));
   $effect(() => spaces.subscribe((value) => (trees = value)));
+
+  let spaceState: Record<string, SpaceUnread> = $state.raw({});
+  let dmList: { room: RoomSummary; count: number }[] = $state.raw([]);
+
+  $effect(() => spaceUnread.subscribe((value) => (spaceState = value)));
+  $effect(() => unreadDirects.subscribe((value) => (dmList = value)));
+
+  const shownDirects = $derived(dmList.slice(0, 5));
+
+  const dmName = (room: RoomSummary) => toEntity(room, activeSession?.userId).name.replace(/^@([^:]+):.*$/, "$1");
+
+  const unreadLabel = (count: number) => text("navigation", "unread_count").replace("{count}", count.toLocaleString());
+
+  const pop = (node: Element, { out = false } = {}) => ({
+    duration: out ? 220 : 320,
+    css: (t: number) =>
+      out
+        ? `max-height:${t * 52}px;opacity:${t};transform:scale(${0.6 + 0.4 * t})`
+        : `transform:scale(${t < 0.7 ? (t / 0.7) * 1.12 : 1.12 - ((t - 0.7) / 0.3) * 0.12});opacity:${Math.min(1, t * 2)}`,
+  });
 
   let joining = $state(false);
   let leaving: { spaceId: string; name: string; rooms: string[] } | null = $state.raw(null);
@@ -48,7 +70,7 @@
     const via = activeSession ? [serverNameFromUserId(activeSession.userId)] : [];
 
     return [
-      { id: "read", label: text("space_menu", "mark_read"), icon: MENU_ICONS.read, run: () => (joinedRoomsOf(tree).forEach((roomId) => markRoomRead(roomId)), toastKey("marked_read", { icon: "check", tone: "success" })) },
+      { id: "read", label: text("space_menu", "mark_read"), icon: MENU_ICONS.read, run: () => (joinedRoomsOf(tree).forEach((roomId) => markAsRead(roomId)), toastKey("marked_read", { icon: "check", tone: "success" })) },
       { id: "browse", label: text("space_menu", "browse"), icon: MENU_ICONS.browse, run: () => openBrowse(spaceId) },
       { id: "link", label: text("space_menu", "copy_link"), icon: MENU_ICONS.link, run: () => copy(toMatrixTo(entity.alias ?? spaceId, via), "link_copied", "link") },
       { id: "id", label: text("space_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(spaceId, "id_copied", "id") },
@@ -103,9 +125,11 @@
 <nav class="rail col align-centre gap-sm" aria-label={getLocalisedText(undefined, "navigation", "spaces")}>
   {#each entries as space, index (space.id)}
     {@const active = navigation.spaceId === space.id}
+    {@const flags = spaceState[space.id]}
     <button
       class="space ghost press"
       class:active
+      class:has-unread={space.id !== HOME && (flags?.unread || !!flags?.mentions)}
       class:glow={active}
       use:tooltip={{ text: space.name, placement: "right" }}
       aria-current={active ? "page" : undefined}
@@ -128,10 +152,34 @@
           </svg>
         </span>
       {:else}
-        <Avatar name={space.name} url={space.avatar} size="44px" radius={active ? "30%" : "50%"} />
+        <BadgeCut count={flags?.mentions ?? 0} label={text("navigation", "mention_count").replace("{count}", String(flags?.mentions ?? 0))}>
+          <Avatar name={space.name} url={space.avatar} size="44px" radius={active ? "30%" : "50%"} />
+        </BadgeCut>
       {/if}
     </button>
     {#if index === 0}
+      {#each shownDirects as item (item.room.roomId)}
+        {@const name = dmName(item.room)}
+        {@const entity = toEntity(item.room, activeSession?.userId)}
+        <div class="dm-slot" in:pop out:pop={{ out: true }}>
+          <button
+            class="space dm-unread ghost press has-unread"
+            use:tooltip={{ text: name, placement: "right" }}
+            aria-label={`${name}, ${unreadLabel(item.count)}`}
+            onclick={() => openRoom(HOME, item.room.roomId)}
+            oncontextmenu={(event) => {
+              event.preventDefault();
+              openRoomMenu(item.room.roomId, event.clientX, event.clientY);
+            }}
+            use:longpress={(x, y) => openRoomMenu(item.room.roomId, x, y)}
+          >
+            <span class="pill" aria-hidden="true"></span>
+            <BadgeCut count={item.count} label={unreadLabel(item.count)}>
+              <Avatar name={name} url={entity.avatar} size="44px" radius="50%" />
+            </BadgeCut>
+          </button>
+        </div>
+      {/each}
       <hr class="divider" />
     {/if}
   {/each}
@@ -228,6 +276,15 @@
   .space:hover .pill {
     transform: translate(0, -50%);
     height: 20px;
+  }
+
+  .space.has-unread .pill {
+    transform: translate(0, -50%);
+  }
+
+  .dm-slot {
+    width: 68px;
+    overflow: visible;
   }
 
   .space.active .pill {

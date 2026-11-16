@@ -1,4 +1,4 @@
-import { getRoomDisplayName } from "../matrix/rooms";
+import { getRoomDisplayName, isUnread, unreadCountOf } from "../matrix/rooms";
 import type { RoomSummary, UserId } from "../matrix/types";
 
 export type RoomEntity = {
@@ -13,6 +13,8 @@ export type RoomEntity = {
   createdAt?: number;
   unread: number;
   mentions: number;
+  hasUnread: boolean;
+  muted: boolean;
 };
 
 export const toEntity = (room: RoomSummary, ownUserId?: UserId): RoomEntity => {
@@ -28,7 +30,9 @@ export const toEntity = (room: RoomSummary, ownUserId?: UserId): RoomEntity => {
     directUserId: room.directUserId,
     directJoined: room.membership === "join",
     createdAt: room.state["m.room.create"]?.[""]?.origin_server_ts,
-    unread: room.notificationCount,
+    unread: unreadCountOf(room),
     mentions: room.highlightCount,
+    hasUnread: isUnread(room) || room.highlightCount > 0,
+    muted: room.muted,
   };
 };
