@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { profileTint } from "../../scripts/misc/palette.svelte";
   import { tick } from "svelte";
   import { dismissible } from "../../scripts/misc/dismiss.svelte";
   import { portal } from "../../scripts/misc/portal";
@@ -22,6 +23,7 @@
 
   $effect(() => miniProfile.subscribe((value) => (target = value)));
 
+  const tint = profileTint(() => ({ avatar: data.avatar, banner: data.banner }));
   const data = createProfileData(() => ({ userId: target?.userId, roomId: target?.roomId }));
 
   let restoring = true;
@@ -75,7 +77,8 @@
   const onpointerdown = (event: PointerEvent) => {
     const element = event.target as HTMLElement;
     if (card?.contains(element)) return;
-    if (element.closest("[data-profile-trigger]")) return;
+    const trigger = element.closest("[data-profile-trigger]");
+    if (trigger && trigger !== target?.anchor?.element) return;
     close(false);
   };
 
@@ -96,6 +99,8 @@
     {#key target.userId}
       <div
         class="card col"
+        style:--profile-tint={tint.colour}
+        style:--profile-glow={tint.glow} style:--profile-ink={tint.ink}
         class:placed
         role="dialog"
         aria-label={text("user_profile", "card").replace("{name}", data.displayName)}
@@ -110,6 +115,7 @@
         <span class="handle" aria-hidden="true"></span>
         <ProfileIdentity
           userId={data.userId}
+          roomId={target?.roomId}
           displayName={data.displayName}
           avatar={data.avatar}
           banner={data.banner}
@@ -157,7 +163,7 @@
     background-color: var(--colours-surface-raised);
     box-shadow:
       0 24px 64px -18px black,
-      0 0 44px -20px var(--colours-accent-glow);
+      0 0 44px -20px var(--profile-glow, var(--colours-accent-glow));
     outline: none;
     pointer-events: auto;
     visibility: hidden;

@@ -1,19 +1,20 @@
 <script lang="ts">
+  import { profileTint } from "../../scripts/misc/palette.svelte";
   import { copied } from "../../scripts/stores/toast";
   import { tick } from "svelte";
   import { dismissible } from "../../scripts/misc/dismiss.svelte";
   import { portal } from "../../scripts/misc/portal";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { getRoomDisplayName } from "../../scripts/matrix/rooms";
-  import { fullProfile, getMutualRooms, getSpaceFor, type ProfileTarget } from "../../scripts/stores/profile";
-  import { HOME, navigation, openRoom } from "../../scripts/stores/navigation.svelte";
+  import { fullProfile, getMutualRooms, sharedRooms, discoverMutual, getSpaceFor, type ProfileTarget } from "../../scripts/stores/profile";
+  import { HOME, navigation, openRoom, openRoomMenu, openSpaceMenu } from "../../scripts/stores/navigation.svelte";
   import type { RoomSummary } from "../../scripts/matrix/types";
   import Avatar from "../ui/Avatar.svelte";
   import EmojiText from "../ui/EmojiText.svelte";
   import ProfileIdentity from "./ProfileIdentity.svelte";
   import ProfileDetails from "./ProfileDetails.svelte";
   import MessageButton from "./MessageButton.svelte";
-  import { notes, setNote } from "../../scripts/stores/notes";
+  import ProfileNote from "./ProfileNote.svelte";
   import { createProfileData } from "./profileData.svelte";
 
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
@@ -26,9 +27,15 @@
 
   $effect(() => fullProfile.subscribe((value) => (target = value)));
 
+  const tint = profileTint(() => ({ avatar: data.avatar, banner: data.banner }));
   const data = createProfileData(() => ({ userId: target?.userId, roomId: target?.roomId }));
 
-  const mutual = $derived(target && data.ownUserId && !data.isSelf ? (data.rooms, getMutualRooms(target.userId, data.ownUserId)) : []);
+  const mutual = $derived(target && data.ownUserId && !data.isSelf ? (data.rooms, $sharedRooms, getMutualRooms(target.userId, data.ownUserId)) : []);
+
+  $effect(() => {
+    const userId = target?.userId;
+    userId && !data.isSelf && queueMicrotask(() => void discoverMutual(userId));
+  });
 
   $effect(() => {
     if (!target) return;
@@ -92,27 +99,25 @@
 
   const formatDate = (ts: number) => new Intl.DateTimeFormat(undefined, { dateStyle: "long" }).format(ts);
 
-  let noteMap: Record<string, string> = $state.raw({});
-  $effect(() => notes.subscribe((value) => (noteMap = value)));
-  const noteText = $derived(noteMap[data?.userId ?? ""] ?? "");
 </script>
 
 {#if target}
   <div class="layer col centre" class:closing={exit.closing} role="presentation" use:portal>
     <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
-    <div class="modal col" role="dialog" aria-modal="true" aria-label={text("user_profile", "card").replace("{name}", data.displayName)} tabindex="-1" bind:this={dialog} inert={exit.closing} onanimationend={exit.onanimationend} {onkeydown}>
+    <div class="modal col" style:--profile-tint={tint.colour} style:--profile-glow={tint.glow} style:--profile-ink={tint.ink} role="dialog" aria-modal="true" aria-label={text("user_profile", "card").replace("{name}", data.displayName)} tabindex="-1" bind:this={dialog} inert={exit.closing} onanimationend={exit.onanimationend} {onkeydown}>
       <button type="button" class="close ghost press" aria-label={text("user_profile", "close")} onclick={close}>
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
       </button>
       <div class="scroll col">
         <ProfileIdentity
           userId={data.userId}
+          roomId={target?.roomId}
           displayName={data.displayName}
           avatar={data.avatar}
           banner={data.banner}
           presence={data.status?.presence}
           status={data.status?.statusMessage}
-          role={data.role}
+          role={data.room && !data.room.isDirect ? (data.role ?? "member") : undefined}
           size="lg"
           surface="var(--colours-surface-raised)"
         >
@@ -143,12 +148,6 @@
         {#if tab === "about"}
           <div class="panel col gap-md" role="tabpanel" id="panel-about" aria-labelledby="tab-about">
             <ProfileDetails status={data.status} bio={data.bio}>
-              {#if data.room && !data.room.isDirect}
-                <section class="col gap-sm">
-                  <h3 class="heading xs bold">{text("user_profile", "role")}</h3>
-                  <p class="md strong">{data.role ? text("user_profile", data.role) : text("user_profile", "member")} · <EmojiText text={getRoomDisplayName(data.room, data.ownUserId)} /></p>
-                </section>
-              {/if}
               {#if data.memberSince}
                 <section class="col gap-sm">
                   <h3 class="heading xs bold">{text("user_profile", "member_since")}</h3>
@@ -157,18 +156,7 @@
               {/if}
             </ProfileDetails>
             {#if !data.isSelf}
-              <section class="col gap-sm">
-                <label class="heading xs bold" for="profile-note">{text("user_profile", "note")}</label>
-                <textarea
-                  id="profile-note"
-                  class="note"
-                  rows="2"
-                  maxlength="256"
-                  placeholder={text("user_profile", "note_hint")}
-                  value={noteText}
-                  oninput={(event) => setNote(data.userId, event.currentTarget.value)}
-                ></textarea>
-              </section>
+              <ProfileNote userId={data.userId} />
             {/if}
           </div>
         {:else}
@@ -180,7 +168,7 @@
                 {#each mutual as room (room.roomId)}
                   {@const name = getRoomDisplayName(room, data.ownUserId)}
                   <li>
-                    <button type="button" class="room row-nw align-centre gap-md ghost press" onclick={() => go(room)}>
+                    <button type="button" class="room row-nw align-centre gap-md ghost press" onclick={() => go(room)} oncontextmenu={(event) => { event.preventDefault(); (room.isSpace ? openSpaceMenu : openRoomMenu)(room.roomId, event.clientX, event.clientY); }}>
                       <Avatar {name} url={room.avatarUrl} size="32px" radius={room.isSpace ? "30%" : "50%"} />
                       <span class="col min-0 flex-max">
                         <span class="md truncate strong"><EmojiText text={name} /></span>
@@ -211,27 +199,6 @@
     box-shadow: 0 0 0 2px var(--colours-surface-raised);
   }
 
-  .note {
-    width: 100%;
-    box-sizing: border-box;
-    padding: 0;
-    margin: 0;
-    resize: none;
-    field-sizing: content;
-    min-height: 1.4em;
-    font: inherit;
-    font-size: var(--text-md);
-    line-height: 1.4;
-    color: var(--colours-text-strong);
-    background: none;
-    border: 0;
-    outline: none;
-  }
-
-  .note::placeholder {
-    color: var(--colours-text-faint);
-  }
-
   .layer {
     position: fixed;
     inset: 0;
@@ -257,7 +224,7 @@
     background-color: var(--colours-surface-raised);
     box-shadow:
       0 32px 80px -24px black,
-      0 0 60px -24px var(--colours-accent-glow);
+      0 0 60px -24px var(--profile-glow, var(--colours-accent-glow));
     outline: none;
     overflow: hidden;
     animation: pop var(--azure-duration-glide) var(--azure-ease-fluid);
@@ -306,7 +273,7 @@
 
   .more:hover,
   .more:focus-visible {
-    color: var(--colours-accent);
+    color: var(--profile-tint, var(--colours-accent));
   }
 
   .more-menu {
@@ -358,8 +325,8 @@
     bottom: -1px;
     height: 2px;
     border-radius: var(--azure-radius-pill);
-    background-color: var(--colours-accent);
-    box-shadow: 0 0 10px var(--colours-accent-glow);
+    background-color: var(--profile-tint, var(--colours-accent));
+    box-shadow: 0 0 10px var(--profile-glow, var(--colours-accent-glow));
     scale: 0 1;
     transition: scale var(--azure-duration-md) var(--azure-ease-fluid);
   }
@@ -431,7 +398,7 @@
   .room:hover,
   .room:focus-visible {
     background-color: var(--colours-surface-hover);
-    color: var(--colours-accent);
+    color: var(--profile-tint, var(--colours-accent));
   }
 
   .closing .scrim {

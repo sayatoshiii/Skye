@@ -5,6 +5,7 @@
   import { openFullProfile } from "../../scripts/stores/profile";
   import ProfileIdentity from "../profile/ProfileIdentity.svelte";
   import ProfileDetails from "../profile/ProfileDetails.svelte";
+  import ProfileNote from "../profile/ProfileNote.svelte";
   import { createProfileData } from "../profile/profileData.svelte";
 
   let { onclose }: { onclose?: () => void } = $props();
@@ -50,6 +51,7 @@
         />
         <div class="sections col gap-md">
           <ProfileDetails status={data.status} bio={data.bio} />
+          <ProfileNote {userId} />
         </div>
       </div>
     {/if}

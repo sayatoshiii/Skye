@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tooltip } from "../../scripts/misc/tooltip";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
-  import { openDirect } from "../../scripts/stores/navigation.svelte";
+  import { hasDirect, messageUser, openDirect } from "../../scripts/stores/navigation.svelte";
 
   let { userId, ondone, compact = false }: { userId: string; ondone?: () => void; compact?: boolean } = $props();
 
@@ -12,6 +12,10 @@
 
   const run = async () => {
     if (busy) return;
+    if (!hasDirect(userId)) {
+      messageUser(userId);
+      return ondone?.();
+    }
     busy = true;
     failed = false;
     try {
@@ -37,9 +41,9 @@
     padding: 0 var(--azure-spacing-lg);
     border: none;
     border-radius: var(--azure-radius-sm);
-    color: white;
-    background-color: var(--colours-accent);
-    box-shadow: 0 0 20px -6px var(--colours-accent-glow);
+    color: var(--profile-ink, white);
+    background-color: var(--profile-tint, var(--colours-accent));
+    box-shadow: 0 0 20px -6px var(--profile-glow, var(--colours-accent-glow));
     cursor: pointer;
     transition:
       filter var(--azure-duration-fast) var(--azure-ease-out),
@@ -49,7 +53,7 @@
   .message-button:hover,
   .message-button:focus-visible {
     filter: brightness(1.08);
-    box-shadow: 0 0 28px -4px var(--colours-accent-glow);
+    box-shadow: 0 0 28px -4px var(--profile-glow, var(--colours-accent-glow));
   }
 
   .message-button[aria-busy="true"] {

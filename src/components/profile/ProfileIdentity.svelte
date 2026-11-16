@@ -10,9 +10,18 @@
   import { statusTextOf } from "../../scripts/stores/presence";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { hueOf } from "../../scripts/matrix/utilities/profile";
+  import { profileTint } from "../../scripts/misc/palette.svelte";
+  import { usermenu } from "../../scripts/misc/usermenu";
+  import { entityText, menu } from "../../scripts/misc/entitymenu.svelte";
+  import { MENU_ICONS } from "../../scripts/misc/icons";
+  import { fetchProfile } from "../../scripts/matrix/utilities/profile";
+  import { downloadMedia } from "../../scripts/matrix/utilities/download";
+  import { copied as copyValue, toastKey } from "../../scripts/stores/toast";
+  import type { MenuItem } from "../app/MessageMenu.svelte";
 
   let {
     userId,
+    roomId,
     displayName,
     avatar,
     banner,
@@ -26,13 +35,14 @@
     actions,
   }: {
     userId: string;
+    roomId?: string;
     displayName: string;
     avatar?: string;
     banner?: string;
     presence?: string;
     status?: string;
     left?: boolean;
-    role?: "admin" | "moderator";
+    role?: "admin" | "moderator" | "member";
     size?: "sm" | "md" | "lg";
     surface?: string;
     onopen?: () => void;
@@ -66,22 +76,32 @@
     return text("user_profile", "last_active").replace("{time}", formatAgo(ago, [["day", 86400], ["hour", 3600], ["minute", 60]]));
   });
 
+  const tint = profileTint(() => ({ avatar, banner }));
+
+  const bannerSource = () => fetchProfile(userId).then((profile) => profile?.banner);
+
+  const bannerItems = (): MenuItem[] => [
+    { id: "banner-open", label: entityText("open_image"), icon: MENU_ICONS.open, run: () => window.open(banner, "_blank", "noopener,noreferrer") },
+    { id: "banner-save", label: entityText("save"), icon: MENU_ICONS.save, run: () => bannerSource().then((url) => url && downloadMedia({ url }, `banner-${userId.slice(1).split(":")[0]}`).then(() => toastKey("saved", { icon: "save", tone: "success" }))).catch(() => undefined) },
+    { id: "banner-link", label: entityText("copy_banner_link"), icon: MENU_ICONS.link, run: () => bannerSource().then((url) => url && copyValue(url, "link_copied", "link")) },
+  ];
+
   const openLabel = $derived(text("user_profile", "open").replace("{name}", displayName));
 </script>
 
-<div class="identity-card col {size}" style:--hue={hueOf(userId)} style:--surface={surface}>
-  <div class="banner" class:image={!!banner} style:background-image={banner ? `url("${banner}")` : undefined}></div>
+<div class="identity-card col {size}" style:--hue={hueOf(userId)} style:--surface={surface} style:--profile-tint={tint.colour} style:--profile-glow={tint.glow} style:--profile-ink={tint.ink}>
+  <div class="banner" class:image={!!banner} style:background-image={banner ? `url("${banner}")` : undefined} use:menu={banner ? bannerItems : undefined}></div>
 
   <div class="identity col gap-xs">
     <div class="top-row row-nw">
       {#if onopen}
-        <button type="button" class="avatar ghost press" class:left class:themed={!banner} aria-label={openLabel} onclick={onopen}>
+        <button type="button" class="avatar ghost press" use:usermenu={{ userId, roomId }} class:left class:themed={!banner} aria-label={openLabel} onclick={onopen}>
           <PresenceDot {userId} size={AVATAR[size]}>
             <Avatar name={displayName} url={avatar} size={`${AVATAR[size]}px`} radius="50%" />
           </PresenceDot>
         </button>
       {:else}
-        <span class="avatar" class:left class:themed={!banner}>
+        <span class="avatar" use:usermenu={{ userId, roomId }} class:left class:themed={!banner}>
           <PresenceDot {userId} size={AVATAR[size]}>
             <Avatar name={displayName} url={avatar} size={`${AVATAR[size]}px`} radius="50%" />
           </PresenceDot>
@@ -93,9 +113,9 @@
     </div>
 
     {#if onopen}
-      <button type="button" class="name-button ghost" aria-label={openLabel} onclick={onopen}><h2 class="name bold"><EmojiText text={displayName} /></h2></button>
+      <button type="button" class="name-button ghost" use:usermenu={{ userId, roomId }} aria-label={openLabel} onclick={onopen}><h2 class="name bold"><EmojiText text={displayName} /></h2></button>
     {:else}
-      <h2 class="name bold"><EmojiText text={displayName} /></h2>
+      <h2 class="name bold" use:usermenu={{ userId, roomId }}><EmojiText text={displayName} /></h2>
     {/if}
     <div class="handle row-nw align-centre gap-xs">
       <span class="id sm truncate">{userId}</span>
@@ -129,6 +149,8 @@
 
 <style>
   .identity-card {
+    --tint: var(--profile-tint, oklch(0.62 0.13 var(--hue)));
+    --glow: var(--profile-glow, color-mix(in oklab, oklch(0.62 0.13 var(--hue)) 55%, transparent));
     --banner: 104px;
     --ring: 6px;
     --lift: 48px;
@@ -150,7 +172,7 @@
     height: var(--banner);
     flex: none;
     background:
-      radial-gradient(120% 140% at 0% 0%, color-mix(in oklab, var(--colours-accent) 70%, transparent), transparent 60%),
+      radial-gradient(120% 140% at 0% 0%, color-mix(in oklab, var(--tint) 70%, transparent), transparent 60%),
       linear-gradient(135deg, oklch(0.62 0.13 var(--hue)), color-mix(in oklab, oklch(0.45 0.1 calc(var(--hue) + 40)) 80%, var(--surface)));
     border-bottom: 1px solid var(--colours-outline-hairline);
   }
@@ -185,17 +207,13 @@
     border-radius: 50%;
     border: var(--ring) solid var(--surface);
     background-color: var(--surface);
-    box-shadow: 0 0 24px var(--colours-accent-glow);
+    box-shadow: 0 0 24px var(--glow);
     transition: box-shadow var(--azure-duration-md) var(--azure-ease-fluid);
-  }
-
-  .avatar.themed {
-    box-shadow: 0 0 24px color-mix(in oklab, oklch(0.62 0.13 var(--hue)) 55%, transparent);
   }
 
   button.avatar:hover,
   button.avatar:focus-visible {
-    box-shadow: 0 0 32px var(--colours-accent-glow);
+    box-shadow: 0 0 32px var(--glow);
   }
 
   .avatar.left :global(img) {
@@ -212,7 +230,7 @@
   .name-button:hover .name,
   .name-button:focus-visible .name {
     text-decoration: underline;
-    text-decoration-color: var(--colours-accent);
+    text-decoration-color: var(--tint);
     text-underline-offset: 3px;
   }
 
@@ -248,7 +266,7 @@
 
   .copy:hover,
   .copy.copied {
-    color: var(--colours-accent-strong);
+    color: var(--tint);
   }
 
   .role {
@@ -264,8 +282,13 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
-    background-color: var(--colours-accent);
-    box-shadow: 0 0 8px var(--colours-accent-glow);
+    background-color: var(--tint);
+    box-shadow: 0 0 8px var(--glow);
+  }
+
+  .role[data-role="member"] .role-dot {
+    background-color: var(--colours-text-faint);
+    box-shadow: none;
   }
 
   .role[data-role="moderator"] .role-dot {
