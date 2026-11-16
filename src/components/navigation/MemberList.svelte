@@ -8,6 +8,7 @@
   import PresenceDot from "../ui/PresenceDot.svelte";
   import Avatar from "../ui/Avatar.svelte";
   import { openMiniProfile } from "../../scripts/stores/profile";
+  import { usermenu } from "../../scripts/misc/usermenu";
 
   let { onclose }: { onclose?: () => void } = $props();
 
@@ -104,7 +105,7 @@
     <ul class="col gap-xs">
       {#each group.visible as member (member.userId)}
         <li class="member-row">
-        <button type="button" class="member item press ghost row-nw align-centre gap-md" class:offline={member.presence === "offline"} use:tooltip={member.userId} data-profile-trigger aria-label={text("user_profile", "open").replace("{name}", member.displayName)} onclick={(event) => room && openMiniProfile(member.userId, event.currentTarget, "left", room.roomId)}>
+        <button type="button" class="member item press ghost row-nw align-centre gap-md" class:offline={member.presence === "offline"} use:tooltip={member.userId} use:usermenu={{ userId: member.userId, roomId: room?.roomId }} data-profile-trigger aria-label={text("user_profile", "open").replace("{name}", member.displayName)} onclick={(event) => room && openMiniProfile(member.userId, event.currentTarget, "left", room.roomId)}>
           <PresenceDot userId={member.userId} size={32}>
             <Avatar name={member.displayName} url={member.avatar} size="32px" radius="50%" />
           </PresenceDot>

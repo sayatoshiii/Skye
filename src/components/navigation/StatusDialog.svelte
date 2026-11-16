@@ -7,6 +7,7 @@
   import { ownProfile } from "../../scripts/stores/matrix";
   import { ownStatus, setOwnStatus } from "../../scripts/stores/presence";
   import EmojiPicker from "../app/EmojiPicker.svelte";
+  import { MENU_ICONS } from "../../scripts/misc/icons";
   import MessageMenu, { type MenuItem } from "../app/MessageMenu.svelte";
   import Avatar from "../ui/Avatar.svelte";
   import EmojiText from "../ui/EmojiText.svelte";
@@ -20,7 +21,7 @@
   const close = () => exit.close();
 
   const SMILE = "M12 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16ZM9 10h.01M15 10h.01M8.5 14a4 4 0 0 0 7 0";
-  const CHECK = "M5 12l4 4L19 6";
+  const CHECK = MENU_ICONS.read;
   const OPTIONS = [
     { id: "24h", minutes: 24 * 60 },
     { id: "4h", minutes: 4 * 60 },

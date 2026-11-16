@@ -10,6 +10,10 @@
   import Avatar from "../ui/Avatar.svelte";
   import MessageBody from "./media/MessageBody.svelte";
   import MessageMedia from "./media/MessageMedia.svelte";
+  import type { MenuItem } from "./MessageMenu.svelte";
+  import { MENU_ICONS } from "../../scripts/misc/icons";
+  import { menu } from "../../scripts/misc/entitymenu.svelte";
+  import { copied } from "../../scripts/stores/toast";
 
   let {
     roomId,
@@ -74,6 +78,14 @@
     });
   });
 
+  const pinItems = (eventId: string, event: TimelineEvent | null): MenuItem[] => [
+    ...(event ? [{ id: "pin-jump", label: text("chat", "jump"), icon: MENU_ICONS.jump, run: () => (exit.close(), onjump(eventId)) }] : []),
+    ...(event && !event.redacted && typeof event.content.body === "string" && !MEDIA_TYPES.includes(event.content.msgtype) ? [{ id: "pin-copy", label: text("chat", "copy_text"), icon: MENU_ICONS.copy, run: () => copied(event.content.body) }] : []),
+    { id: "pin-link", label: text("chat", "copy_link"), icon: MENU_ICONS.link, run: () => copied(`https://matrix.to/#/${encodeURIComponent(roomId)}/${encodeURIComponent(eventId)}`, "link_copied", "link") },
+    { id: "pin-id", label: text("chat", "copy_id"), icon: MENU_ICONS.id, run: () => copied(eventId, "message_id_copied", "id") },
+    ...(canUnpin ? [{ id: "pin-unpin", label: text("chat", "unpin"), icon: MENU_ICONS.unpin, danger: true, separated: true, run: (click: MouseEvent | KeyboardEvent) => onunpin(eventId, click as MouseEvent) }] : []),
+  ];
+
   const formatStamp = (ts: number) =>
     new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(ts);
 
@@ -124,7 +136,7 @@
       <ul class="list col" bind:this={list} tabindex="-1" aria-label={text("chat", "pins")}>
         {#each ordered as eventId (eventId)}
           {@const event = loaded[eventId]}
-          <li class="pin row-nw gap-md" aria-busy={event === undefined}>
+          <li class="pin row-nw gap-md" aria-busy={event === undefined} use:menu={event === undefined ? undefined : () => pinItems(eventId, event)}>
             {#if event === undefined}
               <span class="skeleton avatar" aria-label={text("chat", "pins_loading")} role="img"></span>
               <span class="col gap-sm flex-max min-0 skeleton-lines">

@@ -16,6 +16,8 @@
   import { addDirectRoom, describeMembershipError, forgetRoom, leaveRoom, type MembershipError } from "../../scripts/matrix/utilities/membership";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { longpress } from "../../scripts/misc/longpress";
+  import { entityText, menu as entityMenu } from "../../scripts/misc/entitymenu.svelte";
+  import { userMenuItems } from "../../scripts/misc/usermenu";
   import type { RoomEntity } from "../../scripts/stores/entities";
   import MessageMenu, { type MenuItem } from "../app/MessageMenu.svelte";
   import Avatar from "../ui/Avatar.svelte";
@@ -43,6 +45,34 @@
       localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(collapsed));
     } catch {}
   };
+
+  const setCollapsed = (ids: string[], value: boolean) => {
+    ids.forEach((id) => (collapsed[id] = value));
+    try {
+      localStorage.setItem(COLLAPSE_STORAGE_KEY, JSON.stringify(collapsed));
+    } catch {}
+  };
+
+  const categoryItems = (category: (typeof categories)[number]): MenuItem[] => {
+    const ids = categories.filter((entry) => entry.collapsible).map((entry) => entry.id);
+    const shut = !!collapsed[category.id];
+    return [
+      { id: "category-read", label: entityText("mark_category_read"), icon: MENU_ICONS.read, run: () => (category.rooms.forEach((room) => markAsRead(room.id)), toastKey("marked_read", { icon: "check", tone: "success" })) },
+      ...(category.collapsible
+        ? [
+            { id: "category-toggle", label: entityText(shut ? "expand" : "collapse"), icon: shut ? MENU_ICONS.expand : MENU_ICONS.collapse, separated: true, run: () => toggle(category.id) },
+            { id: "category-collapse-all", label: entityText("collapse_all"), icon: MENU_ICONS.collapse, run: () => setCollapsed(ids, true) },
+            { id: "category-expand-all", label: entityText("expand_all"), icon: MENU_ICONS.expand, run: () => setCollapsed(ids, false) },
+          ]
+        : []),
+    ];
+  };
+
+  const inviteItems = (invite: ReturnType<typeof inviteInfo>): MenuItem[] => [
+    { id: "invite-accept", label: text("navigation", "invite_accept"), icon: MENU_ICONS.read, disabled: inviteBusy === invite.entity.id, run: () => respond(invite, true) },
+    { id: "invite-decline", label: text("navigation", "invite_decline"), icon: MENU_ICONS.close, danger: true, disabled: inviteBusy === invite.entity.id, run: () => respond(invite, false) },
+    { id: "invite-id", label: text("room_menu", "copy_id"), icon: MENU_ICONS.id, separated: true, run: () => copied(invite.entity.id, "id_copied", "id") },
+  ];
 
   const text = (...path: string[]) =>
     getLocalisedText(undefined, ...path) as string;
@@ -197,8 +227,11 @@
     const via = $session ? [serverNameFromUserId($session.userId)] : [];
     const inSpace = navigation.spaceId !== HOME;
 
+    const user = room.isDirect && room.directUserId ? userMenuItems(room.directUserId, room.id).filter((item) => !item.separated && !item.danger) : [];
+
     return [
-      { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, run: () => (markAsRead(room.id), toastKey("marked_read", { icon: "check", tone: "success" })) },
+      ...user,
+      { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, separated: user.length > 0, run: () => (markAsRead(room.id), toastKey("marked_read", { icon: "check", tone: "success" })) },
       { id: "unread", label: text("room_menu", "mark_unread"), icon: MENU_ICONS.unread, run: () => markUnread(room.id) && toastKey("marked_unread", { icon: "unread", tone: "accent" }) },
       { id: "link", label: text("room_menu", "copy_link"), icon: MENU_ICONS.link, run: () => copy(toMatrixTo(room.alias ?? room.id, via), "link_copied", "link") },
       { id: "id", label: text("room_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(room.id, "id_copied", "id") },
@@ -270,7 +303,7 @@
         <h2 class="category-toggle category-label truncate">{text("navigation", "invites")}</h2>
         <ul class="col">
           {#each invites as invite (invite.entity.id)}
-            <li class="notify-banner col gap-xs">
+            <li class="notify-banner col gap-xs" use:entityMenu={() => inviteItems(invite)}>
               <p class="sm bold truncate"><EmojiText text={invite.name} /></p>
               <div class="notify-actions row-nw gap-sm">
                 <button type="button" class="notify-enable press xs bold" disabled={inviteBusy === invite.entity.id} onclick={() => respond(invite, true)}>{text("navigation", "invite_accept")}</button>
@@ -290,12 +323,13 @@
       {@const isCollapsed = collapsible && collapsed[category.id]}
       <div class="category col">
         {#if !collapsible}
-          <h2 class="category-toggle category-label truncate">{category.name}</h2>
+          <h2 class="category-toggle category-label truncate" use:entityMenu={() => categoryItems(category)}>{category.name}</h2>
         {:else}
         <button
           class="category-toggle ghost press row-nw align-centre gap-xs"
           aria-expanded={!isCollapsed}
           onclick={() => toggle(category.id)}
+          use:entityMenu={() => categoryItems(category)}
         >
           <svg class="chevron" class:collapsed={isCollapsed} viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
             <path fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" />
@@ -484,10 +518,10 @@
   }
 
   .room.direct {
-    min-height: 42px;
-    padding: 0 8px;
+    min-height: 48px;
+    padding: 6px 10px;
     gap: 12px;
-    border-radius: 6px;
+    border-radius: 8px;
   }
 
   .room.direct[aria-current="page"] {
@@ -495,9 +529,9 @@
   }
 
   .dm-name {
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 500;
-    line-height: 20px;
+    line-height: 18px;
   }
 
   .room.unread .dm-name,
@@ -505,14 +539,18 @@
     color: var(--colours-text-strong);
   }
 
+  .dm-text {
+    gap: 1px;
+  }
+
   .dm-status {
-    font-size: 12px;
-    line-height: 16px;
+    font-size: 11px;
+    line-height: 14px;
     color: var(--colours-text-muted);
   }
 
   .room-slot:has(.direct) .room-inner {
-    padding-block: 0.5px;
+    padding-block: 1px;
   }
 
   .room.unread {

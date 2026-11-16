@@ -139,8 +139,20 @@ export const parsePath = (pathname: string) => {
   };
 };
 
+const spaceFor = (spaceId: string, roomId: string) => {
+  const trees = get(spaces);
+  const inSpace = (id: string) => {
+    const tree = trees.find((candidate) => candidate.space.roomId === id);
+    return !!tree && (id === roomId || getSpaceRoomIds(tree).includes(roomId));
+  };
+  if (spaceId !== HOME && inSpace(spaceId)) return spaceId;
+  if (spaceId === HOME && getHomeRoomIds().includes(roomId)) return HOME;
+  return trees.find((tree) => tree.space.roomId === roomId || getSpaceRoomIds(tree).includes(roomId))?.space.roomId ?? (get(rooms)[roomId] ? HOME : spaceId);
+};
+
 export const openRoom = (spaceId: string, roomId?: string, push = true) => {
   roomId ??= getDefaultRoom(spaceId);
+  if (roomId) spaceId = spaceFor(spaceId, roomId);
 
   navigation.spaceId = spaceId;
   navigation.roomId = roomId;
@@ -249,4 +261,21 @@ export const roomMenu = $state<{ request: { roomId: string; x: number; y: number
 export const openRoomMenu = (roomId: string, x: number, y: number) => {
   if (roomMenu.request) return;
   roomMenu.request = { roomId, x, y };
+};
+
+export const hasDirect = (userId: string) => !!getPrimaryDirect(userId, getEntities());
+
+export const userMenu = $state<{
+  request: { userId: string; x: number; y: number; roomId?: string } | null;
+  confirm: { kind: "direct" | "kick" | "ban"; userId: string; roomId?: string } | null;
+}>({ request: null, confirm: null });
+
+export const openUserMenu = (userId: string, x: number, y: number, roomId?: string) => {
+  if (userMenu.request) return;
+  userMenu.request = { userId, x, y, roomId };
+};
+
+export const messageUser = (userId: string) => {
+  if (hasDirect(userId)) return openDirect(userId);
+  userMenu.confirm = { kind: "direct", userId };
 };

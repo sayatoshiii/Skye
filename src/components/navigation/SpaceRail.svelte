@@ -9,8 +9,10 @@
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { longpress } from "../../scripts/misc/longpress";
   import { toEntity } from "../../scripts/stores/entities";
-  import { markAsRead, rooms, session, spaces } from "../../scripts/stores/matrix";
-  import { HOME, getSpaceRoomIds, navigateAwayFrom, navigation, openBrowse, openRoom, openRoomMenu, openSpaceMenu, spaceMenu } from "../../scripts/stores/navigation.svelte";
+  import { directMessages, markAsRead, rooms, session, spaces } from "../../scripts/stores/matrix";
+  import { entityText, openEntityMenu } from "../../scripts/misc/entitymenu.svelte";
+  import { get } from "svelte/store";
+  import { HOME, getHomeRoomIds, getSpaceRoomIds, navigateAwayFrom, navigation, openBrowse, openRoom, openRoomMenu, openSpaceMenu, spaceMenu } from "../../scripts/stores/navigation.svelte";
   import JoinDialog from "../app/JoinDialog.svelte";
   import MessageMenu, { type MenuItem } from "../app/MessageMenu.svelte";
   import Avatar from "../ui/Avatar.svelte";
@@ -62,6 +64,14 @@
     );
 
   const openMenu = openSpaceMenu;
+
+  const homeItems = (): MenuItem[] => [
+    { id: "home-dms", label: entityText("mark_dms_read"), icon: MENU_ICONS.read, disabled: !dmList.length, run: () => (get(directMessages).forEach(({ roomId }) => markAsRead(roomId)), toastKey("marked_read", { icon: "check", tone: "success" })) },
+    { id: "home-all", label: entityText("mark_home_read"), icon: MENU_ICONS.read, run: () => (getHomeRoomIds().forEach((roomId) => markAsRead(roomId)), toastKey("marked_read", { icon: "check", tone: "success" })) },
+  ];
+
+  const openAny = (spaceId: string, x: number, y: number) =>
+    spaceId === HOME ? openEntityMenu(homeItems(), x, y) : openMenu(spaceId, x, y);
 
   const menuItems = (spaceId: string): MenuItem[] => {
     const tree = trees.find((candidate) => candidate.space.roomId === spaceId);
@@ -135,11 +145,10 @@
       aria-current={active ? "page" : undefined}
       onclick={() => openRoom(space.id)}
       oncontextmenu={(event) => {
-        if (space.id === HOME) return;
         event.preventDefault();
-        openMenu(space.id, event.clientX, event.clientY);
+        openAny(space.id, event.clientX, event.clientY);
       }}
-      use:longpress={(x, y) => openMenu(space.id, x, y)}
+      use:longpress={(x, y) => openAny(space.id, x, y)}
     >
       <span class="pill" aria-hidden="true"></span>
       {#if space.id === HOME}
@@ -192,7 +201,7 @@
   >
     <span class="pill" aria-hidden="true"></span>
     <span class="plus centre row">
-      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d={MENU_ICONS.add} /></svg>
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14" /></svg>
     </span>
   </button>
 </nav>
