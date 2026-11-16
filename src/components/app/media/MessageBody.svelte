@@ -1,11 +1,16 @@
 <script lang="ts">
-  import { writeClipboard } from "../../../scripts/stores/toast";
+  import { copied, writeClipboard } from "../../../scripts/stores/toast";
+  import { delegate, entityText } from "../../../scripts/misc/entitymenu.svelte";
+  import { MENU_ICONS } from "../../../scripts/misc/icons";
+  import { isFavourite, toggleFavourite } from "../../../scripts/settings/emoji";
+  import type { MenuItem } from "../MessageMenu.svelte";
   import { getMediaLink } from "../../../scripts/matrix/utilities/media";
   import { HTML_FORMAT, renderFormatted, renderPlain, stripReplyFallback } from "../../../scripts/misc/formatting";
   import { isJumbo } from "../../../scripts/misc/emoji";
   import { getLocalisedText } from "../../../scripts/accessibility/language/translation";
   import EmojiInfo from "../../ui/EmojiInfo.svelte";
   import CodeViewer from "./CodeViewer.svelte";
+  import { rooms } from "../../../scripts/stores/matrix";
 
   let {
     content,
@@ -14,7 +19,9 @@
     jumbo = false,
     interactive = true,
     highlight = true,
+    onreact,
   }: {
+    onreact?: (key: string) => void;
     highlight?: boolean;
     content: Record<string, any>;
     jumbo?: boolean;
@@ -25,14 +32,18 @@
 
   let root: HTMLElement | undefined = $state();
 
+  const resolveRoom = (id: string) =>
+    Object.values($rooms).find((room) => room.roomId === id || room.state["m.room.canonical_alias"]?.[""]?.content?.alias === id)?.name;
+
   const isHtml = $derived(content.format === HTML_FORMAT && typeof content.formatted_body === "string");
 
   const rendered = $derived.by(() => {
     const isReply = !!content["m.relates_to"]?.["m.in_reply_to"];
     const html = content.format === HTML_FORMAT && typeof content.formatted_body === "string" ? content.formatted_body : null;
-    if (html) return renderFormatted(html, { ownUserId, resolveName });
+    const everyone = content["m.mentions"]?.room === true;
+    if (html) return renderFormatted(html, { ownUserId, resolveName, resolveRoom, everyone });
     const body = typeof content.body === "string" ? content.body : "";
-    return renderPlain(isReply ? stripReplyFallback(body) : body);
+    return renderPlain(isReply ? stripReplyFallback(body) : body, everyone);
   });
 
   let info: { anchor: HTMLElement; unicode: string; src: string } | null = $state.raw(null);
@@ -52,7 +63,9 @@
       image.setAttribute("role", "button");
       image.setAttribute("aria-label", image.alt);
       image.setAttribute("aria-haspopup", "dialog");
+      image.dataset.entityMenu = "";
     });
+    root?.querySelectorAll<HTMLElement>("img[data-mxc], pre").forEach((element) => (element.dataset.entityMenu = ""));
   });
 
   const openEmoji = (event: Event) => {
@@ -70,7 +83,7 @@
   $effect(() => {
     rendered;
     root?.querySelectorAll<HTMLImageElement>("img[data-mxc]").forEach((image) => {
-      getMediaLink(image.dataset.mxc!, 256).then((link) => link && (image.src = link));
+      getMediaLink(image.dataset.mxc!, image.hasAttribute("data-mx-emoticon") ? 64 : 256).then((link) => link && (image.src = link));
     });
   });
 
@@ -161,6 +174,35 @@
     return true;
   };
 
+  const emojiItems = (image: HTMLImageElement): MenuItem[] => [
+    ...(onreact ? [{ id: "emoji-react", label: entityText("react_with"), icon: MENU_ICONS.react, run: () => onreact(image.alt) }] : []),
+    { id: "emoji-copy", label: entityText("copy_emoji"), icon: MENU_ICONS.copy, run: () => copied(image.alt) },
+    { id: "emoji-favourite", label: text("emoji", isFavourite(image.alt) ? "remove_favourite" : "add_favourite"), icon: isFavourite(image.alt) ? MENU_ICONS.unstar : MENU_ICONS.star, run: () => toggleFavourite(image.alt) },
+    { id: "emoji-info", label: entityText("emoji_info"), icon: MENU_ICONS.info, separated: true, run: () => (info = { anchor: image, unicode: image.alt, src: image.src }) },
+  ];
+
+  const customItems = (image: HTMLImageElement): MenuItem[] => [
+    { id: "custom-code", label: entityText("copy_shortcode"), icon: MENU_ICONS.copy, disabled: !image.alt, run: () => copied(image.alt) },
+    { id: "custom-open", label: entityText("open_image"), icon: MENU_ICONS.open, disabled: !image.src, run: () => window.open(image.src, "_blank", "noopener,noreferrer") },
+  ];
+
+  const codeItems = (pre: HTMLElement): MenuItem[] => {
+    const code = pre.querySelector<HTMLElement>(".code-scroll > code") ?? pre.querySelector("code");
+    const source = code?.textContent ?? "";
+    return [
+      { id: "code-copy", label: text("chat", "copy_code"), icon: MENU_ICONS.copy, run: () => copied(source) },
+      { id: "code-view", label: text("chat", "view_code"), icon: MENU_ICONS.code, run: () => (viewer = { source, language: pre.dataset.language ?? "", html: code?.classList.contains("hljs") ? code.innerHTML : null }) },
+    ];
+  };
+
+  const resolveMenu = (target: Element): MenuItem[] | undefined => {
+    if (!interactive || target.closest(".spoiler:not(.revealed)")) return;
+    const emoji = target.closest<HTMLImageElement>("img.emoji");
+    const custom = target.closest<HTMLImageElement>("img[data-mxc]");
+    const pre = target.closest<HTMLElement>("pre");
+    return (emoji && emojiItems(emoji)) || (custom && customItems(custom)) || (pre && !getSelection()?.toString() ? codeItems(pre) : undefined);
+  };
+
   const reveal = (event: Event) => {
     if (copyCode(event)) return;
     if (openEmoji(event)) return;
@@ -173,7 +215,7 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<span class="rich" class:formatted={isHtml} class:jumbo={large} bind:this={root} onclick={reveal} onkeydown={reveal}>{@html rendered.html}</span>
+<span class="rich" class:formatted={isHtml} class:jumbo={large} bind:this={root} onclick={reveal} onkeydown={reveal} use:delegate={resolveMenu}>{@html rendered.html}</span>
 {#if info}
   {#key info}
     <EmojiInfo bind:this={infoCard} anchor={info.anchor} unicode={info.unicode} src={info.src} onclose={() => (info = null)} />
@@ -226,6 +268,18 @@
     color: var(--colours-accent-strong);
     background-color: var(--colours-accent-soft);
     transition: background-color var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .rich :global(a.mention.me),
+  .rich :global(.mention.everyone) {
+    color: var(--colours-text-strong);
+    background-color: color-mix(in oklab, var(--colours-accent) 42%, transparent);
+  }
+
+  .rich :global(.mention.everyone) {
+    padding: 0 4px;
+    border-radius: var(--azure-radius-sm);
+    font-weight: 600;
   }
 
   .rich :global(a.mention:hover) {
@@ -423,6 +477,14 @@
     max-height: 256px;
     vertical-align: middle;
     border-radius: var(--azure-radius-sm);
+  }
+
+  .rich :global(img.inline-image[data-mx-emoticon]) {
+    width: auto;
+    height: 1.375em;
+    max-width: 4em;
+    object-fit: contain;
+    border-radius: 0;
   }
 
   .rich :global(.spoiler) {
