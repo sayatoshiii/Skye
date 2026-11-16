@@ -2,6 +2,13 @@ import { derived, get, writable } from "svelte/store";
 import { sessionRequest } from "../matrix/session";
 import { registerAccountDataHook, session } from "../stores/matrix";
 import { RECENT_EMOJI_KEY, RECENT_EMOJI_LIMIT, SKIN_TONE_KEY } from "./config";
+import { findEmoji, loadEmojiIndex, type EmojiIndex } from "../misc/emoji-data";
+
+const emojiIndex = writable<EmojiIndex | null>(null);
+const isKnown = (unicode: string) => {
+  const index = get(emojiIndex);
+  return !index || !!findEmoji(index, unicode);
+};
 
 const load = (): string[] => {
   try {
@@ -21,6 +28,7 @@ recentEmoji.subscribe((value) => {
 });
 
 export const useEmoji = (unicode: string) =>
+  isKnown(unicode) &&
   recentEmoji.update((current) => [unicode, ...current.filter((item) => item !== unicode)].slice(0, RECENT_EMOJI_LIMIT));
 
 const loadTone = () => {
@@ -57,6 +65,7 @@ registerAccountDataHook((events) => {
 export const isFavourite = (unicode: string) => get(favouriteEmoji).includes(unicode);
 
 export const toggleFavourite = (unicode: string) => {
+  if (!isFavourite(unicode) && !isKnown(unicode)) return;
   favouriteEmoji.update((current) => (current.includes(unicode) ? current.filter((item) => item !== unicode) : [...current, unicode]));
   const active = get(session);
   if (!active) return;
@@ -67,6 +76,14 @@ export const toggleFavourite = (unicode: string) => {
   }).catch((error) => console.warn("Skye could not save favourite emoji", error));
 };
 
-export const quickEmoji = derived([favouriteEmoji, recentEmoji], ([favourites, recent]) =>
-  [...new Set([...favourites, ...recent, ...DEFAULT_QUICK])].slice(0, DEFAULT_QUICK.length),
+export const quickEmoji = derived([favouriteEmoji, recentEmoji, emojiIndex], ([favourites, recent, index]) =>
+  [...new Set([...favourites, ...recent, ...DEFAULT_QUICK])].filter((unicode) => !index || !!findEmoji(index, unicode)).slice(0, DEFAULT_QUICK.length),
 );
+
+if (typeof window !== "undefined")
+  loadEmojiIndex()
+    .then((index) => {
+      emojiIndex.set(index);
+      recentEmoji.update((current) => current.filter((unicode) => !!findEmoji(index, unicode)));
+    })
+    .catch(() => undefined);

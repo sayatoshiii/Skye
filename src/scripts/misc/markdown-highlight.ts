@@ -190,7 +190,7 @@ export const highlightMarkdown = (source: string, code?: CodeHighlighter) => {
     const line = source.slice(lineStart, lineEnd);
 
     if (FENCE.test(line)) {
-      if (fenced && language && lineStart - 1 > bodyStart) blocks.push({ from: bodyStart, to: lineStart - 1, language });
+      if (fenced && lineStart - 1 > bodyStart) blocks.push({ from: bodyStart, to: lineStart - 1, language });
       fenced = !fenced;
       language = fenced ? line.slice(3).trim() : "";
       bodyStart = lineEnd + 1;
@@ -217,7 +217,7 @@ export const highlightMarkdown = (source: string, code?: CodeHighlighter) => {
     lineStart = newline + 1;
   }
 
-  if (fenced && language && source.length > bodyStart) blocks.push({ from: bodyStart, to: source.length, language });
+  if (fenced && source.length > bodyStart) blocks.push({ from: bodyStart, to: source.length, language });
   if (!code || !blocks.length) return `${emit(source, masks)} `;
 
   let html = "";
