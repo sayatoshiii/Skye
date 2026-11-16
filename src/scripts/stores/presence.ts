@@ -1,8 +1,8 @@
 import { derived, get, writable } from "svelte/store";
-import { baseURL, isMatrixError } from "../api/client";
+import { isMatrixError } from "../api/client";
 import { sessionRequest } from "../matrix/session";
 import type { Session, UserId } from "../matrix/types";
-import { applyPresence, presenceDetails, registerAccountDataHook, registerLiveSyncHook, registerSignOutHook, rooms, session, setSyncPresence, synced, type Presence, type PresenceDetails } from "./matrix";
+import { applyPresence, presenceDetails, registerAccountDataHook, session, setSyncPresence, synced, type Presence, type PresenceDetails } from "./matrix";
 
 export const STATUS_TYPE = "chat.skye.status";
 
@@ -14,7 +14,6 @@ export type OwnStatus = {
   text?: string;
   emoji?: string;
   clearAt?: number;
-  lastActive?: number;
 };
 
 const FETCH_CONCURRENCY = 2;
@@ -28,9 +27,6 @@ export const profileStatuses = writable<Record<UserId, OwnStatus | null>>({});
 
 const PROFILE_FIELD = STATUS_TYPE;
 const UNSTABLE_FIELD = `uk.tcpip.msc4133.${STATUS_TYPE}`;
-const HEARTBEAT = 60_000;
-const STALE_AFTER = 180_000;
-const watched = new Map<UserId, number>();
 const profileRequested = new Set<UserId>();
 const profileQueue: UserId[] = [];
 let profileActive = 0;
@@ -51,7 +47,6 @@ const parseStatus = (value: unknown): OwnStatus | null => {
     text: !expired && typeof content.text === "string" && content.text ? content.text : undefined,
     emoji: !expired && typeof content.emoji === "string" && content.emoji ? content.emoji : undefined,
     clearAt: expired ? undefined : clearAt,
-    lastActive: typeof content.last_active_ts === "number" ? content.last_active_ts : undefined,
   };
 };
 
@@ -81,7 +76,7 @@ const queueProfile = (userId: UserId) => {
   pumpProfiles();
 };
 
-const fallbackActive = () => !!get(profileFields);
+const fallbackActive = () => !!get(profileFields) && get(serverPresence) === "unsupported";
 
 const detectProfileFields = async (current: Session) => {
   const response = await sessionRequest<{ capabilities?: Record<string, { enabled?: boolean } | undefined> }>(current, {
@@ -94,181 +89,19 @@ const detectProfileFields = async (current: Session) => {
   );
 };
 
-const profileBody = (status: OwnStatus, presence: Presence) => ({
-  [PROFILE_FIELD]: {
-    mode: status.mode,
-    text: status.text ?? null,
-    emoji: status.emoji ?? null,
-    clear_at: status.clearAt ?? null,
-    presence,
-    status_msg: statusMessage(status) ?? null,
-    last_active_ts: Date.now(),
-  },
-});
-
 const writeProfileStatus = (status: OwnStatus) => {
   const current = get(session);
   const kind = get(profileFields);
-  if (!current || !kind) return Promise.resolve();
-  return sessionRequest(current, {
+  if (!current || !kind) return;
+  sessionRequest(current, {
     base: fieldBase(current, kind),
     endpoint: fieldEndpoint(current.userId),
     method: "PUT",
-    body: profileBody(status, MODE_PRESENCE[status.mode]),
+    body: {
+      [PROFILE_FIELD]: { mode: status.mode, text: status.text ?? null, emoji: status.emoji ?? null, clear_at: status.clearAt ?? null },
+    },
   }).catch((error) => console.warn("Skye could not save your status to your profile", error));
 };
-
-const offlineBody = () => profileBody({ ...get(ownStatus), mode: "invisible" }, "offline");
-
-const writeOffline = (current: Session) => {
-  const kind = get(profileFields);
-  if (!kind) return Promise.resolve();
-  return sessionRequest(current, { base: fieldBase(current, kind), endpoint: fieldEndpoint(current.userId), method: "PUT", body: offlineBody() }).catch(() => undefined);
-};
-
-const leaveOffline = () => {
-  const current = get(session);
-  const kind = get(profileFields);
-  if (!current || !kind) return;
-  void fetch((fieldBase(current, kind) ?? baseURL.MATRIX(current.homeserver)) + fieldEndpoint(current.userId), {
-    method: "PUT",
-    keepalive: true,
-    headers: { "Content-Type": "application/json", Authorization: `Bearer ${current.accessToken}` },
-    body: JSON.stringify(offlineBody()),
-  }).catch(() => undefined);
-};
-
-let heartbeat: ReturnType<typeof setInterval> | undefined;
-
-const REQUEST_TYPE = "chat.skye.presence_request";
-const REPLY_TYPE = "chat.skye.presence";
-const REPLY_GAP = 20_000;
-const REQUESTER_WINDOW = 300_000;
-const askedAt = new Map<UserId, number>();
-const repliedAt = new Map<UserId, number>();
-const requesters = new Map<UserId, number>();
-let txn = 0;
-
-const sendToDevice = (type: string, users: UserId[], content: Record<string, unknown>) => {
-  const current = get(session);
-  if (!current || !users.length) return;
-  sessionRequest(current, {
-    endpoint: `sendToDevice/${encodeURIComponent(type)}/skye.${Date.now()}.${(txn++).toString(36)}`,
-    method: "PUT",
-    body: { messages: Object.fromEntries(users.map((userId) => [userId, { "*": content }])) },
-  }).catch(() => undefined);
-};
-
-const replyContent = () => {
-  const status = get(ownStatus);
-  return {
-    presence: MODE_PRESENCE[status.mode],
-    status_msg: statusMessage(status) ?? null,
-    mode: status.mode,
-    text: status.text ?? null,
-    emoji: status.emoji ?? null,
-    clear_at: status.clearAt ?? null,
-    last_active_ts: Date.now(),
-  };
-};
-
-const askWatched = () => {
-  const self = get(session)?.userId;
-  const now = Date.now();
-  const due = [...watched.keys()].filter((userId) => userId !== self && now - (askedAt.get(userId) ?? 0) >= HEARTBEAT);
-  due.forEach((userId) => askedAt.set(userId, now));
-  sendToDevice(REQUEST_TYPE, due, {});
-};
-
-const pushToRequesters = () => {
-  const now = Date.now();
-  const recent = [...requesters].filter(([, at]) => now - at < REQUESTER_WINDOW).map(([userId]) => userId);
-  recent.forEach((userId) => repliedAt.set(userId, now));
-  sendToDevice(REPLY_TYPE, recent, replyContent());
-};
-
-const MEMBER_CACHE = 600_000;
-const LOOKUP_GAP = 300_000;
-const LOOKUPS_PER_MINUTE = 5;
-const memberCache = new Map<string, { at: number; members: Set<UserId> }>();
-const lookupAt = new Map<UserId, number>();
-let lookupTimes: number[] = [];
-
-const joinedMembers = async (current: Session, roomId: string) => {
-  const cached = memberCache.get(roomId);
-  if (cached && Date.now() - cached.at < MEMBER_CACHE) return cached.members;
-  lookupTimes = lookupTimes.filter((at) => Date.now() - at < 60_000);
-  if (lookupTimes.length >= LOOKUPS_PER_MINUTE) return null;
-  lookupTimes.push(Date.now());
-  const response = await sessionRequest<{ joined?: Record<UserId, unknown> }>(current, {
-    endpoint: `rooms/${encodeURIComponent(roomId)}/joined_members`,
-    method: "GET",
-  }).catch(() => null);
-  const members = new Set(Object.keys(response?.joined ?? {}) as UserId[]);
-  memberCache.set(roomId, { at: Date.now(), members });
-  return members;
-};
-
-const sharesRoom = async (userId: UserId) => {
-  const joined = Object.values(get(rooms)).filter((room) => room.membership === "join" && !room.isSpace);
-  if (joined.some((room) => room.members?.[userId]?.membership === "join" || room.directUserId === userId)) return true;
-  const current = get(session);
-  if (!current || Date.now() - (lookupAt.get(userId) ?? 0) < LOOKUP_GAP) return false;
-  lookupAt.set(userId, Date.now());
-  const ordered = joined.sort((a, b) => Number(b.isDirect) - Number(a.isDirect) || (a.joinedMemberCount ?? Infinity) - (b.joinedMemberCount ?? Infinity));
-  for (const room of ordered) {
-    const members = await joinedMembers(current, room.roomId);
-    if (!members) {
-      lookupAt.delete(userId);
-      return false;
-    }
-    if (members.has(userId)) return true;
-  }
-  return false;
-};
-
-const answer = async (sender: UserId) => {
-  if (!(await sharesRoom(sender))) return;
-  const now = Date.now();
-  requesters.set(sender, now);
-  if (now - (repliedAt.get(sender) ?? 0) < REPLY_GAP) return;
-  repliedAt.set(sender, now);
-  sendToDevice(REPLY_TYPE, [sender], replyContent());
-};
-
-registerLiveSyncHook((response) => {
-  const self = get(session)?.userId;
-  for (const event of response.to_device?.events ?? []) {
-    const sender = event.sender as UserId | undefined;
-    if (!sender || sender === self || !event.content || typeof event.content !== "object") continue;
-    if (event.type === REQUEST_TYPE) void answer(sender);
-    else if (event.type === REPLY_TYPE) {
-      const status = parseStatus(event.content);
-      if (!status || typeof (event.content as Record<string, unknown>).last_active_ts !== "number") continue;
-      profileStatuses.update((all) => ({ ...all, [sender]: status }));
-    }
-  }
-});
-
-const beat = () => {
-  askWatched();
-  if (!get(profileFields)) return;
-  void writeProfileStatus(get(ownStatus));
-  watched.forEach((_, userId) => queueProfile(userId));
-};
-
-const startHeartbeat = () => {
-  clearInterval(heartbeat);
-  beat();
-  heartbeat = setInterval(beat, HEARTBEAT);
-};
-
-registerSignOutHook(writeOffline);
-
-if (typeof window !== "undefined") {
-  addEventListener("pagehide", leaveOffline);
-  addEventListener("pageshow", (event) => event.persisted && get(session) && beat());
-}
 
 const requested = new Set<UserId>();
 const queue: UserId[] = [];
@@ -326,28 +159,16 @@ const pump = () => {
   }
 };
 
-export const watchPresence = (userId: UserId | undefined) => {
-  if (!userId) return () => {};
-  const first = !watched.has(userId);
-  watched.set(userId, (watched.get(userId) ?? 0) + 1);
-  if (first && fallbackActive()) queueProfile(userId);
-  if (first && get(synced)) queueMicrotask(askWatched);
-  ensurePresence(userId);
-  return () => {
-    const count = (watched.get(userId) ?? 1) - 1;
-    if (count > 0) watched.set(userId, count);
-    else watched.delete(userId);
-  };
-};
-
 export const ensurePresence = (userId: UserId | undefined) => {
   if (!userId || requested.has(userId)) return;
   if (get(presenceDetails)[userId]) return;
   requested.add(userId);
   queue.push(userId);
   pump();
+  if (fallbackActive()) queueProfile(userId);
 };
 
+const queueAllProfiles = () => fallbackActive() && requested.forEach(queueProfile);
 
 const publish = async (status: OwnStatus) => {
   const current = get(session);
@@ -396,8 +217,7 @@ export const setOwnStatus = (status: OwnStatus) => {
   ownStatus.set(status);
   scheduleClear(status);
   persist(status);
-  void writeProfileStatus(status);
-  pushToRequesters();
+  writeProfileStatus(status);
   void publish(status);
 };
 
@@ -427,6 +247,7 @@ registerAccountDataHook((events) => {
   setSyncPresence(MODE_PRESENCE[next.mode]);
 });
 
+serverPresence.subscribe(() => queueAllProfiles());
 
 presenceDetails.subscribe((value) => {
   if (get(serverPresence) === "unsupported") return;
@@ -437,7 +258,7 @@ synced.subscribe((value) => {
   const current = get(session);
   if (!value || !current || probed === current.userId) return;
   probed = current.userId;
-  void detectProfileFields(current).then(startHeartbeat);
+  void detectProfileFields(current).then(queueAllProfiles);
   void publish(get(ownStatus));
 });
 
@@ -445,13 +266,6 @@ session.subscribe((value) => {
   if (value) return queueMicrotask(pump);
   clearTimeout(clearTimer);
   clearTimeout(probeTimer);
-  clearInterval(heartbeat);
-  askedAt.clear();
-  repliedAt.clear();
-  requesters.clear();
-  memberCache.clear();
-  lookupAt.clear();
-  lookupTimes = [];
   requested.clear();
   queue.length = 0;
   profileRequested.clear();
@@ -477,21 +291,18 @@ export const presenceKindOf = (
   self: UserId | undefined,
   server: "unknown" | "supported" | "unsupported",
   unsupported: Set<UserId>,
-  fallback?: OwnStatus | null,
 ): PresenceKind => {
   if (userId && userId === self) return modeKind(own.mode);
   if (details && !details.fetched) return fromDetails(details);
-  if (fallback?.lastActive) return Date.now() - fallback.lastActive > STALE_AFTER ? "offline" : modeKind(fallback.mode);
-  const lacking = (!!userId && unsupported.has(userId)) || server === "unsupported";
-  if (lacking) return fallback ? modeKind(fallback.mode) : "unsupported";
+  if ((!!userId && unsupported.has(userId)) || server === "unsupported") return "unsupported";
   return details ? fromDetails(details) : "unsupported";
 };
 
 export const presenceKinds = derived(
-  [presenceDetails, ownStatus, session, serverPresence, unsupportedUsers, profileStatuses],
-  ([$details, $own, $session, $server, $unsupported, $profiles]) =>
+  [presenceDetails, ownStatus, session, serverPresence, unsupportedUsers],
+  ([$details, $own, $session, $server, $unsupported]) =>
     (userId: UserId | undefined) =>
-      presenceKindOf(userId, userId ? $details[userId] : undefined, $own, $session?.userId, $server, $unsupported, userId ? $profiles[userId] : undefined),
+      presenceKindOf(userId, userId ? $details[userId] : undefined, $own, $session?.userId, $server, $unsupported),
 );
 
 export const statusTextOf = derived([presenceDetails, ownStatus, session, profileStatuses], ([$details, $own, $session, $profiles]) => (userId: UserId | undefined) => {

@@ -646,17 +646,8 @@ export const stopMatrix = () => {
   session.set(null);
 };
 
-type SignOutHook = (session: Session) => Promise<unknown>;
-
-const signOutHooks = new Set<SignOutHook>();
-
-export const registerSignOutHook = (hook: SignOutHook) => {
-  signOutHooks.add(hook);
-};
-
 export const signOut = async () => {
   const active = get(session) ?? loadSession();
-  if (active) await Promise.all([...signOutHooks].map((hook) => hook(active)));
   stopMatrix();
   clearSyncToken();
   await stopCrypto();
