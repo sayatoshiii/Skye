@@ -1,4 +1,8 @@
 <script lang="ts">
+  import { fly, scale, slide } from "svelte/transition";
+  import { flip } from "svelte/animate";
+  import { backOut, cubicOut } from "svelte/easing";
+  import KeyText from "../ui/KeyText.svelte";
   import { copied, toastKey, type ToastIcon } from "../../scripts/stores/toast";
   import { tooltip } from "../../scripts/misc/tooltip";
   import { MENU_ICONS } from "../../scripts/misc/icons";
@@ -34,6 +38,11 @@
     joinedMembers,
     loadOlderMessages,
     markRoomRead,
+    markAsRead,
+    markUnread,
+    unreadMarkers,
+    unreadDivider,
+    type UnreadDivider,
     redactMessage,
     restoreOpen,
     retryMessage,
@@ -397,6 +406,34 @@
       ? quickKeys.map((key) => ({ key, active: reactedWith(message.eventId, key), run: () => toggleReaction(message.eventId, key) }))
       : undefined;
 
+  const still = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const motion = (duration: number) => (still ? 0 : duration);
+  const fresh = (ts?: number) => !!ts && Date.now() - ts < 8000;
+  let settleAt = Infinity;
+  const settled = () => performance.now() > settleAt;
+
+  const reactionSeen = new Map<string, { count: number; own: boolean }>();
+
+  const reactionMotion = (node: HTMLElement, state: { id: string; count: number; own: boolean }) => {
+    const replay = (name: string, value: string) => {
+      node.removeAttribute(name);
+      void node.offsetWidth;
+      node.setAttribute(name, value);
+    };
+    const apply = (next: { id: string; count: number; own: boolean }) => {
+      const last = reactionSeen.get(next.id);
+      reactionSeen.set(next.id, { count: next.count, own: next.own });
+      if (!last) return;
+      if (next.count !== last.count) {
+        node.style.setProperty("--prev", `"${last.count}"`);
+        replay("data-flip", next.count > last.count ? "up" : "down");
+      }
+      if (next.own !== last.own) replay("data-react", next.own ? "add" : "remove");
+    };
+    apply(state);
+    return { update: apply };
+  };
+
   const canReact = (message: Message) => !message.local && message.kind !== "redacted" && message.status !== "failed";
 
   const seenBy = $derived.by(() => {
@@ -427,6 +464,8 @@
     ($currentRoom ? (typingMap[$currentRoom.roomId] ?? []) : []).filter((userId) => userId !== ownUserId).map(resolveName),
   );
 
+  const TYPING_CROWDS = [4, 8, 15, 30, 60, 100, 200];
+
   const typingLabel = $derived(
     typingNames.length === 0
       ? ""
@@ -434,7 +473,9 @@
         ? text("chat", "typing_one").replace("{name}", typingNames[0])
         : typingNames.length === 2
           ? text("chat", "typing_two").replace("{first}", typingNames[0]).replace("{second}", typingNames[1])
-          : text("chat", "typing_many"),
+          : typingNames.length === 3
+            ? text("chat", "typing_three").replace("{first}", typingNames[0]).replace("{second}", typingNames[1]).replace("{third}", typingNames[2])
+            : text("chat", `typing_crowd_${TYPING_CROWDS.findLastIndex((least) => typingNames.length >= least)}`),
   );
 
   let typingRoom: string | null = null;
@@ -526,6 +567,66 @@
     if (more && timeline && timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < LOAD_THRESHOLD) loadNewer();
   };
 
+  let markerMap: Record<string, { eventId: string }> = $state.raw({});
+  let dividerTarget: UnreadDivider | null = $state.raw(null);
+  let dividerSeen = $state(false);
+  $effect(() => unreadMarkers.subscribe((value) => (markerMap = value)));
+  $effect(() => unreadDivider.subscribe((value) => (dividerTarget = value)));
+
+  const firstUnread = $derived.by(() => {
+    const current = $currentRoom;
+    if (!current) return null;
+    const marker = markerMap[current.roomId];
+    if (marker) return { eventId: marker.eventId, after: false, count: current.localUnread ?? 1, ts: undefined as number | undefined };
+    if (dividerTarget?.roomId !== current.roomId) return null;
+    return { eventId: dividerTarget.eventId, after: !!dividerTarget.after, count: dividerTarget.count ?? 1, ts: dividerTarget.ts };
+  });
+
+  const dividerMessageId = $derived.by(() => {
+    if (!firstUnread) return null;
+    const index = timelineMessages.findIndex((message) => message.eventId === firstUnread.eventId);
+    if (index === -1) return null;
+    return (firstUnread.after ? timelineMessages[index + 1] : timelineMessages[index])?.id ?? null;
+  });
+
+  const unreadStart = $derived.by(() => {
+    const message = dividerMessageId ? timelineMessages.find((item) => item.id === dividerMessageId) : null;
+    return message?.ts ?? firstUnread?.ts ?? null;
+  });
+
+  const sinceLabel = $derived.by(() => {
+    if (!unreadStart) return "";
+    const time = formatTime(unreadStart);
+    if (new Date(unreadStart).toDateString() === new Date().toDateString()) return text("chat", "unread_since").replace("{time}", time);
+    const date = new Intl.DateTimeFormat(undefined, { day: "numeric", month: "long" }).format(unreadStart);
+    return text("chat", "unread_since_day").replace("{date}", date).replace("{time}", time);
+  });
+
+  $effect(() => {
+    void firstUnread?.eventId;
+    void $currentRoom?.roomId;
+    dividerSeen = false;
+  });
+
+  const showUnread = $derived(!!firstUnread && !dividerSeen && (firstUnread.after ? !!dividerTarget : true) && !(firstUnread.after && dividerMessageId === null && !timelineMessages.length));
+
+  const jumpToUnread = () => {
+    if (!firstUnread) return;
+    jumpToMessage(firstUnread.eventId);
+  };
+
+  const liveRead = () => {
+    const current = $currentRoom;
+    if (!current) return;
+    markRoomRead(current.roomId);
+    if (!markerMap[current.roomId] && settled()) dividerSeen = true;
+  };
+
+  const readFromNotice = () => {
+    dividerSeen = true;
+    markAsRead();
+  };
+
   const newCount = $derived.by(() => {
     if (isDetached || unseenAfter === null) return 0;
     const index = timelineMessages.findIndex((message) => message.id === unseenAfter);
@@ -546,7 +647,7 @@
       await tick();
       if (timeline) timeline.scrollTop = timeline.scrollHeight;
       travel = "in-bottom";
-      markRoomRead();
+      markAsRead();
       return;
     }
     stuck = true;
@@ -554,7 +655,7 @@
     farFromBottom = false;
     await tick();
     timeline?.scrollTo({ top: timeline.scrollHeight, behavior: isDetached ? "auto" : "smooth" });
-    markRoomRead();
+    markAsRead();
   };
 
   const findEvent = (eventId: string) => timeline?.querySelector<HTMLElement>(`[data-event-id="${CSS.escape(eventId)}"]`);
@@ -625,7 +726,9 @@
     if (!timeline) return;
 
     const distance = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight;
+    const wasStuck = stuck;
     stuck = !isDetached && distance < STICK_THRESHOLD;
+    if (stuck && !wasStuck && document.hasFocus()) markAsRead();
     farFromBottom = distance > timeline.clientHeight;
     if (stuck) unseenAfter = null;
     else if (!isDetached && unseenAfter === null) unseenAfter = timelineMessages.at(-1)?.id ?? null;
@@ -643,6 +746,7 @@
     if (renderedRoomId !== roomId) {
       persistScrollAnchors();
       renderedRoomId = roomId;
+      settleAt = performance.now() + 1000;
       stuck = true;
       pin = null;
       const saved = getScrollAnchor(roomId);
@@ -656,11 +760,11 @@
     if (loadingOlder || !stuck) return;
 
     scrollToBottom().then(fillViewport);
-    if (document.visibilityState === "visible" && document.hasFocus()) queueMicrotask(() => markRoomRead(roomId));
+    if (document.visibilityState === "visible" && document.hasFocus()) queueMicrotask(liveRead);
   });
 
   $effect(() => {
-    const read = () => document.visibilityState === "visible" && document.hasFocus() && stuck && markRoomRead();
+    const read = () => document.visibilityState === "visible" && document.hasFocus() && stuck && !isDetached && liveRead();
     document.addEventListener("visibilitychange", read);
     window.addEventListener("focus", read);
     return () => {
@@ -715,6 +819,7 @@
     const body = draft.trim();
     const items = pending.filter((item) => !item.error && item.progress === null);
     if ((!body && !items.length) || !room) return;
+    readFromNotice();
 
     const reply = replying ? { eventId: replying.eventId, sender: replying.sender } : undefined;
     stuck = true;
@@ -824,6 +929,8 @@
     if (!message.local && $currentRoom) {
       add("link", text("chat", "copy_link"), ICONS.link, () => copy(`https://matrix.to/#/${encodeURIComponent($currentRoom!.roomId)}/${encodeURIComponent(message.eventId)}`, "link_copied", "link"));
       add("id", text("chat", "copy_id"), ICONS.id, () => copy(message.eventId, "message_id_copied", "id"));
+      const roomId = $currentRoom.roomId;
+      add("unread", text("chat", "mark_unread"), MENU_ICONS.unread, () => markUnread(roomId, message.eventId) && toastKey("marked_unread", { icon: "unread", tone: "accent" }));
     }
     if (!message.local && message.kind !== "redacted" && mayPin)
       pinnedSet.has(message.eventId)
@@ -948,10 +1055,13 @@
       event.preventDefault();
       jumpToPresent();
     }
-    if (event.key === "Escape" && (!field || composerEmpty) && !busy && showPresent && !document.querySelector("[aria-modal=true], [role=dialog]")) {
+    if (event.key === "Escape" && !busy && showUnread && !document.querySelector("[aria-modal=true], [role=dialog]")) {
+      event.preventDefault();
+      readFromNotice();
+    } else if (event.key === "Escape" && (!field || composerEmpty) && !busy && showPresent && !document.querySelector("[aria-modal=true], [role=dialog]")) {
       event.preventDefault();
       jumpToPresent();
-    }
+    } else if (event.key === "Escape" && !busy && $currentRoom && markerMap[$currentRoom.roomId] && !document.querySelector("[aria-modal=true], [role=dialog]")) markAsRead();
   };
 
   const editLast = () => {
@@ -993,7 +1103,7 @@
 
 <section
   class="chat col min-0"
-  style:--composer-space="{dockHeight + 24}px"
+  style:--composer-space="{dockHeight + 35}px"
   {ondragenter}
   {ondragover}
   {ondragleave}
@@ -1092,6 +1202,9 @@
       {/if}
       {#each timelineMessages as message (message.id)}
         {@const sender = getSender(message.sender)}
+        {#if message.id === dividerMessageId}
+          <li class="unread-divider" role="separator" aria-label={text("chat", "new")}><span class="unread-tag xs bold">{text("chat", "new")}</span></li>
+        {/if}
         {@const offset = swipe?.id === message.id ? swipe.dx : 0}
         {#if message.kind === "system" && message.system}
           <li class="system row-nw align-centre gap-sm xs" data-event-id={message.eventId}>{@render systemLine(message.system, message.ts)}</li>
@@ -1113,6 +1226,7 @@
           </li>
         {:else}
         <li
+          in:fly|global={{ y: 10, duration: fresh(message.ts) ? motion(260) : 0, easing: cubicOut }}
           class="message row-nw"
           class:grouped={message.grouped && !message.replyTo}
           class:last={message.last}
@@ -1194,7 +1308,7 @@
                   }}
                 ></textarea>
                 <span class="xs faint row-nw align-centre gap-sm">
-                  {text("chat", "editing_hint")}
+                  <span><KeyText text={text("chat", "editing_hint")} /></span>
                   <button type="button" class="link-button ghost press xs bold" onclick={() => (editing = null)}>{text("chat", "cancel")}</button>
                   <button type="button" class="link-button accent ghost press xs bold" onclick={() => saveEdit(message)}>{text("chat", "save")}</button>
                 </span>
@@ -1226,7 +1340,7 @@
             {/if}
             {#if canReact(message) && reactions.get(message.eventId)?.length}
               {@const groups = reactions.get(message.eventId) ?? []}
-              <div class="reactions row align-centre gap-xs">
+              <div class="reactions row align-centre gap-xs" transition:slide={{ duration: motion(220), easing: cubicOut }}>
                 {#each groups as group (group.key)}
                   <button
                     type="button"
@@ -1235,8 +1349,12 @@
                     aria-pressed={!!group.own}
                     aria-label={reactedLabel(group)}
                     use:tooltip={reactedLabel(group)}
+                    in:scale={{ start: 0.4, duration: motion(340), easing: backOut, opacity: 0 }}
+                    out:scale={{ start: 0.5, duration: motion(180), easing: cubicOut, opacity: 0 }}
+                    animate:flip={{ duration: motion(260), easing: cubicOut }}
+                    use:reactionMotion={{ id: `${message.eventId}|${group.key}`, count: group.senders.length, own: !!group.own }}
                     onclick={() => toggleReaction(message.eventId, group.key)}
-                  ><span class="reaction-key"><EmojiText text={group.key} /></span><span>{group.senders.length}</span></button>
+                  ><span class="reaction-key"><EmojiText text={group.key} /></span><span class="reaction-count"><span class="reaction-now">{group.senders.length}</span></span></button>
                 {/each}
                 <button type="button" class="reaction reaction-add row centre press" aria-label={text("chat", "add_reaction")} use:tooltip={text("chat", "add_reaction")} aria-haspopup="dialog" onclick={(event) => openReactions(message, event.currentTarget)}>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.react} /></svg>
@@ -1288,7 +1406,7 @@
             <span class="seen-stack row-nw align-centre" use:tooltip={{ text: text("chat", "seen_by").replace("{names}", names), placement: "left" }}>
               {#each readers.slice(0, SEEN_LIMIT) as userId (userId)}
                 {@const reader = getSender(userId)}
-                <span class="seen-avatar"><Avatar name={reader.name} url={reader.avatar} size="16px" radius="50%" /></span>
+                <span class="seen-avatar" in:scale|global={{ start: 0.4, duration: settled() ? motion(260) : 0, easing: backOut }} out:scale={{ start: 0.6, duration: motion(160), easing: cubicOut }} animate:flip={{ duration: motion(240), easing: cubicOut }}><Avatar name={reader.name} url={reader.avatar} size="16px" radius="50%" /></span>
               {/each}
               {#if readers.length > SEEN_LIMIT}<span class="seen-more xs bold">+{readers.length - SEEN_LIMIT}</span>{/if}
             </span>
@@ -1302,6 +1420,19 @@
       {/if}
     </ol>
     {/key}
+
+    <div class="unread-wrap row centre" class:shown={showUnread} inert={!showUnread}>
+      <div class="present unread-notice row-nw align-centre gap-sm">
+        <button type="button" class="unread-main row-nw align-centre gap-sm ghost press" aria-label={text("chat", "unread_jump")} onclick={jumpToUnread}>
+          <span class="unread-icon row centre" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m-6 6 6-6 6 6" /></svg></span>
+          <span class="unread-lines col min-0">
+            <span class="sm bold truncate">{text("chat", (firstUnread?.count ?? 1) === 1 ? "new_message" : "new_messages").replace("{count}", String(firstUnread?.count ?? 1))}</span>
+            {#if sinceLabel}<span class="xs muted truncate">{sinceLabel}</span>{/if}
+          </span>
+        </button>
+        <button type="button" class="unread-read ghost press xs bold" onclick={readFromNotice}>{text("chat", "mark_read")}</button>
+      </div>
+    </div>
 
     <div class="present-wrap row centre" class:shown={showPresent} inert={!showPresent}>
         <button type="button" class="present row-nw align-centre gap-sm sm bold press" class:fresh={newCount > 0} onclick={jumpToPresent}>
@@ -1511,6 +1642,67 @@
       color var(--azure-duration-fast) var(--azure-ease-out);
   }
 
+  .unread-wrap {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(52px + env(safe-area-inset-top) + var(--azure-spacing-sm));
+    z-index: var(--azure-z-sticky);
+    pointer-events: none;
+  }
+
+  .unread-wrap .present {
+    height: auto;
+    min-height: 44px;
+    max-width: calc(100% - 2 * var(--azure-spacing-lg));
+    padding: 4px 6px 4px 4px;
+    translate: 0 -10px;
+    cursor: default;
+  }
+
+  .unread-wrap.shown .present {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+    pointer-events: auto;
+  }
+
+  .unread-wrap .present:hover {
+    color: var(--colours-text-strong);
+  }
+
+  .unread-main {
+    min-width: 0;
+    padding: 2px 8px 2px 2px;
+    border-radius: var(--azure-radius-pill);
+    text-align: left;
+  }
+
+  .unread-icon {
+    flex: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    color: var(--colours-accent);
+    background-color: var(--colours-accent-faint);
+  }
+
+  .unread-lines {
+    line-height: 1.2;
+  }
+
+  .unread-read {
+    flex: none;
+    padding: 6px 10px;
+    border-radius: var(--azure-radius-pill);
+    color: var(--colours-text-muted);
+  }
+
+  .unread-read:hover,
+  .unread-read:focus-visible {
+    color: var(--colours-text-strong);
+  }
+
   .present-wrap.shown .present {
     opacity: 1;
     translate: 0 0;
@@ -1638,7 +1830,7 @@
   }
 
   .chat {
-    --composer-space: 84px;
+    --composer-space: 95px;
 
     height: 100%;
     position: relative;
@@ -1896,6 +2088,38 @@
   .message.server {
     border: 1px solid var(--colours-accent);
     background-color: var(--colours-accent-faint);
+  }
+
+  .unread-divider {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    height: 1px;
+    margin: var(--azure-spacing-md) var(--azure-spacing-sm);
+    background-color: var(--colours-danger);
+    list-style: none;
+  }
+
+  .unread-tag {
+    position: relative;
+    margin-left: 8px;
+    padding: 0 6px 0 3px;
+    border-radius: 0 4px 4px 0;
+    font-size: 10px;
+    line-height: 16px;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: white;
+    background-color: var(--colours-danger);
+  }
+
+  .unread-tag::before {
+    content: "";
+    position: absolute;
+    inset: 0 100% 0 auto;
+    width: 8px;
+    background-color: inherit;
+    clip-path: polygon(100% 0, 100% 100%, 0 50%);
   }
 
   .system {
@@ -2256,8 +2480,9 @@
   }
 
   .reaction {
-    height: 26px;
-    padding: 0 var(--azure-spacing-sm);
+    height: 32px;
+    padding: 0 12px 0 9px;
+    gap: 7px;
     border-radius: var(--azure-radius-pill);
     border: 1px solid var(--colours-outline-hairline);
     background-color: var(--colours-surface-raised);
@@ -2279,14 +2504,187 @@
     background-color: color-mix(in oklab, var(--colours-accent) 14%, transparent);
   }
 
+  .reaction-key {
+    position: relative;
+    display: inline-flex;
+  }
+
+  .reaction-key::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: 50%;
+    border: 2px solid var(--colours-accent);
+    opacity: 0;
+    scale: 0.6;
+    pointer-events: none;
+  }
+
+  .reaction:global([data-flip="up"]) .reaction-key {
+    animation: react-hop 420ms cubic-bezier(0.3, 1.5, 0.5, 1) both;
+  }
+
+  .reaction:global([data-flip="down"]) .reaction-key {
+    animation: react-dip 360ms ease-out both;
+  }
+
+  .reaction:global([data-react="add"]) .reaction-key::after {
+    animation: react-ring 560ms ease-out both;
+  }
+
+  @keyframes react-hop {
+    0% {
+      translate: 0 0;
+      scale: 1;
+    }
+    40% {
+      translate: 0 -3px;
+      scale: 1.1;
+    }
+    100% {
+      translate: 0 0;
+      scale: 1;
+    }
+  }
+
+  @keyframes react-dip {
+    0% {
+      translate: 0 0;
+    }
+    40% {
+      translate: 0 2px;
+      scale: 0.92;
+    }
+    100% {
+      translate: 0 0;
+      scale: 1;
+    }
+  }
+
+  @keyframes react-ring {
+    0% {
+      opacity: 0.55;
+      scale: 0.6;
+    }
+    100% {
+      opacity: 0;
+      scale: 1.6;
+    }
+  }
+
   .reaction-key :global(img.emoji) {
-    width: 16px;
-    height: 16px;
-    vertical-align: -3px;
+    width: 20px;
+    height: 20px;
+    vertical-align: 0;
+  }
+
+  .reaction-count {
+    position: relative;
+    display: inline-grid;
+    min-width: 1ch;
+    overflow: hidden;
+    font-variant-numeric: tabular-nums;
+    line-height: 20px;
+  }
+
+  .reaction-count::before {
+    content: var(--prev, "");
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+  }
+
+  .reaction:global([data-flip]) .reaction-now {
+    animation: count-in 320ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+  }
+
+  .reaction:global([data-flip]) .reaction-count::before {
+    animation: count-out 260ms ease-in both;
+  }
+
+  .reaction:global([data-flip="down"]) .reaction-now {
+    --from: -100%;
+  }
+
+  .reaction:global([data-flip="down"]) .reaction-count::before {
+    --to: 100%;
+  }
+
+  @keyframes count-in {
+    from {
+      translate: 0 var(--from, 100%);
+      opacity: 0;
+    }
+    to {
+      translate: 0 0;
+      opacity: 1;
+    }
+  }
+
+  @keyframes count-out {
+    from {
+      translate: 0 0;
+      opacity: 1;
+    }
+    to {
+      translate: 0 var(--to, -100%);
+      opacity: 0;
+    }
+  }
+
+  .reaction:global([data-react="add"]) .reaction-key {
+    animation: react-add 520ms cubic-bezier(0.3, 1.4, 0.5, 1) both;
+  }
+
+  .reaction:global([data-react="remove"]) .reaction-key {
+    animation: react-remove 360ms ease-out both;
+  }
+
+  @keyframes react-add {
+    0% {
+      scale: 0.6;
+      rotate: -14deg;
+    }
+    45% {
+      scale: 1.22;
+      rotate: 8deg;
+    }
+    70% {
+      scale: 0.96;
+      rotate: -3deg;
+    }
+    100% {
+      scale: 1;
+      rotate: 0deg;
+    }
+  }
+
+  @keyframes react-remove {
+    0% {
+      scale: 1;
+    }
+    40% {
+      scale: 0.82;
+      translate: 0 1px;
+    }
+    100% {
+      scale: 1;
+      translate: 0 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reaction:global([data-flip]) .reaction-now,
+    .reaction:global([data-flip]) .reaction-count::before,
+    .reaction:global([data-react]) .reaction-key,
+    .reaction:global([data-flip]) .reaction-key,
+    .reaction:global([data-react]) .reaction-key::after {
+      animation: none;
+    }
   }
 
   .reaction-add {
-    width: 34px;
+    width: 40px;
     padding: 0;
     color: var(--colours-text-faint);
     opacity: 0;
@@ -2303,13 +2701,18 @@
   }
 
   .seen {
-    justify-content: flex-end;
-    padding: 0 var(--azure-spacing-lg);
-    margin-top: -2px;
+    position: relative;
+    height: 0;
+    list-style: none;
+    pointer-events: none;
   }
 
   .seen-stack {
+    position: absolute;
+    right: var(--azure-spacing-lg);
+    bottom: 4px;
     padding-left: 4px;
+    pointer-events: auto;
   }
 
   .seen-avatar {
@@ -2334,9 +2737,9 @@
 
   .typing {
     position: absolute;
-    left: var(--azure-spacing-lg);
+    left: calc(var(--azure-spacing-lg) + var(--azure-spacing-sm));
     right: var(--azure-spacing-lg);
-    bottom: calc(var(--composer-space) - 22px + env(safe-area-inset-bottom));
+    bottom: calc(3px + env(safe-area-inset-bottom));
     height: 20px;
     z-index: var(--azure-z-sticky);
     pointer-events: none;

@@ -9,14 +9,18 @@
       "sign_out": "Sign out"
     },
     "navigation": {
-      "home": "Direct messages",
+      "home": "Home",
       "spaces": "Spaces",
       "direct_messages": "Direct messages",
       "channels": "Rooms",
+      "invites": "Invites",
+      "invite_accept": "Accept",
+      "invite_decline": "Decline",
       "uncategorised": "Rooms",
       "members": "Members",
       "online": "Online",
       "offline": "Offline",
+      "unknown": "Unknown",
       "open_channels": "Open rooms",
       "open_members": "Open members",
       "back": "Back",
@@ -24,7 +28,9 @@
       "empty_home": "No conversations yet.",
       "empty_space": "This space has no rooms you can see yet.",
       "browse": "Browse rooms",
-      "add": "Join a room or space"
+      "add": "Join a room or space",
+      "unread_count": "{count} unread",
+      "mention_count": "{count} mentions"
     },
     "browse": {
       "title": "Browse rooms",
@@ -147,7 +153,14 @@
       "and": "{rest} and {last}",
       "typing_one": "{name} is typing…",
       "typing_two": "{first} and {second} are typing…",
-      "typing_many": "Several people are typing…",
+      "typing_three": "{first}, {second} and {third} are typing…",
+      "typing_crowd_0": "A buncha people are typing…",
+      "typing_crowd_1": "A ton of people are typing…",
+      "typing_crowd_2": "Wayyyy too many people are typing…",
+      "typing_crowd_3": "The entire population of 🇱🇮 Liechtenstein is typing…",
+      "typing_crowd_4": "More people are typing than inside Bonnie Blue…",
+      "typing_crowd_5": "Why tf are so many people typing??",
+      "typing_crowd_6": "So many people are typing that we had to use the space on your forehead to store the data",
       "seen_by": "Seen by {names}",
       "copy_code": "Copy",
       "copied_code": "Copied",
@@ -184,8 +197,8 @@
       "download": "Save",
       "open_media": "Open",
       "delete_title": "Delete message",
-      "delete_body": "This message will be deleted for everyone. Hold Shift to skip this next time.",
-      "editing_hint": "Enter to save, Esc to cancel",
+      "delete_body": "This message will be deleted for everyone. Hold [[Shift]] to skip this next time.",
+      "editing_hint": "[[Enter]] to save, [[Esc]] to cancel",
       "copied": "Copied",
       "actions": "Message actions",
       "copy_image": "Copy image",
@@ -210,15 +223,21 @@
       "new_message": "{count} new message",
       "new_messages": "{count} new messages",
       "pin_title": "Pin message",
-      "pin_body": "This message will be pinned for everyone in this room. Hold Shift to skip this next time.",
+      "pin_body": "This message will be pinned for everyone in this room. Hold [[Shift]] to skip this next time.",
       "unpin_title": "Unpin message",
-      "unpin_body": "This message will be unpinned for everyone in this room. Hold Shift to skip this next time.",
+      "unpin_body": "This message will be unpinned for everyone in this room. Hold [[Shift]] to skip this next time.",
       "copy_coordinates": "Copy coordinates",
       "end_poll": "End poll",
       "end_poll_title": "End poll",
-      "end_poll_body": "Voting will close for everyone and results will be shown. Hold Shift to skip this next time.",
+      "end_poll_body": "Voting will close for everyone and results will be shown. Hold [[Shift]] to skip this next time.",
       "bot": "Bot",
-      "server_notice": "Server notice"
+      "server_notice": "Server notice",
+      "mark_unread": "Mark as unread",
+      "new": "New",
+      "unread_since": "Since {time}",
+      "unread_since_day": "Since {date} at {time}",
+      "unread_jump": "Jump to the first unread message",
+      "mark_read": "Mark as read"
     },
     "settings": {
       "open": "Settings",
@@ -528,7 +547,17 @@
       "customise_title": "Customise your space",
       "customise_subtitle": "Give your new space a personality with a name and an icon. You can always change it later.",
       "upload": "Upload",
-      "crop": { "title": "Edit image", "zoom": "Zoom", "reset": "Reset", "cancel": "Cancel", "apply": "Apply", "change": "Choose another image", "close": "Close", "rotate": "Rotate", "angle": "Straighten" },
+      "crop": {
+        "title": "Edit image",
+        "zoom": "Zoom",
+        "reset": "Reset",
+        "cancel": "Cancel",
+        "apply": "Apply",
+        "change": "Choose another image",
+        "close": "Close",
+        "rotate": "Rotate",
+        "angle": "Straighten"
+      },
       "name_label": "Space name",
       "default_name": "{name}'s space",
       "back": "Back",
@@ -574,11 +603,14 @@
       "cut": "Cut",
       "copy": "Copy",
       "paste": "Paste",
+      "paste_hint": "Your browser blocked pasting from here, press {keys} instead",
       "select_all": "Select all",
       "open_link": "Open link",
       "copy_link": "Copy link"
     },
     "toast": {
+      "join_failed": "Could not join this room",
+      "decline_failed": "Could not decline this invite",
       "copied": "Copied to clipboard",
       "link_copied": "Link copied",
       "id_copied": "ID copied",
@@ -593,7 +625,8 @@
       "deleted": "Message deleted",
       "marked_read": "Marked as read",
       "hidden": "Room hidden",
-      "shown": "Room shown"
+      "shown": "Room shown",
+      "marked_unread": "Marked as unread"
     },
     "room_menu": {
       "actions": "Room actions",
@@ -605,7 +638,7 @@
       "show": "Show",
       "leave": "Leave room",
       "leave_title": "Leave {name}?",
-      "leave_body": "You won't be able to rejoin if it's invite-only. Hold Shift to skip this next time.",
+      "leave_body": "You won't be able to rejoin if it's invite-only. Hold [[Shift]] to skip this next time.",
       "forget": "Also forget this conversation",
       "cancel": "Cancel",
       "leaving": "Leaving",
@@ -615,7 +648,8 @@
         "banned": "You can't leave this room right now.",
         "rate_limited": "Too many tries. Wait a moment and try again.",
         "failed": "Couldn't leave. Try again."
-      }
+      },
+      "mark_unread": "Mark as unread"
     },
     "space_menu": {
       "actions": "Space actions",
@@ -676,6 +710,19 @@
         "flags": "Flags",
         "results": "Search results"
       }
+    },
+    "notifications": {
+      "prompt": "Turn on desktop notifications",
+      "prompt_body": "Get told about mentions and direct messages while Skye is in the background.",
+      "enable": "Enable",
+      "later": "Not now",
+      "encrypted": "Encrypted message",
+      "image": "Sent an image",
+      "video": "Sent a video",
+      "audio": "Sent a voice message",
+      "file": "Sent a file",
+      "sticker": "Sent a sticker",
+      "new_message": "New message"
     }
   }
 }

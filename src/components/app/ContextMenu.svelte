@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { copied } from "../../scripts/stores/toast";
+  import { copied, toast } from "../../scripts/stores/toast";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
@@ -12,19 +12,7 @@
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
 
   let menu: { items: MenuItem[]; x: number; y: number } | null = $state.raw(null);
-  let pasteDenied = false;
 
-  $effect(() => {
-    navigator.permissions
-      ?.query({ name: "clipboard-read" as PermissionName })
-      .then((status) => {
-        pasteDenied = status.state === "denied";
-        status.onchange = () => (pasteDenied = status.state === "denied");
-      })
-      .catch(() => undefined);
-  });
-
-  const canPaste = () => !!navigator.clipboard?.readText && !pasteDenied;
 
   const isField = (element: Element): element is Field =>
     element instanceof HTMLTextAreaElement || (element instanceof HTMLInputElement && TEXT_TYPES.includes(element.type));
@@ -45,8 +33,8 @@
       restore(element, range);
       document.execCommand("insertText", false, value);
     } catch {
-      pasteDenied = true;
       restore(element, range);
+      toast(text("context_menu", "paste_hint").replace("{keys}", /Mac|iP(hone|ad)/.test(navigator.platform) ? "[[⌘]] [[V]]" : "[[Ctrl]] [[V]]"), { icon: "copy" });
     }
   };
 
@@ -69,7 +57,7 @@
       { id: "cut", label: text("context_menu", "cut"), icon: MENU_ICONS.cut, disabled: !selected || locked || secret, run: run("cut") },
       { id: "copy", label: text("context_menu", "copy"), icon: MENU_ICONS.copy, disabled: !selected || secret, run: run("copy") },
     ];
-    if (canPaste()) items.push({ id: "paste", label: text("context_menu", "paste"), icon: MENU_ICONS.paste, disabled: locked, run: () => paste(element, range) });
+    items.push({ id: "paste", label: text("context_menu", "paste"), icon: MENU_ICONS.paste, disabled: locked, run: () => paste(element, range) });
     items.push({
       id: "select_all",
       label: text("context_menu", "select_all"),

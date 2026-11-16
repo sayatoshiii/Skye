@@ -1,4 +1,5 @@
 <script lang="ts">
+  import KeyText from "./KeyText.svelte";
   import type { Snippet } from "svelte";
   import { dismissible } from "../../scripts/misc/dismiss.svelte";
   import { portal } from "../../scripts/misc/portal";
@@ -40,7 +41,7 @@
   <button type="button" class="confirm-scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
   <div class="confirm col gap-md" onanimationend={exit.onanimationend} inert={exit.closing} role="alertdialog" aria-modal="true" aria-labelledby={id} aria-busy={busy} tabindex="-1" onkeydown={(event) => event.key === "Escape" && close()}>
     <h3 {id} class="md bold">{title}</h3>
-    {#if body}<p class="sm muted">{body}</p>{/if}
+    {#if body}<p class="sm muted"><KeyText text={body} /></p>{/if}
     {@render children?.()}
     <div class="actions row gap-sm">
       <button type="button" class="dialog-button ghost press sm bold" disabled={busy} onclick={close}>{cancelLabel}</button>
