@@ -2,7 +2,7 @@ import { derived, get, writable } from "svelte/store";
 import { isMatrixError } from "../api/client";
 import { sessionRequest } from "../matrix/session";
 import type { Session, UserId } from "../matrix/types";
-import { applyPresence, presenceDetails, registerAccountDataHook, session, setSyncPresence, synced, type Presence, type PresenceDetails } from "./matrix";
+import { applyPresence, presenceDetails, registerAccountDataHook, registerLiveSyncHook, session, setSyncPresence, synced, type Presence, type PresenceDetails } from "./matrix";
 
 export const STATUS_TYPE = "chat.skye.status";
 
@@ -27,11 +27,12 @@ export const profileStatuses = writable<Record<UserId, OwnStatus | null>>({});
 
 const PROFILE_FIELD = STATUS_TYPE;
 const UNSTABLE_FIELD = `uk.tcpip.msc4133.${STATUS_TYPE}`;
+const COMMET_STATUS = "chat.commet.profile_status";
 const profileRequested = new Set<UserId>();
 const profileQueue: UserId[] = [];
 let profileActive = 0;
 
-const fieldBase = (current: Session, kind: "stable" | "unstable") =>
+export const fieldBase = (current: Session, kind: "stable" | "unstable") =>
   kind === "stable" ? undefined : `${current.homeserver}/_matrix/client/unstable/uk.tcpip.msc4133/`;
 
 const fieldEndpoint = (userId: UserId) => `profile/${encodeURIComponent(userId)}/${PROFILE_FIELD}`;
@@ -50,16 +51,22 @@ const parseStatus = (value: unknown): OwnStatus | null => {
   };
 };
 
+const readProfileStatus = (content: Record<string, unknown> | undefined): OwnStatus | null => {
+  const status = parseStatus(content?.[PROFILE_FIELD] ?? content?.[UNSTABLE_FIELD]);
+  if (status?.text || status?.emoji) return status;
+  const commet = content?.[COMMET_STATUS];
+  return typeof commet === "string" && commet.trim() ? { mode: "online", text: commet.trim() } : status;
+};
+
 const pumpProfiles = () => {
   const current = get(session);
-  const kind = get(profileFields);
-  if (!current || !kind) return;
+  if (!current) return;
 
   while (profileActive < FETCH_CONCURRENCY && profileQueue.length) {
     const userId = profileQueue.shift()!;
     profileActive++;
-    sessionRequest<Record<string, unknown>>(current, { base: fieldBase(current, kind), endpoint: fieldEndpoint(userId), method: "GET" })
-      .then((content) => profileStatuses.update((all) => ({ ...all, [userId]: parseStatus(content?.[PROFILE_FIELD] ?? content?.[UNSTABLE_FIELD]) })))
+    sessionRequest<Record<string, unknown>>(current, { endpoint: `profile/${encodeURIComponent(userId)}`, method: "GET" })
+      .then((content) => profileStatuses.update((all) => ({ ...all, [userId]: readProfileStatus(content) })))
       .catch(() => profileStatuses.update((all) => ({ ...all, [userId]: null })))
       .finally(() => {
         profileActive--;
@@ -137,6 +144,47 @@ const isUnsupported = (error: unknown) =>
 const markUnsupported = (userId: UserId) =>
   unsupportedUsers.update((current) => new Set(current).add(userId));
 
+const isBare = (details: PresenceDetails | undefined) =>
+  !!details && details.presence === "offline" && !details.statusMessage && details.lastActiveAgo === undefined && !details.currentlyActive;
+
+const ACTIVE_WINDOW = 120_000;
+const lastSeen = new Map<UserId, number>();
+const activeUsers = writable<Set<UserId>>(new Set());
+const seenUsers = writable<Set<UserId>>(new Set());
+let activityTimer: ReturnType<typeof setTimeout> | undefined;
+
+const refreshActivity = () => {
+  clearTimeout(activityTimer);
+  const now = Date.now();
+  const active = new Set([...lastSeen].filter(([, at]) => now - at < ACTIVE_WINDOW).map(([userId]) => userId));
+  const previous = get(activeUsers);
+  if (active.size !== previous.size || [...active].some((userId) => !previous.has(userId))) activeUsers.set(active);
+  if (!active.size) return;
+  const next = Math.min(...[...active].map((userId) => lastSeen.get(userId)!)) + ACTIVE_WINDOW;
+  activityTimer = setTimeout(refreshActivity, Math.max(next - now, 0) + 50);
+};
+
+registerLiveSyncHook((response) => {
+  const self = get(session)?.userId;
+  const now = Date.now();
+  const users = new Set<UserId>();
+  for (const room of Object.values(response.rooms?.join ?? {})) {
+    for (const event of [...(room.timeline?.events ?? []), ...(room.state?.events ?? [])]) if (event.sender) users.add(event.sender as UserId);
+    for (const event of room.ephemeral?.events ?? []) {
+      if (event.type === "m.typing") (event.content?.user_ids ?? []).forEach((userId: UserId) => users.add(userId));
+      if (event.type !== "m.receipt") continue;
+      for (const receipts of Object.values(event.content ?? {}) as Record<string, Record<UserId, unknown>>[])
+        for (const type of ["m.read", "m.read.private"]) Object.keys(receipts?.[type] ?? {}).forEach((userId) => users.add(userId as UserId));
+    }
+  }
+  if (self) users.delete(self);
+  if (!users.size) return;
+  users.forEach((userId) => lastSeen.set(userId, now));
+  const seen = get(seenUsers);
+  if ([...users].some((userId) => !seen.has(userId))) seenUsers.set(new Set([...seen, ...users]));
+  refreshActivity();
+});
+
 const pump = () => {
   const current = get(session);
   if (!current) return;
@@ -150,6 +198,7 @@ const pump = () => {
         if (!content?.presence) return markUnsupported(userId);
         if (get(presenceDetails)[userId] && !get(presenceDetails)[userId].fetched) return;
         applyPresence([{ sender: userId, content }], true);
+        if (isBare(get(presenceDetails)[userId])) queueProfile(userId);
       })
       .catch((error) => (isUnsupported(error) ? markUnsupported(userId) : requested.delete(userId)))
       .finally(() => {
@@ -266,6 +315,10 @@ session.subscribe((value) => {
   if (value) return queueMicrotask(pump);
   clearTimeout(clearTimer);
   clearTimeout(probeTimer);
+  clearTimeout(activityTimer);
+  lastSeen.clear();
+  activeUsers.set(new Set());
+  seenUsers.set(new Set());
   requested.clear();
   queue.length = 0;
   profileRequested.clear();
@@ -291,18 +344,25 @@ export const presenceKindOf = (
   self: UserId | undefined,
   server: "unknown" | "supported" | "unsupported",
   unsupported: Set<UserId>,
+  active = false,
+  seen = false,
 ): PresenceKind => {
   if (userId && userId === self) return modeKind(own.mode);
+  if (details && !isBare(details)) {
+    if (!details.fetched) return fromDetails(details);
+    if (!unsupported.has(userId!) && server !== "unsupported") return fromDetails(details);
+  }
+  if (active) return "online";
   if (details && !details.fetched) return fromDetails(details);
-  if ((!!userId && unsupported.has(userId)) || server === "unsupported") return "unsupported";
-  return details ? fromDetails(details) : "unsupported";
+  if ((!!userId && unsupported.has(userId)) || server === "unsupported" || !details) return seen ? "offline" : "unsupported";
+  return fromDetails(details);
 };
 
 export const presenceKinds = derived(
-  [presenceDetails, ownStatus, session, serverPresence, unsupportedUsers],
-  ([$details, $own, $session, $server, $unsupported]) =>
+  [presenceDetails, ownStatus, session, serverPresence, unsupportedUsers, activeUsers, seenUsers],
+  ([$details, $own, $session, $server, $unsupported, $active, $seen]) =>
     (userId: UserId | undefined) =>
-      presenceKindOf(userId, userId ? $details[userId] : undefined, $own, $session?.userId, $server, $unsupported),
+      presenceKindOf(userId, userId ? $details[userId] : undefined, $own, $session?.userId, $server, $unsupported, !!userId && $active.has(userId), !!userId && $seen.has(userId)),
 );
 
 export const statusTextOf = derived([presenceDetails, ownStatus, session, profileStatuses], ([$details, $own, $session, $profiles]) => (userId: UserId | undefined) => {

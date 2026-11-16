@@ -36,12 +36,16 @@ export const fetchProfile = (userId: UserId) =>
       displayName: readText(profile.displayname),
       avatarUrl: readText(profile.avatar_url),
       bio: readBio(profile["m.bio"]) ?? readBio(profile["chat.skye.bio"]),
-      banner: readText(profile["chat.skye.banner"]),
+      banner: readText(profile["chat.skye.banner"]) ?? readText(profile["chat.commet.profile_banner"]),
     } satisfies ExtendedProfile;
   })().catch(() => {
     delete profileCache[userId];
     return null;
   }));
+
+export const forgetProfile = (userId: UserId) => {
+  delete profileCache[userId];
+};
 
 export const fetchProfileCard = async (userId: UserId) => {
   const profile = await fetchProfile(userId);
