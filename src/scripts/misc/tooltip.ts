@@ -64,10 +64,24 @@ const place = (node: HTMLElement, preferred: TooltipPlacement) => {
   element.style.setProperty("--tooltip-arrow", `${Math.round(clamp(arrow, 10, (vertical ? width : height) - 10))}px`);
 };
 
+const render = (target: HTMLElement, text: string) => {
+  target.replaceChildren(
+    ...text.split(/\[\[(.+?)\]\]/).map((part, index) => {
+      if (!(index % 2)) return document.createTextNode(part);
+      const key = document.createElement("kbd");
+      key.className = "key";
+      key.textContent = part;
+      return key;
+    }),
+  );
+};
+
+const plain = (text: string) => text.replace(/\s*\[\[(.+?)\]\]/g, " $1").trim();
+
 const show = (node: HTMLElement, text: string, placement: TooltipPlacement) => {
   const element = ensure();
   owner = node;
-  label!.textContent = text;
+  render(label!, text);
   element.classList.remove("open");
   element.classList.add("measure");
   place(node, placement);
@@ -99,9 +113,9 @@ export const tooltip = (node: HTMLElement, options: TooltipOptions) => {
   node.appendChild(description);
 
   const sync = () => {
-    description.textContent = text;
+    description.textContent = plain(text);
     const labelled = node.getAttribute("aria-label");
-    if (text && labelled !== text) node.setAttribute("aria-describedby", id);
+    if (text && labelled !== description.textContent) node.setAttribute("aria-describedby", id);
     else node.removeAttribute("aria-describedby");
   };
   sync();

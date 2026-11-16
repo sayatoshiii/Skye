@@ -18,6 +18,11 @@
   import { getEmojiURL } from "../../scripts/misc/emoji";
   import { openJoined } from "../../scripts/stores/navigation.svelte";
   import Avatar from "../ui/Avatar.svelte";
+  import { entityText, menu } from "../../scripts/misc/entitymenu.svelte";
+  import { MENU_ICONS } from "../../scripts/misc/icons";
+  import { copied } from "../../scripts/stores/toast";
+  import { toMatrixTo } from "../../scripts/matrix/utilities/links";
+  import type { MenuItem } from "./MessageMenu.svelte";
   import EmojiText from "../ui/EmojiText.svelte";
   import ImageCropper from "../ui/ImageCropper.svelte";
 
@@ -127,6 +132,18 @@
   const inviteOnly = $derived(!!preview?.joinRule && INVITE_RULES.includes(preview.joinRule));
   const invalid = $derived(!!value.trim() && !link);
   const busy = $derived(status === "joining" || status === "waiting");
+
+  const previewItems = (): MenuItem[] =>
+    resolved
+      ? [
+          joined
+            ? { id: "preview-open", label: text("join", "open"), icon: MENU_ICONS.open, run: () => join() }
+            : { id: "preview-join", label: text("join", knock ? "knock" : preview?.isSpace ? "join_space" : "join"), icon: MENU_ICONS.add, disabled: busy, run: () => join() },
+          { id: "preview-link", label: getLocalisedText(undefined, "room_menu", "copy_link") as string, icon: MENU_ICONS.link, separated: true, run: () => copied(toMatrixTo(preview?.alias ?? resolved!.roomId, resolved!.via ?? []), "link_copied", "link") },
+          { id: "preview-id", label: getLocalisedText(undefined, "room_menu", "copy_id") as string, icon: MENU_ICONS.id, run: () => copied(resolved!.roomId, "id_copied", "id") },
+          ...(preview?.topic ? [{ id: "preview-topic", label: entityText("copy_topic"), icon: MENU_ICONS.copy, run: () => copied(preview!.topic!) }] : []),
+        ]
+      : [];
 
   const memberLabel = (count: number) =>
     count === 1 ? text("join", "member") : text("join", "members").replace("{count}", count.toLocaleString());
@@ -295,7 +312,7 @@
               </label>
 
               {#if resolved}
-                <div class="card col gap-sm">
+                <div class="card col gap-sm" use:menu={previewItems}>
                   {#if preview}
                     <div class="row-nw align-centre gap-md">
                       <Avatar name={preview.name ?? preview.alias ?? preview.roomId} url={preview.avatarUrl} size="48px" radius={preview.isSpace ? "30%" : "50%"} />

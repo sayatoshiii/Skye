@@ -7,6 +7,7 @@
   import { getEmojiURL } from "../../scripts/misc/emoji";
   import { findEmoji, loadEmojiIndex, searchEmoji, twemojiFile, withTone, type EmojiEntry, type EmojiIndex } from "../../scripts/misc/emoji-data";
   import { favouriteEmoji, recentEmoji, removeRecent, skinTone, toggleFavourite } from "../../scripts/settings/emoji";
+  import { MENU_ICONS } from "../../scripts/misc/icons";
   import { longpress } from "../../scripts/misc/longpress";
   import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
 
@@ -60,17 +61,12 @@
   $effect(() => recentEmoji.subscribe((value) => (recent = value)));
   $effect(() => favouriteEmoji.subscribe((value) => (favourites = value)));
 
-  const MENU_PATHS = {
-    star: "m12 4 2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6-4.9 2.6.9-5.5-4-3.9 5.5-.8L12 4Z",
-    remove: "M6 6l12 12M18 6 6 18",
-  };
-
   const emojiItems = (entry: EmojiEntry, section: string): MenuItem[] => {
     const saved = favourites.includes(entry.unicode);
     const items: MenuItem[] = [
-      { id: "favourite", label: text("emoji", saved ? "remove_favourite" : "add_favourite"), icon: MENU_PATHS.star, run: () => toggleFavourite(entry.unicode) },
+      { id: "favourite", label: text("emoji", saved ? "remove_favourite" : "add_favourite"), icon: saved ? MENU_ICONS.unstar : MENU_ICONS.star, run: () => toggleFavourite(entry.unicode) },
     ];
-    if (section === "recent") items.push({ id: "recent", label: text("emoji", "remove_recent"), icon: MENU_PATHS.remove, run: () => removeRecent(entry.unicode), danger: true });
+    if (section === "recent") items.push({ id: "recent", label: text("emoji", "remove_recent"), icon: MENU_ICONS.close, run: () => removeRecent(entry.unicode), danger: true });
     return items;
   };
   $effect(() => skinTone.subscribe((value) => (tone = value)));
@@ -95,10 +91,14 @@
 
   const preview = $derived(hovered ?? sections[0]?.entries[0] ?? null);
 
+  let snapshot: DOMRect | null = anchor.isConnected ? anchor.getBoundingClientRect() : null;
+
   const place = async () => {
     await tick();
-    if (!card || !anchor.isConnected) return;
-    const rect = anchor.getBoundingClientRect();
+    if (!card) return;
+    if (anchor.isConnected) snapshot = anchor.getBoundingClientRect();
+    const rect = snapshot;
+    if (!rect) return;
     const width = card.offsetWidth;
     const height = card.offsetHeight;
     position = {

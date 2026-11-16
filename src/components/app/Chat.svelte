@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { fly, scale, slide } from "svelte/transition";
+  import { reducesMotion } from "../../scripts/settings/motion";
+  import { blur, fly, scale, slide } from "svelte/transition";
   import { flip } from "svelte/animate";
   import { backOut, cubicOut } from "svelte/easing";
   import KeyText from "../ui/KeyText.svelte";
@@ -9,6 +10,8 @@
   import { canCopyMedia, copyMedia } from "../../scripts/misc/clipboard";
   import { portal } from "../../scripts/misc/portal";
   import EmojiText from "../ui/EmojiText.svelte";
+  import ReactionKey from "../ui/ReactionKey.svelte";
+  import EditorField from "./EditorField.svelte";
   import Composer, { type Pending } from "./Composer.svelte";
   import { tick, untrack } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
@@ -17,7 +20,8 @@
   import { formatBytes, getUploadLimit, isInline, prepareAttachment, sanitiseFilename, uploadAttachment } from "../../scripts/matrix/utilities/attachments";
   import { downloadMedia } from "../../scripts/matrix/utilities/download";
   import { isMxc, type MediaSource } from "../../scripts/matrix/utilities/media";
-  import { HTML_FORMAT, findLinks, stripReplyFallback, toPreviewLine } from "../../scripts/misc/formatting";
+  import { findLinks, stripReplyFallback, toPreviewLine } from "../../scripts/misc/formatting";
+  import { mentionsUser, recoverPills, trimPills, type Pill } from "../../scripts/misc/mentions";
   import { MEDIA } from "../../scripts/settings/config";
   import { linkPreviewsEnabled, mediaSettings, setKeepImageMetadata, type MediaSettings } from "../../scripts/settings/media";
   import { toEntity } from "../../scripts/stores/entities";
@@ -68,11 +72,15 @@
   import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
   import PinnedMessages from "./PinnedMessages.svelte";
   import ConfirmDialog from "../ui/ConfirmDialog.svelte";
+  import { formatAgo } from "../../scripts/misc/time";
+  import PeopleDialog, { type PeopleRow } from "./PeopleDialog.svelte";
+  import { usermenu } from "../../scripts/misc/usermenu";
+  import { entityText, menu as entityMenu } from "../../scripts/misc/entitymenu.svelte";
   import LocationCard from "./media/LocationCard.svelte";
   import Poll from "./media/Poll.svelte";
   import { BEACON, BEACON_INFO, LOCATION_KEYS, POLL_END, POLL_START, formatCoordinates, getLocation, getPoll, pollEndContent, relatedTo, type GeoLocation } from "../../scripts/matrix/utilities/content";
   import { SYSTEM_ICONS, SYSTEM_TYPES, describeSystem, type MemberVerb, type SystemLine } from "../../scripts/matrix/utilities/system";
-  import { navigation, openRoom, openRoomMenu } from "../../scripts/stores/navigation.svelte";
+  import { navigation, openRoom, openRoomMenu, openUserMenu } from "../../scripts/stores/navigation.svelte";
   import { openFullProfile, openMiniProfile } from "../../scripts/stores/profile";
   import { getScrollAnchor, persistScrollAnchors, setScrollAnchor, type ScrollAnchor } from "../../scripts/stores/scroll";
 
@@ -115,6 +123,7 @@
   type Message = (typeof timelineMessages)[number];
 
   let draft = $state("");
+  let pills: Pill[] = $state([]);
   let timeline: HTMLElement | undefined = $state();
   let composer: HTMLTextAreaElement | undefined = $state();
   let loadingOlder = $state(false);
@@ -129,7 +138,7 @@
   let dragDepth = $state(0);
   let dockHeight = $state(60);
   let replying: (ReplyTarget & { name: string }) | null = $state(null);
-  let editing: { eventId: string; draft: string } | null = $state(null);
+  let editing: { eventId: string; draft: string; pills: Pill[] } | null = $state(null);
   let menu: { message: Message; x: number; y: number; link?: string } | null = $state(null);
   type ConfirmKind = "delete" | "pin" | "unpin" | "end_poll";
   let confirming: { kind: ConfirmKind; eventId: string } | null = $state(null);
@@ -169,12 +178,13 @@
   let travel: "" | "out-down" | "in-top" | "out-up" | "in-bottom" = $state("");
   const TRAVEL_MS = 350;
   const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-  const quick = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const quick = reducesMotion;
   let noteTimer: ReturnType<typeof setTimeout> | undefined;
   let typingMap: Record<string, string[]> = $state.raw({});
   let receiptMap: Record<string, Record<string, ReadReceipt>> = $state.raw({});
   let quickKeys: string[] = $state.raw([]);
   const QUICK_TOOLBAR = 3;
+  let reactionPicker: EmojiPicker | undefined = $state();
   let reacting: { eventId: string; anchor: HTMLElement } | null = $state.raw(null);
   const SEEN_LIMIT = 3;
   const TYPING_REFRESH = 4000;
@@ -195,8 +205,10 @@
   const mayPin = $derived(!!$currentRoom && !!ownUserId && canPin($currentRoom, ownUserId));
   const previewsOn = $derived(!!settings && !!$currentRoom && linkPreviewsEnabled(settings, $currentRoom.roomId, encrypted));
 
+  const roomKey = $derived($currentRoom?.roomId);
+
   $effect(() => {
-    $currentRoom?.roomId;
+    roomKey;
     untrack(() => {
       replying = null;
       editing = null;
@@ -287,12 +299,8 @@
     return { kind: "fallback", body: text("chat", "unsupported").replace("{type}", String(msgtype)) };
   };
 
-  const mentions = (content: Record<string, any>, userId?: string) => {
-    if (!userId) return false;
-    if (Array.isArray(content["m.mentions"]?.user_ids) && content["m.mentions"].user_ids.includes(userId)) return true;
-    const html = content.format === HTML_FORMAT ? String(content.formatted_body ?? "") : "";
-    return html.includes(`matrix.to/#/${userId}`) || html.includes(`matrix.to/#/${encodeURIComponent(userId)}`);
-  };
+  const mentions = (content: Record<string, any>, userId?: string) =>
+    !!userId && mentionsUser(content, userId, [$currentRoom?.members[userId]?.displayName ?? ""]);
 
   const baseMessages = $derived(
     $currentTimeline
@@ -314,7 +322,7 @@
           txnId: event.txnId,
           content: event.content,
           replyTo,
-          mentionsMe: event.sender !== ownUserId && !event.redacted && mentions(event.content, ownUserId),
+          mentionsMe: !event.redacted && mentions(event.content, ownUserId),
           links: described.kind === "text" ? findLinks(replyTo ? stripReplyFallback(described.body) : described.body).slice(0, MEDIA.maxPreviewLinks) : [],
           plain,
           event,
@@ -354,7 +362,7 @@
       })),
   );
 
-  type ReactionGroup = { key: string; senders: string[]; own?: string };
+  type ReactionGroup = { key: string; senders: string[]; own?: string; shortcode?: string };
 
   const reactions = $derived.by(() => {
     const map = new Map<string, ReactionGroup[]>();
@@ -371,6 +379,10 @@
       let group = groups.find((item) => item.key === relation.key);
       if (!group) groups.push((group = { key: relation.key, senders: [] }));
       group.senders.push(event.sender);
+      if (!group.shortcode) {
+        const code = event.content.shortcode ?? event.content["com.beeper.reaction.shortcode"];
+        if (typeof code === "string" && code.trim()) group.shortcode = `:${code.trim().replace(/^:|:$/g, "")}:`;
+      }
       if (event.sender === ownUserId) group.own = event.event_id;
     }
     return map;
@@ -379,13 +391,23 @@
   const joinNames = (names: string[]) =>
     names.length < 2 ? (names[0] ?? "") : text("chat", "and").replace("{rest}", names.slice(0, -1).join(", ")).replace("{last}", names.at(-1)!);
 
+  const seenLabel = (readers: string[]) =>
+    readers.length <= 3
+      ? text("chat", "seen_by").replace("{names}", joinNames(readers.map(resolveName)))
+      : text("chat", `seen_crowd_${TYPING_CROWDS.findLastIndex((least) => readers.length >= least)}`);
+
+  const keyLabel = (key: string, shortcode?: string) => (key.startsWith("mxc://") ? (shortcode ?? text("chat", "custom_emoji")) : key);
+
   const reactedLabel = (group: ReactionGroup) =>
-    text("chat", "reacted").replace("{names}", joinNames(group.senders.map(resolveName))).replace("{emoji}", group.key);
+    (group.senders.length <= 3
+      ? text("chat", "reacted").replace("{names}", joinNames(group.senders.map(resolveName)))
+      : text("chat", `react_crowd_${TYPING_CROWDS.findLastIndex((least) => group.senders.length >= least)}`)
+    ).replace("{emoji}", keyLabel(group.key, group.shortcode));
 
   const toggleReaction = (eventId: string, key: string) => {
-    const own = reactions.get(eventId)?.find((group) => group.key === key)?.own;
-    if (own) return void (own.startsWith("~") || redactMessage(own).catch(() => undefined));
-    sendReaction(eventId, key).catch(() => undefined);
+    const group = reactions.get(eventId)?.find((item) => item.key === key);
+    if (group?.own) return void (group.own.startsWith("~") || redactMessage(group.own).catch(() => undefined));
+    sendReaction(eventId, key, undefined, group?.shortcode?.slice(1, -1)).catch(() => undefined);
   };
 
   const pickReaction = (unicode: string) => {
@@ -396,6 +418,7 @@
 
   const openReactions = (message: Message, anchor?: HTMLElement | null) => {
     const target = anchor ?? findEvent(message.eventId)?.querySelector<HTMLElement>(".react-tool") ?? findEvent(message.eventId);
+    if (target && reacting?.anchor === target) return reactionPicker?.dismiss();
     if (target) reacting = { eventId: message.eventId, anchor: target };
   };
 
@@ -406,8 +429,7 @@
       ? quickKeys.map((key) => ({ key, active: reactedWith(message.eventId, key), run: () => toggleReaction(message.eventId, key) }))
       : undefined;
 
-  const still = typeof matchMedia !== "undefined" && matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const motion = (duration: number) => (still ? 0 : duration);
+  const motion = (duration: number) => (reducesMotion() ? 0 : duration);
   const fresh = (ts?: number) => !!ts && Date.now() - ts < 8000;
   let settleAt = Infinity;
   const settled = () => performance.now() > settleAt;
@@ -433,6 +455,38 @@
     apply(state);
     return { update: apply };
   };
+
+  let people: { kind: "reactions" | "seen"; message: Message; selected?: string } | null = $state(null);
+
+  const seenFrom = (message: Message) => {
+    const index = timelineMessages.findIndex((item) => item.id === message.id);
+    if (index < 0) return [];
+    const users = timelineMessages.slice(index).flatMap((item) => seenBy.get(item.id) ?? []);
+    const receipts = ($currentRoom && receiptMap[$currentRoom.roomId]) || {};
+    return users.sort((a, b) => (receipts[b]?.ts ?? 0) - (receipts[a]?.ts ?? 0)).map((userId) => ({ userId, ts: receipts[userId]?.ts }));
+  };
+
+  const personRow = (userId: string, detail?: string, removable = false): PeopleRow => {
+    const sender = getSender(userId);
+    return { userId, name: sender.name, avatar: sender.avatar, detail: detail ? `${userId} · ${detail}` : undefined, removable };
+  };
+
+  const peopleRows = $derived.by((): PeopleRow[] => {
+    if (!people) return [];
+    if (people.kind === "seen")
+      return seenFrom(people.message).map(({ userId, ts }) => personRow(userId, ts ? text("chat", "seen_at").replace("{time}", formatAgo(Date.now() - ts)) : undefined));
+    const group = reactions.get(people.message.eventId)?.find((item) => item.key === people!.selected);
+    return (group?.senders ?? []).map((userId) => personRow(userId, undefined, userId === ownUserId && !!group?.own));
+  });
+
+  const peopleGroups = $derived(people?.kind === "reactions" ? (reactions.get(people.message.eventId) ?? []).map((group) => ({ key: group.key, count: group.senders.length, label: keyLabel(group.key, group.shortcode) })) : undefined);
+
+  $effect(() => {
+    if (people?.kind === "reactions" && peopleGroups && !peopleGroups.some((group) => group.key === people!.selected)) {
+      if (peopleGroups.length) people.selected = peopleGroups[0].key;
+      else people = null;
+    }
+  });
 
   const canReact = (message: Message) => !message.local && message.kind !== "redacted" && message.status !== "failed";
 
@@ -460,9 +514,8 @@
     return result;
   });
 
-  const typingNames = $derived(
-    ($currentRoom ? (typingMap[$currentRoom.roomId] ?? []) : []).filter((userId) => userId !== ownUserId).map(resolveName),
-  );
+  const typingIds = $derived(($currentRoom ? (typingMap[$currentRoom.roomId] ?? []) : []).filter((userId) => userId !== ownUserId));
+  const typingNames = $derived(typingIds.map(resolveName));
 
   const TYPING_CROWDS = [4, 8, 15, 30, 60, 100, 200];
 
@@ -826,7 +879,7 @@
     replying = null;
 
     if (isDetached) jumpToPresent();
-    if (body) sendMessage(body, reply).catch(() => undefined);
+    if (body) sendMessage(body, reply, trimPills(draft, pills).pills).catch(() => undefined);
     if (items.length) uploadPending(items, room.id, encrypted, body ? undefined : reply);
 
     draft = "";
@@ -849,31 +902,79 @@
     message.sender === ownUserId && !message.local && (message.kind === "text" || message.kind === "emote" || message.kind === "notice");
 
   const startEdit = async (message: Message) => {
-    editing = { eventId: message.eventId, draft: editableText(message) };
+    const draft = editableText(message);
+    editing = { eventId: message.eventId, draft, pills: recoverPills(draft, message.content) };
     await tick();
-    const field = timeline?.querySelector<HTMLTextAreaElement>(".edit-field");
+    const field = timeline?.querySelector<HTMLTextAreaElement>(".editor textarea");
     field?.focus();
     field?.setSelectionRange(field.value.length, field.value.length);
   };
 
+  const SHEET = "cubic-bezier(0.32, 0.72, 0, 1)";
+  const sheet = (t: number) => 1 - (1 - t) ** 3.2;
+
+  const editClose = (node: HTMLElement) => {
+    const { offsetTop: top, offsetLeft: left, offsetWidth: width } = node;
+    return {
+      duration: motion(240),
+      easing: sheet,
+      css: (t: number) =>
+        `position:absolute;top:${top}px;left:${left}px;width:${width}px;pointer-events:none;opacity:${t};filter:blur(${(1 - t) * 4}px);translate:0 ${(1 - t) * -6}px;scale:${0.985 + t * 0.015}`,
+    };
+  };
+
+  const closedAt = new Map<string, number>();
+  const returning = (eventId: string) => performance.now() - (closedAt.get(eventId) ?? -Infinity) < 600;
+  let lastEditKey: string | null = null;
+  const editKey = $derived(editing?.eventId ?? null);
+
+  $effect.pre(() => {
+    const next = editKey;
+    const previous = lastEditKey;
+    lastEditKey = next;
+    const ids = [previous, next].filter((id): id is string => !!id && previous !== next);
+    previous && previous !== next && closedAt.set(previous, performance.now());
+    const items = ids
+      .map((id) => timeline?.querySelector<HTMLElement>(`li[data-event-id="${CSS.escape(id)}"]`))
+      .filter((item): item is HTMLElement => !!item);
+    const before = items.map((item) => item.offsetHeight);
+    tick().then(() =>
+      items.forEach((item, index) => {
+        const after = item.offsetHeight;
+        after !== before[index] &&
+          !reducesMotion() &&
+          item.animate([{ height: `${before[index]}px`, overflow: "clip" }, { height: `${after}px`, overflow: "clip" }], { duration: 320, easing: SHEET });
+      }),
+    );
+  });
+
+  const editedAt = new Map<string, number>();
+  const justEdited = (eventId: string) => performance.now() - (editedAt.get(eventId) ?? -Infinity) < 1500;
+  const seenBodies = new Map<string, string>();
+  const bodyChanged = (id: string, key: string) => {
+    const previous = seenBodies.get(id);
+    seenBodies.set(id, key);
+    return justEdited(id) || (previous !== undefined && previous !== key);
+  };
+
   const saveEdit = (message: Message) => {
-    const value = editing?.draft.trim();
+    const trimmed = editing ? trimPills(editing.draft, editing.pills) : null;
+    const value = trimmed?.body;
     editing = null;
     if (!value || value === editableText(message).trim()) return;
-    editRoomMessage(message.eventId, value).catch(() => undefined);
+    editedAt.set(message.eventId, performance.now());
+    const replyTo = message.content["m.relates_to"]?.["m.in_reply_to"]?.event_id;
+    const replySender = replyTo ? findReply(replyTo)?.sender : undefined;
+    const previous = message.content["m.mentions"]?.user_ids ?? [];
+    editRoomMessage(message.eventId, value, trimmed!.pills, replySender && replySender !== ownUserId ? [replySender] : [], previous).catch(() => undefined);
     composer?.focus();
   };
 
-  const oneditkey = (event: KeyboardEvent, message: Message) => {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      editing = null;
-      composer?.focus();
-    }
-    if (event.key === "Enter" && !event.shiftKey && !matchMedia("(pointer: coarse)").matches) {
-      event.preventDefault();
-      saveEdit(message);
-    }
+  const oneditkey = (event: KeyboardEvent) => {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    editing = null;
+    composer?.focus();
   };
 
   const remove = (message: Message, event?: MouseEvent | KeyboardEvent) => ask("delete", message.eventId, event);
@@ -896,51 +997,83 @@
     }
 
     if (failed) {
-      add("retry", text("chat", "retry"), ICONS.retry, () => retry(message.txnId));
-      add("discard", text("chat", "discard"), ICONS.delete, () => message.txnId && discardMessage(message.txnId), true);
+      add("retry", text("chat", "retry"), MENU_ICONS.retry, () => retry(message.txnId));
+      add("discard", text("chat", "discard"), MENU_ICONS.delete, () => message.txnId && discardMessage(message.txnId), true);
       return items;
     }
 
-    if (canReact(message)) add("react", text("chat", "add_reaction"), ICONS.react, () => openReactions(message));
-    if (!message.local && message.kind !== "redacted") add("reply", text("chat", "reply"), ICONS.reply, () => startReply(message));
-    if (canEdit(message)) add("edit", text("chat", "edit"), ICONS.edit, () => startEdit(message));
+    if (canReact(message)) add("react", text("chat", "add_reaction"), MENU_ICONS.react, () => openReactions(message));
+    if (canReact(message) && reactions.get(message.eventId)?.length) add("reactions", text("chat", "view_reactions"), MENU_ICONS.reactions, () => (people = { kind: "reactions", message, selected: reactions.get(message.eventId)?.[0]?.key }));
+    if (!message.local && seenFrom(message).length) add("seen", text("chat", "seen_by_menu"), MENU_ICONS.seen, () => (people = { kind: "seen", message }));
+    if (!message.local && message.kind !== "redacted") add("reply", text("chat", "reply"), MENU_ICONS.reply, () => startReply(message));
+    if (canEdit(message)) add("edit", text("chat", "edit"), MENU_ICONS.edit, () => startEdit(message));
 
     if (message.kind === "media") {
       const source = mediaSource(message.content);
       const mimetype = String(message.content.info?.mimetype ?? "");
       const name = sanitiseFilename(message.content.filename ?? message.content.body);
       if (message.content.msgtype === "m.image" && isInline(mimetype, "image"))
-        add("open", text("chat", "open_media"), ICONS.open, () => lightbox.set({ source, mimetype, name, w: message.content.info?.w, h: message.content.info?.h }));
+        add("open", text("chat", "open_media"), MENU_ICONS.image, () => lightbox.set({ source, mimetype, name, w: message.content.info?.w, h: message.content.info?.h }));
       const gif = mimetype === "image/gif" || !!message.content.info?.["fi.mau.gif"];
       const copyKind = gif ? "copy_gif" : mimetype.startsWith("video/") ? "copy_video" : mimetype.startsWith("image/") ? "copy_image" : null;
       if (copyKind && isInline(mimetype, mimetype.split("/")[0] as "image" | "video") && canCopyMedia(mimetype))
-        add("copy-media", text("chat", copyKind), ICONS.copy, () => copyMedia(source, mimetype).then(() => toastKey(copyKind === "copy_image" ? "image_copied" : "media_copied", { icon: "copy" }), () => undefined));
-      add("download", text("chat", "download"), ICONS.download, () => downloadMedia(source, name).then(() => toastKey("saved", { icon: "save", tone: "success" }), () => undefined));
+        add("copy-media", text("chat", copyKind), MENU_ICONS.copy, () => copyMedia(source, mimetype).then(() => toastKey(copyKind === "copy_image" ? "image_copied" : "media_copied", { icon: "copy" }), () => undefined));
+      add("download", text("chat", "download"), MENU_ICONS.save, () => downloadMedia(source, name).then(() => toastKey("saved", { icon: "save", tone: "success" }), () => undefined));
     }
 
     if (message.location) {
       const location = message.location;
-      add("coordinates", text("chat", "copy_coordinates"), ICONS.copy, () => copy(formatCoordinates(location, 6), "coordinates_copied"));
+      add("coordinates", text("chat", "copy_coordinates"), MENU_ICONS.copy, () => copy(formatCoordinates(location, 6), "coordinates_copied"));
     }
+    const question = message.kind === "poll" ? getPoll(message.event)?.question : undefined;
+    if (question) add("poll-question", entityText("copy_question"), MENU_ICONS.copy, () => copy(question));
     if (message.kind === "poll" && !message.local && ownUserId && (message.sender === ownUserId || mayModerate(ownUserId)) && !pollEnded(message))
-      add("end-poll", text("chat", "end_poll"), ICONS.end, (event) => ask("end_poll", message.eventId, event), true);
+      add("end-poll", text("chat", "end_poll"), MENU_ICONS.end, (event) => ask("end_poll", message.eventId, event), true);
 
-    if (message.plain) add("copy", text("chat", "copy_text"), ICONS.copy, () => copy(editableText(message)));
+    if (message.plain) add("copy", text("chat", "copy_text"), MENU_ICONS.copy, () => copy(editableText(message)));
     if (!message.local && $currentRoom) {
-      add("link", text("chat", "copy_link"), ICONS.link, () => copy(`https://matrix.to/#/${encodeURIComponent($currentRoom!.roomId)}/${encodeURIComponent(message.eventId)}`, "link_copied", "link"));
-      add("id", text("chat", "copy_id"), ICONS.id, () => copy(message.eventId, "message_id_copied", "id"));
+      add("link", text("chat", "copy_link"), MENU_ICONS.link, () => copy(`https://matrix.to/#/${encodeURIComponent($currentRoom!.roomId)}/${encodeURIComponent(message.eventId)}`, "link_copied", "link"));
+      add("id", text("chat", "copy_id"), MENU_ICONS.id, () => copy(message.eventId, "message_id_copied", "id"));
       const roomId = $currentRoom.roomId;
       add("unread", text("chat", "mark_unread"), MENU_ICONS.unread, () => markUnread(roomId, message.eventId) && toastKey("marked_unread", { icon: "unread", tone: "accent" }));
     }
     if (!message.local && message.kind !== "redacted" && mayPin)
       pinnedSet.has(message.eventId)
-        ? add("unpin", text("chat", "unpin"), ICONS.unpin, (event) => ask("unpin", message.eventId, event))
-        : add("pin", text("chat", "pin"), ICONS.pin, (event) => ask("pin", message.eventId, event));
+        ? add("unpin", text("chat", "unpin"), MENU_ICONS.unpin, (event) => ask("unpin", message.eventId, event))
+        : add("pin", text("chat", "pin"), MENU_ICONS.pin, (event) => ask("pin", message.eventId, event));
     if (!message.local && message.kind !== "redacted" && $currentRoom && ownUserId && canRedact($currentRoom, ownUserId, message.sender))
-      add("delete", text("chat", "delete"), ICONS.delete, (event) => remove(message, event), true);
+      add("delete", text("chat", "delete"), MENU_ICONS.delete, (event) => remove(message, event), true);
 
     return items;
   };
+
+  const messageLink = (eventId: string) => `https://matrix.to/#/${encodeURIComponent($currentRoom?.roomId ?? "")}/${encodeURIComponent(eventId)}`;
+
+  const replyItems = (eventId: string): MenuItem[] => [
+    { id: "reply-jump", label: text("chat", "jump_to_reply"), icon: MENU_ICONS.jump, run: () => jumpToMessage(eventId) },
+    { id: "reply-link", label: text("chat", "copy_link"), icon: MENU_ICONS.link, run: () => copy(messageLink(eventId), "link_copied", "link") },
+    { id: "reply-id", label: text("chat", "copy_id"), icon: MENU_ICONS.id, run: () => copy(eventId, "message_id_copied", "id") },
+  ];
+
+  const reactionItems = (message: Message, group: ReactionGroup): MenuItem[] => [
+    { id: "reaction-toggle", label: entityText(group.own ? "remove_reaction" : "add_reaction"), icon: group.own ? MENU_ICONS.close : MENU_ICONS.react, run: () => toggleReaction(message.eventId, group.key) },
+    { id: "reaction-view", label: text("chat", "view_reactions"), icon: MENU_ICONS.reactions, run: () => (people = { kind: "reactions", message, selected: group.key }) },
+    group.key.startsWith("mxc://")
+      ? { id: "reaction-code", label: entityText("copy_shortcode"), icon: MENU_ICONS.copy, disabled: !group.shortcode, separated: true, run: () => copy(group.shortcode ?? "") }
+      : { id: "reaction-emoji", label: entityText("copy_emoji"), icon: MENU_ICONS.copy, separated: true, run: () => copy(group.key) },
+  ];
+
+  const typingItems = (): MenuItem[] =>
+    typingIds.map((userId) => ({ id: `typing-${userId}`, label: resolveName(userId), icon: MENU_ICONS.profile, run: () => openFullProfile(userId, $currentRoom?.roomId) }));
+
+  const topicItems = (topic: string): MenuItem[] => [
+    { id: "topic-copy", label: entityText("copy_topic"), icon: MENU_ICONS.copy, run: () => copy(topic) },
+  ];
+
+  const pinsItems = (): MenuItem[] => [
+    { id: "pins-open", label: entityText("view_pins"), icon: MENU_ICONS.pin, run: () => (pinsOpen = true) },
+    { id: "pins-latest", label: entityText("jump_latest_pin"), icon: MENU_ICONS.jump, disabled: !pinnedIds.length, run: () => pinnedIds.at(-1) && jumpToMessage(pinnedIds.at(-1)!) },
+  ];
 
   const openMenu = (message: Message, x: number, y: number, link?: string) => {
     if (editing?.eventId === message.eventId) return;
@@ -951,17 +1084,23 @@
     const target = event.target as HTMLElement;
     if (target.closest("textarea")) return;
     event.preventDefault();
+    const mention = mentionOf(target);
+    if (mention) return openUserMenu(mention, event.clientX, event.clientY, $currentRoom?.roomId);
     const link = target.closest<HTMLAnchorElement>("a[href]")?.href ?? target.closest<HTMLElement>("[data-link]")?.dataset.link;
     if (!menu) openMenu(message, event.clientX, event.clientY, link);
   };
 
-  let press: { id: string; x: number; y: number; timer: ReturnType<typeof setTimeout>; swiping: boolean } | null = null;
+  let press: { id: string; x: number; y: number; timer: ReturnType<typeof setTimeout> | undefined; swiping: boolean } | null = null;
 
   const onpointerdown = (event: PointerEvent, message: Message) => {
     if (event.pointerType !== "touch" || editing) return;
-    const timer = setTimeout(() => {
+    const mention = mentionOf(event.target);
+    if (!mention && (event.target as HTMLElement).closest("[data-profile-trigger], .seen-avatar")) return;
+    const nested = !mention && !!(event.target as HTMLElement).closest("[data-entity-menu]");
+    const timer = nested ? undefined : setTimeout(() => {
       press = null;
       swipe = null;
+      if (mention) return openUserMenu(mention, event.clientX, event.clientY, $currentRoom?.roomId);
       openMenu(message, event.clientX, event.clientY);
     }, LONG_PRESS);
     press = { id: message.id, x: event.clientX, y: event.clientY, timer, swiping: false };
@@ -1011,11 +1150,22 @@
 
   const onmentionclick = (event: MouseEvent) => {
     const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>("a.mention");
+    if (anchor?.dataset.roomId) {
+      event.preventDefault();
+      const id = anchor.dataset.roomId;
+      const known = Object.values($rooms).find((room) => room.roomId === id || room.state["m.room.canonical_alias"]?.[""]?.content?.alias === id);
+      return openUpgraded(known?.roomId ?? id);
+    }
     const match = anchor?.href.match(/matrix\.to\/#\/(@[^/?]+)/);
     if (!anchor || !match) return;
     event.preventDefault();
     anchor.dataset.profileTrigger = "";
     openProfile(decodeURIComponent(match[1]), anchor);
+  };
+
+  const mentionOf = (target: EventTarget | null) => {
+    const match = (target as HTMLElement | null)?.closest?.<HTMLAnchorElement>("a.mention")?.href.match(/matrix\.to\/#\/(@[^/?]+)/);
+    return match ? decodeURIComponent(match[1]) : undefined;
   };
 
   const showNote = (value: string) => {
@@ -1157,7 +1307,8 @@
         </h2>
       {/if}
       {#if room.topic}
-        <span class="topic sm muted truncate">{room.topic}</span>
+        {@const topic = room.topic}
+        <span class="topic sm muted truncate" use:entityMenu={() => topicItems(topic)}>{room.topic}</span>
       {/if}
     {/if}
     <span class="flex-max"></span>
@@ -1171,6 +1322,7 @@
         use:tooltip={text("chat", "pins")}
         bind:this={pinsButton}
         onclick={() => (pinsOpen = !pinsOpen)}
+        use:entityMenu={pinsItems}
       >
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.pin} /></svg>
         {#if pinnedIds.length}<span class="pin-count xs bold" aria-hidden="true">{pinnedIds.length > 99 ? "99+" : pinnedIds.length}</span>{/if}
@@ -1203,6 +1355,7 @@
       </div>
     {/if}
     {#key room.id}
+    <div class="timeline-mask col flex-max min-0">
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
     <ol class="timeline col flex-max min-0 travel-{travel || 'idle'}" bind:this={timeline} onanimationend={(event) => event.target === timeline && travel.startsWith("in") && (travel = "")} {onscroll} onclick={onmentionclick} onwheel={unpin} ontouchstart={unpin} onkeydown={unpin} onpointerdown={unpin}>
       {#if $canLoadOlder}
@@ -1278,6 +1431,7 @@
               class="reply-quote row-nw align-centre gap-sm ghost xs"
               aria-label={text("chat", "jump_to_reply")}
               onclick={() => message.replyTo && jumpToMessage(message.replyTo)}
+              use:entityMenu={() => replyItems(message.replyTo!)}
             >
               <span class="connector" aria-hidden="true"></span>
               {#if original && author}
@@ -1293,7 +1447,7 @@
             {#if message.grouped && !message.replyTo}
               <time class="hover-time xs faint" datetime={new Date(message.ts).toISOString()}>{formatTime(message.ts)}</time>
             {:else}
-              <button type="button" class="author-avatar ghost press" data-profile-trigger aria-label={text("user_profile", "open").replace("{name}", sender.name)} onclick={(event) => openProfile(message.sender, event.currentTarget)}>
+              <button type="button" class="author-avatar ghost press" data-profile-trigger use:usermenu={{ userId: message.sender, roomId: $currentRoom?.roomId }} aria-label={text("user_profile", "open").replace("{name}", sender.name)} onclick={(event) => openProfile(message.sender, event.currentTarget)}>
                 <Avatar name={sender.name} url={sender.avatar} size="38px" radius="50%" />
               </button>
             {/if}
@@ -1301,7 +1455,7 @@
           <div class="content col min-0">
             {#if !message.grouped || message.replyTo}
               <div class="meta row-nw align-centre gap-sm">
-                <button type="button" class="sender md bold ghost" class:admin={sender.powerLevel >= 100} data-profile-trigger onclick={(event) => openProfile(message.sender, event.currentTarget)}><EmojiText text={sender.name} /></button>
+                <button type="button" class="sender md bold ghost" class:admin={sender.powerLevel >= 100} data-profile-trigger use:usermenu={{ userId: message.sender, roomId: $currentRoom?.roomId }} onclick={(event) => openProfile(message.sender, event.currentTarget)}><EmojiText text={sender.name} /></button>
                 <time class="xs faint" datetime={new Date(message.ts).toISOString()}>{formatTime(message.ts)}</time>
                 {#if message.kind === "notice"}<span class="bot-tag xs bold">{text("chat", "bot")}</span>{/if}
                 {#if message.kind === "server"}<span class="bot-tag server-tag xs bold">{text("chat", "server_notice")}</span>{/if}
@@ -1311,20 +1465,9 @@
               <span class="pin-float">{@render pinMark()}</span>
             {/if}
             {#if editing?.eventId === message.eventId}
-              <div class="editor col gap-xs">
-                <textarea
-                  class="edit-field"
-                  rows="1"
-                  aria-label={text("chat", "edit")}
-                  bind:value={editing.draft}
-                  onkeydown={(event) => oneditkey(event, message)}
-                  oninput={(event) => {
-                    const field = event.currentTarget;
-                    field.style.height = "auto";
-                    field.style.height = `${field.scrollHeight}px`;
-                  }}
-                ></textarea>
-                <span class="xs faint row-nw align-centre gap-sm">
+              <div class="editor col gap-xs" out:editClose>
+                <EditorField bind:value={editing.draft} bind:pills={editing.pills} label={text("chat", "edit")} variant="edit" onsubmit={() => saveEdit(message)} onkey={oneditkey} />
+                <span class="edit-hint xs faint row-nw align-centre">
                   <span><KeyText text={text("chat", "editing_hint")} /></span>
                   <button type="button" class="link-button ghost press xs bold" onclick={() => (editing = null)}>{text("chat", "cancel")}</button>
                   <button type="button" class="link-button accent ghost press xs bold" onclick={() => saveEdit(message)}>{text("chat", "save")}</button>
@@ -1332,7 +1475,7 @@
               </div>
             {:else if message.kind === "media"}
               {#if message.content.msgtype !== "m.file" && message.content.body && message.content.filename && message.content.filename !== message.content.body}
-                <p class="body selectable"><MessageBody content={message.content} {ownUserId} {resolveName} /></p>
+                <p class="body selectable"><MessageBody content={message.content} {ownUserId} {resolveName} onreact={canReact(message) ? (key) => reactedWith(message.eventId, key) || toggleReaction(message.eventId, key) : undefined} /></p>
               {/if}
               <MessageMedia content={message.content} sender={resolveName(message.sender)} ts={message.ts} />
             {:else if message.kind === "sticker"}
@@ -1342,7 +1485,11 @@
             {:else if message.kind === "poll"}
               <Poll event={message.event} related={relations.get(message.eventId) ?? []} {ownUserId} mayEnd={mayModerate} />
             {:else if message.plain}
-              <p class="body selectable {message.kind}">{#if message.kind === "emote"}<span class="emote-sender">* <EmojiText text={sender.name} /></span> {/if}<MessageBody content={message.content} {ownUserId} {resolveName} jumbo={message.kind !== "emote"} />{#if message.edited}<span class="edited xs faint"> {text("chat", "edited")}</span>{/if}</p>
+              <div class="body-swap">
+                {#key `${message.content.body ?? ""}\u0000${message.content.formatted_body ?? ""}`}
+                  <p class="body selectable {message.kind}" in:blur|global={{ amount: 6, duration: bodyChanged(message.eventId, `${message.content.body ?? ""}\u0000${message.content.formatted_body ?? ""}`) || returning(message.eventId) ? motion(300) : 0, easing: sheet }} out:blur={{ amount: 6, duration: motion(180), easing: cubicOut }}>{#if message.kind === "emote"}<span class="emote-sender">* <EmojiText text={sender.name} /></span> {/if}<MessageBody content={message.content} {ownUserId} {resolveName} onreact={canReact(message) ? (key) => reactedWith(message.eventId, key) || toggleReaction(message.eventId, key) : undefined} jumbo={message.kind !== "emote"} />{#if message.edited}<span class="edited xs faint"> {text("chat", "edited")}</span>{/if}</p>
+                {/key}
+              </div>
             {:else}
               <p class="body selectable {message.kind}"><EmojiText text={message.body} /></p>
             {/if}
@@ -1371,7 +1518,8 @@
                     animate:flip={{ duration: motion(260), easing: cubicOut }}
                     use:reactionMotion={{ id: `${message.eventId}|${group.key}`, count: group.senders.length, own: !!group.own }}
                     onclick={() => toggleReaction(message.eventId, group.key)}
-                  ><span class="reaction-key"><EmojiText text={group.key} /></span><span class="reaction-count"><span class="reaction-now">{group.senders.length}</span></span></button>
+                    use:entityMenu={() => reactionItems(message, group)}
+                  ><span class="reaction-key"><ReactionKey key={group.key} label={keyLabel(group.key, group.shortcode)} /></span><span class="reaction-count"><span class="reaction-now">{group.senders.length}</span></span></button>
                 {/each}
                 <button type="button" class="reaction reaction-add row centre press" aria-label={text("chat", "add_reaction")} use:tooltip={text("chat", "add_reaction")} aria-haspopup="dialog" onclick={(event) => openReactions(message, event.currentTarget)}>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.react} /></svg>
@@ -1418,12 +1566,11 @@
         {/if}
         {@const readers = seenBy.get(message.id)}
         {#if readers?.length}
-          {@const names = joinNames(readers.map(resolveName))}
-          <li class="seen row-nw align-centre" aria-label={text("chat", "seen_by").replace("{names}", names)}>
-            <span class="seen-stack row-nw align-centre" use:tooltip={{ text: text("chat", "seen_by").replace("{names}", names), placement: "left" }}>
+          <li class="seen row-nw align-centre" aria-label={seenLabel(readers)}>
+            <span class="seen-stack row-nw align-centre" use:tooltip={{ text: seenLabel(readers), placement: "left" }} use:entityMenu={() => [{ id: "seen-view", label: text("chat", "seen_by_menu"), icon: MENU_ICONS.seen, run: () => (people = { kind: "seen", message }) }]}>
               {#each readers.slice(0, SEEN_LIMIT) as userId (userId)}
                 {@const reader = getSender(userId)}
-                <span class="seen-avatar" in:scale|global={{ start: 0.4, duration: settled() ? motion(260) : 0, easing: backOut }} out:scale={{ start: 0.6, duration: motion(160), easing: cubicOut }} animate:flip={{ duration: motion(240), easing: cubicOut }}><Avatar name={reader.name} url={reader.avatar} size="16px" radius="50%" /></span>
+                <span class="seen-avatar" use:usermenu={{ userId, roomId: $currentRoom?.roomId }} in:scale|global={{ start: 0.4, duration: settled() ? motion(260) : 0, easing: backOut }} out:scale={{ start: 0.6, duration: motion(160), easing: cubicOut }} animate:flip={{ duration: motion(240), easing: cubicOut }}><Avatar name={reader.name} url={reader.avatar} size="16px" radius="50%" /></span>
               {/each}
               {#if readers.length > SEEN_LIMIT}<span class="seen-more xs bold">+{readers.length - SEEN_LIMIT}</span>{/if}
             </span>
@@ -1436,12 +1583,13 @@
         </li>
       {/if}
     </ol>
+    </div>
     {/key}
 
     <div class="unread-wrap row centre" class:shown={showUnread} inert={!showUnread}>
       <div class="present unread-notice row-nw align-centre gap-sm">
         <button type="button" class="unread-main row-nw align-centre gap-sm ghost press" aria-label={text("chat", "unread_jump")} onclick={jumpToUnread}>
-          <span class="unread-icon row centre" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M12 19V5m-6 6 6-6 6 6" /></svg></span>
+          <span class="unread-icon row centre" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-6-6 6 6 6-6" /></svg></span>
           <span class="unread-lines col min-0">
             <span class="sm bold truncate">{text("chat", (firstUnread?.count ?? 1) === 1 ? "new_message" : "new_messages").replace("{count}", String(firstUnread?.count ?? 1))}</span>
             {#if sinceLabel}<span class="xs muted truncate">{sinceLabel}</span>{/if}
@@ -1464,7 +1612,7 @@
         </button>
       </div>
 
-    <div class="typing row-nw align-centre gap-sm xs" class:shown={!!typingLabel} aria-live="polite">
+    <div class="typing row-nw align-centre gap-sm xs" class:shown={!!typingLabel} aria-live="polite" use:entityMenu={typingIds.length ? typingItems : undefined}>
       {#if typingLabel}
         <span class="typing-dots row-nw align-centre" aria-hidden="true"><span></span><span></span><span></span></span>
         <span class="typing-text truncate muted"><EmojiText text={typingLabel} /></span>
@@ -1474,6 +1622,7 @@
     <Composer
       bind:draft
       bind:field={composer}
+      bind:pills
       bind:dockHeight
       label={text("chat", "composer").replace("{room}", roomLabel)}
       {replying}
@@ -1522,7 +1671,20 @@
   {/if}
 
   {#if reacting}
-    <EmojiPicker anchor={reacting.anchor} oninsert={pickReaction} onclose={() => (reacting = null)} />
+    <EmojiPicker bind:this={reactionPicker} anchor={reacting.anchor} oninsert={pickReaction} onclose={() => (reacting = null)} />
+  {/if}
+
+  {#if people}
+    {@const target = people}
+    <PeopleDialog
+      title={text("chat", target.kind === "seen" ? "seen_by_menu" : "reactions_title")}
+      rows={peopleRows}
+      roomId={$currentRoom?.roomId}
+      groups={peopleGroups}
+      bind:selected={target.selected}
+      onremove={() => target.selected && toggleReaction(target.message.eventId, target.selected)}
+      onclose={() => (people = null)}
+    />
   {/if}
 
   {#if confirming}
@@ -1977,6 +2139,10 @@
     overscroll-behavior: contain;
     touch-action: pan-y;
     isolation: isolate;
+  }
+
+  .timeline-mask {
+    isolation: isolate;
     --fade-end: calc(var(--composer-space) * 0.55 + env(safe-area-inset-bottom));
     --fade-start: calc(var(--fade-end) + 48px);
     mask-image: linear-gradient(
@@ -2321,6 +2487,8 @@
   .message.mentioned {
     background-color: color-mix(in oklab, var(--colours-warning) 9%, transparent);
     box-shadow: inset 2px 0 0 var(--colours-warning);
+    border-start-start-radius: 0;
+    border-end-start-radius: 0;
   }
 
   .message.mentioned:hover {
@@ -2831,14 +2999,40 @@
     background-color: var(--colours-surface-hover);
   }
 
-  .editor textarea {
-    width: 100%;
-    max-height: 40vh;
-    padding: var(--azure-spacing-sm) var(--azure-spacing-md);
-    border-radius: var(--azure-radius-sm);
-    border: 1px solid color-mix(in oklab, var(--colours-accent) 45%, transparent);
-    background-color: var(--colours-surface-raised);
-    box-shadow: 0 0 20px -10px var(--colours-accent-glow);
+  @keyframes edit-open {
+    from {
+      opacity: 0;
+      translate: 0 6px;
+      scale: 0.985;
+      filter: blur(4px);
+    }
+  }
+
+  .body-swap {
+    display: grid;
+  }
+
+  .body-swap > :global(*) {
+    grid-area: 1 / 1;
+  }
+
+  .editor {
+    animation: edit-open 280ms cubic-bezier(0.32, 0.72, 0, 1) both;
+    gap: var(--azure-spacing-sm);
+    margin: var(--azure-spacing-xs) 0 var(--azure-spacing-sm);
+  }
+
+  .edit-hint {
+    gap: var(--azure-spacing-md);
+    padding: var(--azure-spacing-xs) var(--azure-spacing-xs) 0;
+  }
+
+  .edit-hint > span:first-child {
+    margin-right: var(--azure-spacing-lg);
+  }
+
+  .edit-hint .link-button + .link-button {
+    margin-left: var(--azure-spacing-xs);
   }
 
   .link-button {

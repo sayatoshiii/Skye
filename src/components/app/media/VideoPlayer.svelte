@@ -3,6 +3,9 @@
   import { getLocalisedText } from "../../../scripts/accessibility/language/translation";
   import { formatDuration } from "../../../scripts/matrix/utilities/content";
   import { formatBytes } from "../../../scripts/matrix/utilities/attachments";
+  import { MENU_ICONS } from "../../../scripts/misc/icons";
+  import { entityText, menu } from "../../../scripts/misc/entitymenu.svelte";
+  import type { MenuItem } from "../MessageMenu.svelte";
 
   let {
     link,
@@ -131,6 +134,16 @@
     (video as any)?.webkitEnterFullscreen?.();
   };
 
+  const menuItems = (): MenuItem[] =>
+    fullscreen
+      ? []
+      : [
+          { id: "video-play", label: entityText(paused || ended ? "play" : "pause"), icon: paused || ended ? MENU_ICONS.play : MENU_ICONS.pause, run: toggle },
+          { id: "video-mute", label: entityText(muted ? "unmute" : "mute"), icon: muted ? MENU_ICONS.volume : MENU_ICONS.mute, run: toggleMute },
+          { id: "video-fullscreen", label: entityText("fullscreen"), icon: MENU_ICONS.fullscreen, run: toggleFullscreen },
+          ...(ondownload ? [{ id: "video-save", label: entityText("save"), icon: MENU_ICONS.save, separated: true, run: ondownload }] : []),
+        ];
+
   const onbuffer = () => {
     if (!video || !video.buffered.length || !total) return;
     buffered = Math.min(1, video.buffered.end(video.buffered.length - 1) / total);
@@ -237,6 +250,7 @@
   onkeydown={onkey}
   onpointermove={onpointermove}
   onpointerleave={() => !paused && (idle = true)}
+  use:menu={menuItems}
 >
   <!-- svelte-ignore a11y_media_has_caption -->
   <video

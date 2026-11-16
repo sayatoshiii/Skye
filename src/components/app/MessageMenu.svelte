@@ -4,8 +4,10 @@
     label: string;
     icon: string;
     danger?: boolean;
+    separated?: boolean;
     disabled?: boolean;
     filled?: boolean;
+    selected?: boolean;
     colour?: string;
     run: (event: MouseEvent | KeyboardEvent) => void;
   };
@@ -42,6 +44,18 @@
   const dismiss = (event: Event) => {
     event.preventDefault();
     if (performance.now() - openedAt > 450) exit.close();
+  };
+  const reopen = (event: MouseEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (performance.now() - openedAt <= 450) return;
+    const { clientX, clientY } = event;
+    onclose();
+    tick().then(() =>
+      document
+        .elementFromPoint(clientX, clientY)
+        ?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX, clientY, button: 2 })),
+    );
   };
 
   let menu: HTMLElement | undefined = $state();
@@ -91,7 +105,7 @@
 </script>
 
 <div class="layer" class:closing={exit.closing} role="presentation" use:portal>
-  <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={dismiss} oncontextmenu={dismiss}></button>
+  <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={dismiss} oncontextmenu={reopen}></button>
   <div class="menu col" role="menu" onanimationend={exit.onanimationend} inert={exit.closing} aria-label={label} tabindex="-1" bind:this={menu} style:left="{left}px" style:top="{top}px" style:min-width={minWidth ? `${minWidth}px` : undefined} {onkeydown}>
     <span class="handle" aria-hidden="true"></span>
     {#if quick?.length}
@@ -102,13 +116,9 @@
       </div>
     {/if}
     {#each items as item (item.id)}
-      <button type="button" role="menuitem" class="entry row-nw align-centre gap-md ghost press sm" class:danger={item.danger} disabled={item.disabled} onclick={(event) => choose(item, event)}>
+      <button type="button" role="menuitem" class="entry row-nw align-centre gap-md ghost press sm" class:danger={item.danger} class:separated={item.separated} class:selected={item.selected} aria-current={item.selected || undefined} disabled={item.disabled} onclick={(event) => choose(item, event)}>
         <span class="flex-max truncate">{item.label}</span>
-        {#if item.filled}
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill={item.colour ?? "currentColor"} fill-rule="evenodd" d={item.icon} /></svg>
-        {:else}
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" style:color={item.colour}><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={item.icon} /></svg>
-        {/if}
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill={item.colour ?? "currentColor"} fill-rule="evenodd" d={item.icon} /></svg>
       </button>
     {/each}
   </div>
@@ -197,6 +207,25 @@
     border-radius: var(--azure-radius-sm);
     color: var(--colours-text);
     text-align: left;
+  }
+
+  .entry.separated {
+    margin-top: calc(var(--azure-spacing-xs) * 2 + 1px);
+    position: relative;
+  }
+
+  .entry.separated::before {
+    content: "";
+    position: absolute;
+    top: calc(var(--azure-spacing-xs) * -1 - 1px);
+    left: var(--azure-spacing-sm);
+    right: var(--azure-spacing-sm);
+    border-top: 1px solid var(--colours-outline-hairline);
+  }
+
+  .entry.selected {
+    color: var(--colours-text-strong);
+    background-color: var(--colours-surface-hover);
   }
 
   .entry svg {
