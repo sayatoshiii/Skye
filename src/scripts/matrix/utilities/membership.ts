@@ -130,3 +130,11 @@ export const describeMembershipError = (error: unknown): MembershipError => {
   if (error.errcode === "M_FORBIDDEN") return /\bban/i.test(error.body.error ?? "") ? "banned" : "forbidden";
   return "failed";
 };
+
+export const addDirectRoom = async (session: Session, userId: string, roomId: string) => {
+  const endpoint = `user/${encodeURIComponent(session.userId)}/account_data/m.direct`;
+  const current = await sessionRequest<Record<string, string[]>>(session, { endpoint, method: "GET" }).catch(() => ({}) as Record<string, string[]>);
+  const list = current[userId] ?? [];
+  if (list.includes(roomId)) return;
+  await sessionRequest(session, { endpoint, method: "PUT", body: { ...current, [userId]: [...list, roomId] } });
+};
