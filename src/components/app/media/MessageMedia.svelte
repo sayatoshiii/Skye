@@ -26,9 +26,10 @@
   const thumbnailType = $derived(String(info.thumbnail_info?.mimetype ?? "image/jpeg"));
   const name = $derived(sanitiseFilename(content.filename ?? content.body));
   let unplayable = $state(false);
-  const inline = $derived(kind !== "file" && !unplayable && isInline(mimetype, kind) && !!(source.url || source.file));
+  const inline = $derived(kind !== "file" && !unplayable && (kind === "video" || isInline(mimetype, kind)) && !!(source.url || source.file));
   const playType = $derived(kind === "video" ? (MEDIA.videoPlaybackTypes[mimetype] ?? mimetype) : mimetype);
-  const framePreview = $derived(kind === "video" && !thumbnail && Number(info.size) > 0 && Number(info.size) <= MEDIA.framePreviewLimit);
+  const touch = typeof matchMedia !== "undefined" && matchMedia("(pointer: coarse)").matches;
+  const framePreview = $derived(kind === "video" && !touch && !thumbnail && Number(info.size) > 0 && Number(info.size) <= MEDIA.framePreviewLimit);
   const looping = $derived(kind === "video" && !!(info["fi.mau.gif"] || content["fi.mau.gif"] || info["fi.mau.loop"]));
 
   const size = $derived.by(() => {
@@ -103,6 +104,10 @@
       {:else if link}
         <video class="still" src={`${link}#t=0.001`} muted playsinline preload="metadata" disablepictureinpicture aria-hidden="true" tabindex="-1" onerror={() => (unplayable = true)}></video>
       {/if}
+      <span class="video-info col" aria-hidden="true">
+        <span class="sm bold truncate">{name}</span>
+        {#if Number(info.size) > 0}<span class="xs">{formatBytes(info.size)}</span>{/if}
+      </span>
       <button type="button" class="play ghost press" aria-label={text("media", "play_video")} onclick={play} disabled={playing}>
         <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M8 5.5v13l11-6.5-11-6.5Z" /></svg>
       </button>
@@ -161,6 +166,21 @@
 
   .still {
     pointer-events: none;
+  }
+
+  .video-info {
+    position: absolute;
+    inset: 0 0 auto;
+    padding: var(--azure-spacing-sm) var(--azure-spacing-md) var(--azure-spacing-lg);
+    min-width: 0;
+    color: white;
+    background: linear-gradient(rgb(0 0 0 / 0.6), transparent);
+    text-shadow: 0 1px 2px rgb(0 0 0 / 0.5);
+    pointer-events: none;
+  }
+
+  .video-info .xs {
+    opacity: 0.8;
   }
 
   .frame img,
