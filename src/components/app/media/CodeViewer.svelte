@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { writeClipboard } from "../../../scripts/stores/toast";
   import { dismissible } from "../../../scripts/misc/dismiss.svelte";
   import { portal } from "../../../scripts/misc/portal";
   import { escapeHTML } from "../../../scripts/misc/emoji";
@@ -29,7 +30,7 @@
   });
 
   const copy = () => {
-    navigator.clipboard?.writeText(source).then(() => {
+    writeClipboard(source).then(() => {
       copied = true;
       setTimeout(() => (copied = false), 1500);
     });

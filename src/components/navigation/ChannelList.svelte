@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { copied, toastKey, type ToastIcon } from "../../scripts/stores/toast";
   import { tooltip } from "../../scripts/misc/tooltip";
   import EmojiText from "../ui/EmojiText.svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
@@ -125,7 +126,7 @@
   let confirmDialog: ConfirmDialog | undefined = $state();
   let leaveError: MembershipError | null = $state(null);
 
-  const copy = (value: string) => navigator.clipboard?.writeText(value).catch(() => undefined);
+  const copy = (value: string, key: string, icon: ToastIcon) => copied(value, key, icon);
 
   const openMenu = (room: RoomEntity, x: number, y: number) => openRoomMenu(room.id, x, y);
 
@@ -158,11 +159,11 @@
     const inSpace = navigation.spaceId !== HOME;
 
     return [
-      { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, run: () => markRoomRead(room.id) },
-      { id: "link", label: text("room_menu", "copy_link"), icon: MENU_ICONS.link, run: () => copy(toMatrixTo(room.alias ?? room.id, via)) },
-      { id: "id", label: text("room_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(room.id) },
+      { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, run: () => (markRoomRead(room.id), toastKey("marked_read", { icon: "check", tone: "success" })) },
+      { id: "link", label: text("room_menu", "copy_link"), icon: MENU_ICONS.link, run: () => copy(toMatrixTo(room.alias ?? room.id, via), "link_copied", "link") },
+      { id: "id", label: text("room_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(room.id, "id_copied", "id") },
       ...(inSpace
-        ? [{ id: "hide", label: text("room_menu", "hide"), icon: MENU_ICONS.hide, run: () => setRoomsHidden(navigation.spaceId, [room.id], true) }]
+        ? [{ id: "hide", label: text("room_menu", "hide"), icon: MENU_ICONS.hide, run: () => (setRoomsHidden(navigation.spaceId, [room.id], true), toastKey("hidden", { icon: "hide", tone: "danger" })) }]
         : []),
       { id: "leave", label: text("room_menu", "leave"), icon: MENU_ICONS.leave, danger: true, run: (event) => askLeave(room, event) },
     ];

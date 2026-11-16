@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { writeClipboard } from "../../scripts/stores/toast";
   import { tick } from "svelte";
   import { dismissible } from "../../scripts/misc/dismiss.svelte";
   import { portal } from "../../scripts/misc/portal";
@@ -91,7 +92,7 @@
     const value = kind === "emoji" ? unicode : shortcode;
     if (!value) return;
     try {
-      await navigator.clipboard.writeText(value);
+      await writeClipboard(value);
       copied = kind;
       setTimeout(() => copied === kind && (copied = null), 1400);
     } catch {}

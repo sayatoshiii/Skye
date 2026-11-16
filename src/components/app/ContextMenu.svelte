@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { copied } from "../../scripts/stores/toast";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
@@ -90,13 +91,13 @@
     if (anchor) {
       items.push(
         { id: "open_link", label: text("context_menu", "open_link"), icon: MENU_ICONS.open, run: () => void window.open(anchor.href, "_blank", "noopener,noreferrer") },
-        { id: "copy_link", label: text("context_menu", "copy_link"), icon: MENU_ICONS.link, run: () => void navigator.clipboard?.writeText(anchor.href).catch(() => undefined) },
+        { id: "copy_link", label: text("context_menu", "copy_link"), icon: MENU_ICONS.link, run: () => void copied(anchor.href, "link_copied", "link") },
       );
     }
 
     if (selected) {
       items.push(
-        { id: "copy", label: text("context_menu", "copy"), icon: MENU_ICONS.copy, run: () => void navigator.clipboard?.writeText(selected).catch(() => undefined) },
+        { id: "copy", label: text("context_menu", "copy"), icon: MENU_ICONS.copy, run: () => void copied(selected) },
         {
           id: "select_all",
           label: text("context_menu", "select_all"),
@@ -119,8 +120,8 @@
     if (event.defaultPrevented) return;
     const target = event.target instanceof Element ? event.target : null;
     const editable = target?.closest<HTMLElement>(EDITABLE);
-    const touch = (event as PointerEvent).pointerType === "touch";
-    if (touch && editable) return;
+    const touch = (event as PointerEvent).pointerType === "touch" || matchMedia("(pointer: coarse)").matches;
+    if (touch && (editable || target?.closest("[data-native-menu]"))) return;
     event.preventDefault();
     if (touch || !target) return;
 

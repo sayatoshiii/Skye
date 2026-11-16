@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { copied } from "../../scripts/stores/toast";
   import { tick } from "svelte";
   import { dismissible } from "../../scripts/misc/dismiss.svelte";
   import { portal } from "../../scripts/misc/portal";
@@ -78,7 +79,7 @@
   };
 
   const copyId = () => {
-    if (target) navigator.clipboard?.writeText(target.userId).catch(() => undefined);
+    if (target) copied(target.userId, "user_id_copied", "id");
     moreOpen = false;
   };
 

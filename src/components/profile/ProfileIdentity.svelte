@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { writeClipboard } from "../../scripts/stores/toast";
   import { tooltip } from "../../scripts/misc/tooltip";
   import type { Snippet } from "svelte";
   import EmojiText from "../ui/EmojiText.svelte";
@@ -48,7 +49,7 @@
   $effect(() => () => clearTimeout(copyTimer));
 
   const copy = async () => {
-    await navigator.clipboard?.writeText(userId).catch(() => undefined);
+    await writeClipboard(userId).catch(() => undefined);
     copied = true;
     clearTimeout(copyTimer);
     copyTimer = setTimeout(() => (copied = false), 1600);

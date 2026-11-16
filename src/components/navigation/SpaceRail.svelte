@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { copied, toastKey, type ToastIcon } from "../../scripts/stores/toast";
   import { tooltip } from "../../scripts/misc/tooltip";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { serverNameFromUserId } from "../../scripts/matrix/discovery";
@@ -31,7 +32,7 @@
   let progress: { done: number; total: number } | null = $state(null);
   let failedCount = $state(0);
 
-  const copy = (value: string) => navigator.clipboard?.writeText(value).catch(() => undefined);
+  const copy = (value: string, key: string, icon: ToastIcon) => copied(value, key, icon);
 
   const joinedRoomsOf = (tree: SpaceTree) =>
     [...getSpaceRoomIds(tree), ...tree.categories.map((category) => category.space.roomId)].filter(
@@ -47,10 +48,10 @@
     const via = activeSession ? [serverNameFromUserId(activeSession.userId)] : [];
 
     return [
-      { id: "read", label: text("space_menu", "mark_read"), icon: MENU_ICONS.read, run: () => joinedRoomsOf(tree).forEach((roomId) => markRoomRead(roomId)) },
+      { id: "read", label: text("space_menu", "mark_read"), icon: MENU_ICONS.read, run: () => (joinedRoomsOf(tree).forEach((roomId) => markRoomRead(roomId)), toastKey("marked_read", { icon: "check", tone: "success" })) },
       { id: "browse", label: text("space_menu", "browse"), icon: MENU_ICONS.browse, run: () => openBrowse(spaceId) },
-      { id: "link", label: text("space_menu", "copy_link"), icon: MENU_ICONS.link, run: () => copy(toMatrixTo(entity.alias ?? spaceId, via)) },
-      { id: "id", label: text("space_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(spaceId) },
+      { id: "link", label: text("space_menu", "copy_link"), icon: MENU_ICONS.link, run: () => copy(toMatrixTo(entity.alias ?? spaceId, via), "link_copied", "link") },
+      { id: "id", label: text("space_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(spaceId, "id_copied", "id") },
       {
         id: "leave",
         label: text("space_menu", "leave"),
