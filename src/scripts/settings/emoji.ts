@@ -1,4 +1,6 @@
-import { writable } from "svelte/store";
+import { derived, get, writable } from "svelte/store";
+import { sessionRequest } from "../matrix/session";
+import { registerAccountDataHook, session } from "../stores/matrix";
 import { RECENT_EMOJI_KEY, RECENT_EMOJI_LIMIT, SKIN_TONE_KEY } from "./config";
 
 const load = (): string[] => {
@@ -37,3 +39,34 @@ skinTone.subscribe((value) => {
     localStorage.setItem(SKIN_TONE_KEY, String(value));
   } catch {}
 });
+
+export const removeRecent = (unicode: string) =>
+  recentEmoji.update((current) => current.filter((item) => item !== unicode));
+
+export const EMOJI_TYPE = "chat.skye.emoji";
+const DEFAULT_QUICK = ["👍", "❤️", "😂", "😮", "😢", "🎉", "🔥", "👀"];
+
+export const favouriteEmoji = writable<string[]>([]);
+
+registerAccountDataHook((events) => {
+  const event = events.findLast((candidate) => candidate.type === EMOJI_TYPE);
+  const list = event?.content?.favourites;
+  if (Array.isArray(list)) favouriteEmoji.set(list.filter((item): item is string => typeof item === "string"));
+});
+
+export const isFavourite = (unicode: string) => get(favouriteEmoji).includes(unicode);
+
+export const toggleFavourite = (unicode: string) => {
+  favouriteEmoji.update((current) => (current.includes(unicode) ? current.filter((item) => item !== unicode) : [...current, unicode]));
+  const active = get(session);
+  if (!active) return;
+  sessionRequest(active, {
+    endpoint: `user/${encodeURIComponent(active.userId)}/account_data/${EMOJI_TYPE}`,
+    method: "PUT",
+    body: { favourites: get(favouriteEmoji) },
+  }).catch((error) => console.warn("Skye could not save favourite emoji", error));
+};
+
+export const quickEmoji = derived([favouriteEmoji, recentEmoji], ([favourites, recent]) =>
+  [...new Set([...favourites, ...recent, ...DEFAULT_QUICK])].slice(0, DEFAULT_QUICK.length),
+);

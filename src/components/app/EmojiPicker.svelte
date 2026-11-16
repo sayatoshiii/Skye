@@ -6,7 +6,9 @@
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { getEmojiURL } from "../../scripts/misc/emoji";
   import { findEmoji, loadEmojiIndex, searchEmoji, twemojiFile, withTone, type EmojiEntry, type EmojiIndex } from "../../scripts/misc/emoji-data";
-  import { recentEmoji, skinTone } from "../../scripts/settings/emoji";
+  import { favouriteEmoji, recentEmoji, removeRecent, skinTone, toggleFavourite } from "../../scripts/settings/emoji";
+  import { longpress } from "../../scripts/misc/longpress";
+  import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
 
   let {
     anchor,
@@ -25,6 +27,7 @@
   export const dismiss = exit.close;
 
   const CATEGORIES = [
+    { id: "favourites", icon: "⭐", groups: [] },
     { id: "recent", icon: "🕘", groups: [] },
     { id: "people", icon: "😀", groups: [0, 1] },
     { id: "nature", icon: "🐻", groups: [3] },
@@ -45,6 +48,8 @@
   let search: HTMLInputElement | undefined = $state();
   let index = $state.raw<EmojiIndex | null>(null);
   let recent: string[] = $state.raw([]);
+  let favourites: string[] = $state.raw([]);
+  let emojiMenu: { entry: EmojiEntry; section: string; x: number; y: number } | null = $state.raw(null);
   let tone = $state(0);
   let query = $state("");
   let current = $state("people");
@@ -53,6 +58,21 @@
   let position: { x: number; y: number } | null = $state(null);
 
   $effect(() => recentEmoji.subscribe((value) => (recent = value)));
+  $effect(() => favouriteEmoji.subscribe((value) => (favourites = value)));
+
+  const MENU_PATHS = {
+    star: "m12 4 2.5 5 5.5.8-4 3.9.9 5.5-4.9-2.6-4.9 2.6.9-5.5-4-3.9 5.5-.8L12 4Z",
+    remove: "M6 6l12 12M18 6 6 18",
+  };
+
+  const emojiItems = (entry: EmojiEntry, section: string): MenuItem[] => {
+    const saved = favourites.includes(entry.unicode);
+    const items: MenuItem[] = [
+      { id: "favourite", label: text("emoji", saved ? "remove_favourite" : "add_favourite"), icon: MENU_PATHS.star, run: () => toggleFavourite(entry.unicode) },
+    ];
+    if (section === "recent") items.push({ id: "recent", label: text("emoji", "remove_recent"), icon: MENU_PATHS.remove, run: () => removeRecent(entry.unicode), danger: true });
+    return items;
+  };
   $effect(() => skinTone.subscribe((value) => (tone = value)));
 
   const src = (unicode: string) => getEmojiURL(twemojiFile(unicode));
@@ -67,8 +87,8 @@
     return CATEGORIES.map((category) => ({
       id: category.id,
       entries:
-        category.id === "recent"
-          ? recent.slice(0, COLUMNS * 2).map((unicode) => findEmoji(loaded, unicode)).filter((entry): entry is EmojiEntry => !!entry)
+        category.id === "recent" || category.id === "favourites"
+          ? (category.id === "recent" ? recent.slice(0, COLUMNS * 2) : favourites).map((unicode) => findEmoji(loaded, unicode)).filter((entry): entry is EmojiEntry => !!entry)
           : loaded.bases.filter((entry) => category.groups.includes(entry.group ?? -1)).map((entry) => withTone(entry, tone)),
     })).filter((section) => section.entries.length);
   });
@@ -92,15 +112,14 @@
     loadEmojiIndex()
       .then((loaded) => alive && (index = loaded))
       .catch(() => {});
-    place();
-    if (!matchMedia("(pointer: coarse)").matches) tick().then(() => search?.focus());
+    place().then(() => tick()).then(() => !matchMedia("(pointer: coarse)").matches && search?.focus());
     return () => (alive = false);
   });
 
   $effect(() => {
     const onpointer = (event: PointerEvent) => {
       const target = event.target as Node;
-      if (card?.contains(target) || anchor.contains(target)) return;
+      if (card?.contains(target) || anchor.contains(target) || emojiMenu) return;
       exit.close();
     };
     const onresize = () => place();
@@ -164,6 +183,7 @@
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
+      if (emojiMenu) return;
       if (tones) tones = false;
       else exit.close();
       return;
@@ -244,7 +264,7 @@
 
   <div class="body row-nw">
     <nav class="rail col" aria-label={text("emoji", "picker")}>
-      {#each CATEGORIES as category (category.id)}
+      {#each CATEGORIES.filter((category) => category.id !== "favourites" || favourites.length) as category (category.id)}
         <button
           type="button"
           class="rail-button ghost press"
@@ -274,6 +294,11 @@
                 class="cell"
                 aria-label={entry.label}
                 onclick={(event) => choose(entry, event)}
+                oncontextmenu={(event) => {
+                  event.preventDefault();
+                  emojiMenu = { entry, section: section.id, x: event.clientX, y: event.clientY };
+                }}
+                use:longpress={(x, y) => (emojiMenu = { entry, section: section.id, x, y })}
                 onmouseenter={() => focusCell(entry)}
                 onfocus={() => focusCell(entry)}
               >
@@ -296,6 +321,10 @@
     {/if}
   </div>
 </div>
+
+{#if emojiMenu}
+  <MessageMenu items={emojiItems(emojiMenu.entry, emojiMenu.section)} x={emojiMenu.x} y={emojiMenu.y} label={text("emoji", "emoji_actions")} onclose={() => (emojiMenu = null)} />
+{/if}
 
 <style>
   .emoji-picker {
@@ -344,19 +373,18 @@
     height: 40px;
     padding: 0 var(--azure-spacing-md);
     border-radius: var(--azure-radius-md);
-    border: 1px solid var(--colours-outline-hairline);
+    border: none;
     font: inherit;
     font-size: max(16px, var(--text-md));
     color: var(--colours-text-strong);
     background-color: var(--colours-surface-hover);
     outline: none;
-    transition: border-color var(--azure-duration-fast) var(--azure-ease-out);
   }
 
   .search:focus,
   .search:focus-visible {
     outline: none;
-    border-color: color-mix(in oklab, var(--colours-accent) 55%, transparent);
+    box-shadow: none;
   }
 
   .tone-wrap {
