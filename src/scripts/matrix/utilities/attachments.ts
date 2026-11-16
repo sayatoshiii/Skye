@@ -35,7 +35,7 @@ export const getUploadLimit = (session: Session) =>
 export const isInline = (mimetype: string | undefined, kind: MediaKind) => {
   const type = (mimetype ?? "").split(";")[0].trim().toLowerCase();
   if (kind === "image") return (MEDIA.inlineImageTypes as readonly string[]).includes(type);
-  if (kind === "video") return (MEDIA.inlineVideoTypes as readonly string[]).includes(type);
+  if (kind === "video") return type.startsWith("video/") || (MEDIA.inlineVideoTypes as readonly string[]).includes(type);
   if (kind === "audio") return (MEDIA.inlineAudioTypes as readonly string[]).includes(type);
   return false;
 };
@@ -136,6 +136,25 @@ const probeImage = async (file: File, stripMetadata: boolean): Promise<PreparedA
   }
 };
 
+const EXTENSION_TYPES: Record<string, string> = {
+  mp4: "video/mp4", m4v: "video/x-m4v", mov: "video/quicktime", webm: "video/webm", mkv: "video/x-matroska", ogv: "video/ogg", "3gp": "video/3gpp",
+  jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif", webp: "image/webp", avif: "image/avif",
+  mp3: "audio/mpeg", m4a: "audio/mp4", ogg: "audio/ogg", opus: "audio/ogg", wav: "audio/wav",
+};
+
+const typeOf = (file: File) => {
+  const type = file.type && file.type !== "application/octet-stream" ? file.type : EXTENSION_TYPES[file.name.split(".").pop()?.toLowerCase() ?? ""];
+  return type && type !== file.type ? new File([file], file.name, { type, lastModified: file.lastModified }) : file;
+};
+
+const unprobedVideo = (file: File): PreparedAttachment => ({
+  file,
+  name: file.name,
+  mimetype: file.type,
+  kind: "video",
+  info: { mimetype: file.type, size: file.size },
+});
+
 const probeVideo = async (file: File): Promise<PreparedAttachment> => {
   const link = URL.createObjectURL(file);
   const video = document.createElement("video");
@@ -146,7 +165,7 @@ const probeVideo = async (file: File): Promise<PreparedAttachment> => {
   try {
     await withTimeout(
       new Promise<void>((resolve, reject) => {
-        video.onloadeddata = () => resolve();
+        video.onloadedmetadata = () => resolve();
         video.onerror = () => reject(new Error("Video could not be read."));
         video.src = link;
       }),
@@ -154,7 +173,14 @@ const probeVideo = async (file: File): Promise<PreparedAttachment> => {
 
     const width = video.videoWidth;
     const height = video.videoHeight;
-    const thumbnail = width && height
+    if (video.readyState < 2) {
+      await new Promise<void>((resolve) => {
+        video.onloadeddata = video.onseeked = () => resolve();
+        setTimeout(resolve, 1500);
+        video.currentTime = 0.001;
+      });
+    }
+    const thumbnail = width && height && video.readyState >= 2
       ? await makeThumbnail(video, width, height, true).catch(() => null)
       : null;
 
@@ -219,7 +245,8 @@ const asFile = (file: File): PreparedAttachment => ({
   info: { mimetype: file.type || "application/octet-stream", size: file.size },
 });
 
-export const prepareAttachment = async (file: File, stripMetadata: boolean) => {
+export const prepareAttachment = async (original: File, stripMetadata: boolean) => {
+  const file = typeOf(original);
   const kind = getKind(file.type);
   const probe =
     kind === "image" ? probeImage(file, stripMetadata)
@@ -227,7 +254,7 @@ export const prepareAttachment = async (file: File, stripMetadata: boolean) => {
     : kind === "audio" ? probeAudio(file)
     : Promise.resolve(asFile(file));
 
-  return probe.catch(() => asFile(file));
+  return probe.catch(() => (kind === "video" ? unprobedVideo(file) : asFile(file)));
 };
 
 const encryptBytes = async (bytes: Uint8Array) => {
