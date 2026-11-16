@@ -16,7 +16,9 @@ export const openMiniProfile = (
   side: ProfileAnchor["side"],
   roomId?: RoomId,
 ) =>
-  miniProfile.set({
+  matchMedia("(max-width: 767px)").matches
+    ? openFullProfile(userId, roomId)
+    : miniProfile.set({
     userId,
     roomId,
     anchor: { rect: element.getBoundingClientRect(), side, element },
