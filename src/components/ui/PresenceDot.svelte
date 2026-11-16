@@ -2,7 +2,7 @@
   import { tooltip } from "../../scripts/misc/tooltip";
   import type { Snippet } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
-  import { watchPresence, presenceKinds } from "../../scripts/stores/presence";
+  import { ensurePresence, presenceKinds } from "../../scripts/stores/presence";
 
   let { userId, size, hint, children }: { userId?: string; size: number; hint?: string; children: Snippet } = $props();
 
@@ -10,15 +10,7 @@
 
   $effect(() => {
     const id = userId;
-    let release: (() => void) | undefined;
-    let done = false;
-    queueMicrotask(() => {
-      if (!done) release = watchPresence(id);
-    });
-    return () => {
-      done = true;
-      release?.();
-    };
+    queueMicrotask(() => ensurePresence(id));
   });
 
   const kind = $derived($presenceKinds(userId));
