@@ -781,12 +781,11 @@
 
   .bars i {
     flex: none;
-    width: 2.5px;
-    height: 100%;
-    border-radius: 2px;
+    width: 3px;
+    height: max(3px, calc(var(--level) * 100%));
+    border-radius: 999px;
     background: var(--colours-success);
-    scale: 1 var(--level);
-    transition: scale 110ms cubic-bezier(0.32, 0.72, 0, 1);
+    transition: height 110ms cubic-bezier(0.32, 0.72, 0, 1);
   }
 
   .tile:focus-visible {
