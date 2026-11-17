@@ -387,6 +387,7 @@ const applyMic = () => {
   const open = micOpen();
   publishLink()?.room.localParticipant.setMicrophoneEnabled(open).then(() => open && micBlocked.set(false), () => open && blockMic());
   micHooks.forEach((hook) => hook(open));
+  live && refreshSpeaking(live);
 };
 
 muted.subscribe(applyMic);

@@ -1424,7 +1424,30 @@
       "pip": "Picture in picture",
       "fullscreen_exit": "Exit full screen",
       "back_to_call": "Back to call",
-      "hide_player": "Hide player"
+      "hide_player": "Hide player",
+      "ptt": "Push to talk",
+      "ptt_hint": "Hold {key} to talk",
+      "ptt_live": "Talking",
+      "ptt_off": "Turn off push to talk",
+      "ptt_key": "Change key",
+      "share_audio_title": "Share audio from",
+      "share_audio_body": "Pick the apps whose sound goes out with your share. Voices from this call never get included.",
+      "share_audio_all": "Everything except this call",
+      "share_audio_none": "Share no audio",
+      "share_audio_pick": "Share sound from {app}",
+      "share_audio_drop": "Stop sharing sound from {app}",
+      "share_audio_only": "Only share {app}",
+      "share_audio_cancel": "Cancel",
+      "share_audio_confirm": "Share audio",
+      "share_audio_empty": "Nothing else is playing sound right now.",
+      "share_audio_choose": "Choose shared audio",
+      "resize": "Resize call",
+      "reset_size": "Reset call size",
+      "mini_bigger": "Make bigger",
+      "mini_smaller": "Make smaller",
+      "mini_reset": "Reset size",
+      "mini_resize": "Resize player",
+      "more": "More"
     }
   }
 }
