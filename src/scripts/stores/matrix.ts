@@ -1,4 +1,5 @@
 import { markdownToContent } from "../misc/formatting";
+import { mentionsOf, pillMarkdown, type Pill } from "../misc/mentions";
 import { derived, get, writable } from "svelte/store";
 import { isMatrixError } from "../api/client";
 import {
@@ -373,7 +374,7 @@ const loadProfile = async (active: Session) => {
     });
 };
 
-const loadMembers = async (roomId: RoomId) => {
+export const loadMembers = async (roomId: RoomId) => {
   const active = get(session);
   if (!active || get(joinedMembers)[roomId]) return get(joinedMembers)[roomId];
 
@@ -503,6 +504,26 @@ const promptVerification = async (activeSession: Session) => {
     localStorage.setItem(key, "1");
   } catch {}
   restoreOpen.set(true);
+};
+
+export const getEncryptionStatus = async () => {
+  const active = get(session);
+  const handle = cryptoHandle;
+  const machine = await handle?.getMachine();
+  if (!active || !handle || !machine) return null;
+  const userId = new WasmUserId(active.userId);
+  const identity = await machine.getIdentity(userId).catch(() => undefined);
+  const device = await machine.getDevice(userId, new WasmDeviceId(active.deviceId)).catch(() => undefined);
+  return {
+    crossSigning: !!identity,
+    verified: !!device && (device.isCrossSigningTrusted() || device.isLocallyTrusted()),
+    backup: await handle.hasBackup().catch(() => false),
+  };
+};
+
+export const refreshOwnProfile = () => {
+  const active = get(session);
+  return active ? loadProfile(active) : Promise.resolve();
 };
 
 export const hasKeyBackup = async () =>
@@ -841,20 +862,26 @@ const requireRoom = () => {
   return roomId;
 };
 
-const withReply = (content: Record<string, any>, reply?: ReplyTarget) =>
-  reply
-    ? {
-        ...content,
-        "m.relates_to": { "m.in_reply_to": { event_id: reply.eventId } },
-        "m.mentions": { user_ids: reply.sender === get(session)?.userId ? [] : [reply.sender] },
-      }
-    : content;
+const withReply = (content: Record<string, any>, reply?: ReplyTarget) => {
+  if (!reply) return content;
+  const mentions = content["m.mentions"] ?? {};
+  const users = new Set<string>(mentions.user_ids ?? []);
+  if (reply.sender !== get(session)?.userId) users.add(reply.sender);
+  return {
+    ...content,
+    "m.relates_to": { "m.in_reply_to": { event_id: reply.eventId } },
+    "m.mentions": { ...mentions, user_ids: [...users] },
+  };
+};
 
-export const sendMessage = (body: string, reply?: ReplyTarget) =>
-  getTimeline(requireRoom()).sendEvent(
-    "m.room.message",
-    withReply({ msgtype: "m.text", ...markdownToContent(body) }, reply),
-  );
+const textContent = (body: string, pills: Pill[], extra: string[] = []) => ({
+  msgtype: "m.text",
+  ...markdownToContent(body, pillMarkdown(body, pills)),
+  "m.mentions": mentionsOf(pills, extra),
+});
+
+export const sendMessage = (body: string, reply?: ReplyTarget, pills: Pill[] = []) =>
+  getTimeline(requireRoom()).sendEvent("m.room.message", withReply(textContent(body, pills), reply));
 
 export const sendRoomMessage = (
   content: Record<string, any>,
@@ -863,9 +890,10 @@ export const sendRoomMessage = (
 ) =>
   getTimeline(roomId).sendEvent("m.room.message", withReply(content, reply));
 
-export const editRoomMessage = (eventId: EventId, body: string) => {
-  const content = { msgtype: "m.text", ...markdownToContent(body) } as Record<string, any>;
-  const fallback: Record<string, any> = { ...content, body: `* ${content.body}` };
+export const editRoomMessage = (eventId: EventId, body: string, pills: Pill[] = [], extra: string[] = [], previous: string[] = []) => {
+  const content = textContent(body, pills, extra) as Record<string, any>;
+  const fresh = content["m.mentions"].user_ids.filter((userId: string) => !previous.includes(userId));
+  const fallback: Record<string, any> = { ...content, body: `* ${content.body}`, "m.mentions": { ...content["m.mentions"], user_ids: fresh } };
   if (content.formatted_body) fallback.formatted_body = `* ${content.formatted_body}`;
 
   return getTimeline(requireRoom()).sendEvent("m.room.message", {
@@ -940,9 +968,10 @@ export const sendRoomEvent = (type: string, content: Record<string, any>, roomId
 export const fetchRelations = (eventId: EventId, relType = "m.reference", roomId: RoomId = requireRoom()) =>
   getTimeline(roomId).fetchRelations(eventId, relType);
 
-export const sendReaction = (eventId: EventId, key: string, roomId: RoomId = requireRoom()) =>
+export const sendReaction = (eventId: EventId, key: string, roomId: RoomId = requireRoom(), shortcode?: string) =>
   getTimeline(roomId).sendEvent("m.reaction", {
     "m.relates_to": { rel_type: "m.annotation", event_id: eventId, key },
+    ...(shortcode ? { shortcode, "com.beeper.reaction.shortcode": shortcode } : {}),
   });
 
 export const sendTyping = (roomId: RoomId, typing: boolean) =>

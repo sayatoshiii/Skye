@@ -3,8 +3,10 @@ import { getLocalisedText } from "../accessibility/language/translation";
 import { isUnread, unreadCountOf } from "../matrix/rooms";
 import type { MatrixEvent, RoomId, RoomSummary, SyncResponse } from "../matrix/types";
 import { stripReplyFallback } from "../misc/formatting";
+import { mentionsUser } from "../misc/mentions";
 import { currentRoomId, decryptPreview, directMessages, registerLiveSyncHook, rooms, session, spaces } from "./matrix";
 import { HOME, getSpaceRoomIds, openRoom } from "./navigation.svelte";
+import { notifyPrefs } from "./settings";
 
 export type SpaceUnread = { unread: boolean; mentions: number };
 
@@ -102,11 +104,8 @@ const previewOf = (event: MatrixEvent | null) => {
 
 const mentionsMe = (event: MatrixEvent | null, room: RoomSummary, userId: string) => {
   if (!event) return false;
-  const mentions = event.content?.["m.mentions"];
-  if (Array.isArray(mentions?.user_ids)) return mentions.user_ids.includes(userId) || mentions.room === true;
-  const body = typeof event.content?.body === "string" ? event.content.body.toLowerCase() : "";
-  const name = room.members[userId]?.displayName?.toLowerCase();
-  return body.includes(userId.toLowerCase()) || (!!name && body.includes(name));
+  const name = room.members[userId]?.displayName;
+  return mentionsUser(event.content ?? {}, userId, name ? [name] : []);
 };
 
 const spaceOf = (roomId: RoomId) =>
@@ -149,7 +148,8 @@ const handleLive = async (response: SyncResponse) => {
 
     const clear = await decryptPreview(event, roomId);
     const highlighted = room.highlightCount > (before[roomId] ?? 0) || mentionsMe(clear, room, active.userId);
-    if (!room.isDirect && !highlighted) continue;
+    const prefs = get(notifyPrefs);
+    if (room.isDirect ? !prefs.directs : prefs.mentionsOnly && !highlighted) continue;
 
     lastNotified[roomId] = Date.now();
     const sender = room.members[event.sender]?.displayName ?? event.sender.slice(1).split(":")[0];

@@ -4,6 +4,7 @@ import "../styles/azure.css";
 import ContextMenu from "../components/app/ContextMenu.svelte";
 import Toast from "../components/ui/Toast.svelte";
 import { ACCENT_STORAGE_KEY } from "../scripts/settings/accent";
+import { MOTION_STORAGE_KEY } from "../scripts/settings/motion";
 ---
 
 <html lang="en">
@@ -17,11 +18,12 @@ import { ACCENT_STORAGE_KEY } from "../scripts/settings/accent";
     <meta name="theme-color" content="hsl(240, 7%, 5.5%)" />
     <meta name="generator" content={Astro.generator} />
     <title>Skye</title>
-    <script is:inline define:vars={{ key: ACCENT_STORAGE_KEY }}>
+    <script is:inline define:vars={{ key: ACCENT_STORAGE_KEY, motion: MOTION_STORAGE_KEY }}>
       try {
         const colour = localStorage.getItem(key);
         if (colour && /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(colour))
           document.documentElement.style.setProperty("--colours-accent", colour);
+        if (localStorage.getItem(motion) === "reduce") document.documentElement.dataset.motion = "reduce";
       } catch {}
     </script>
   </head>
