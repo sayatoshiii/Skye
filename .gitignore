@@ -28,3 +28,7 @@ pnpm-debug.log*
 
 # lsp/formatter
 .prettierrc
+
+# tauri
+src-tauri/target/
+src-tauri/gen/schemas/
