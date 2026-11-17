@@ -105,6 +105,17 @@ export const registerLiveSyncHook = (hook: LiveSyncHook) => {
   liveSyncHooks.add(hook);
 };
 
+type ToDeviceHook = (event: MatrixEvent) => void;
+
+const toDeviceHooks = new Set<ToDeviceHook>();
+
+export const registerToDeviceHook = (hook: ToDeviceHook) => {
+  toDeviceHooks.add(hook);
+};
+
+export const sendEncryptedToDevice = (type: string, targets: { userId: UserId; deviceId: string }[], content: Record<string, unknown>) =>
+  cryptoHandle?.sendEncryptedToDevice(type, targets, content) ?? Promise.resolve();
+
 export const decryptPreview = async (event: MatrixEvent, roomId: RoomId) => {
   if (event.type !== "m.room.encrypted") return event;
   if (!crypto.decryptEvent) return null;
@@ -425,6 +436,7 @@ const startCrypto = (activeSession: Session) => {
     getRoom: (roomId) => get(rooms)[roomId],
     getMembers: getEncryptionMembers,
     onKeysReceived: retryDecryption,
+    onToDevice: (events) => events.forEach((event) => toDeviceHooks.forEach((hook) => queueMicrotask(() => hook(event)))),
     onStoreLocked: () => queueMicrotask(() => resetLockedStore()),
     onStoreLost: () => queueMicrotask(() => resetLockedStore(STORE_LOST_REASON)),
     onVerification: (state) => {

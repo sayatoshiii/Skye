@@ -9,6 +9,7 @@ import {
   initAsync,
   KeysBackupRequest,
   OlmMachine,
+  ProcessedToDeviceEventType,
   RequestType,
   RoomId as WasmRoomId,
   TrustRequirement,
@@ -52,6 +53,7 @@ export type CryptoContext = {
   onVerification: (state: VerificationState) => void;
   onStoreLocked: () => void;
   onStoreLost: () => void;
+  onToDevice?: (events: MatrixEvent[]) => void;
 };
 
 export type RestoreProgress = { imported: number; total: number };
@@ -356,7 +358,7 @@ export const createCrypto = (context: CryptoContext) => {
     const toUserIds = (ids?: UserId[]) =>
       (ids ?? []).map((id) => new WasmUserId(id));
 
-    await machine.receiveSyncChanges(
+    const processed = await machine.receiveSyncChanges(
       JSON.stringify(data.toDevice),
       new WasmDeviceLists(
         toUserIds(data.deviceLists.changed),
@@ -368,6 +370,11 @@ export const createCrypto = (context: CryptoContext) => {
         : undefined,
       decryptionSettings(),
     );
+
+    const decrypted = processed
+      .filter((event) => event.type === ProcessedToDeviceEventType.Decrypted)
+      .map((event) => JSON.parse(event.rawEvent) as MatrixEvent);
+    decrypted.length && context.onToDevice?.(decrypted);
 
     processOutgoing();
     await verification.scan();
@@ -592,12 +599,48 @@ export const createCrypto = (context: CryptoContext) => {
     machine?.close();
   };
 
+  const sendEncryptedToDevice = async (
+    type: string,
+    targets: { userId: UserId; deviceId: string }[],
+    content: Record<string, unknown>,
+  ) => {
+    const machine = await ready;
+    if (!machine || closed || !targets.length) return;
+    const users = [...new Set(targets.map((target) => target.userId))];
+    await machine.updateTrackedUsers(users.map((id) => new WasmUserId(id)));
+    await processOutgoing();
+    const claim = await machine.getMissingSessions(users.map((id) => new WasmUserId(id)));
+    claim && (await sendAndMark(machine, claim));
+    const devices = await Promise.all(
+      users.map(async (userId) => [userId, await machine.getUserDevices(new WasmUserId(userId), 5)] as const),
+    );
+    const encrypted = await Promise.all(
+      targets.map(async (target) => {
+        const device = devices.find(([userId]) => userId === target.userId)?.[1].get(new WasmDeviceId(target.deviceId));
+        return device ? ([target, JSON.parse(await device.encryptToDeviceEvent(type, content))] as const) : null;
+      }),
+    );
+    const messages = encrypted
+      .filter((entry) => !!entry)
+      .reduce<Record<string, Record<string, unknown>>>(
+        (all, [target, body]) => ({ ...all, [target.userId]: { ...all[target.userId], [target.deviceId]: body } }),
+        {},
+      );
+    Object.keys(messages).length &&
+      (await request({
+        endpoint: `sendToDevice/m.room.encrypted/${encodeURIComponent(`skye-${Date.now()}-${Math.random().toString(36).slice(2)}`)}`,
+        method: "PUT",
+        body: { messages },
+      }));
+  };
+
   const hooks: CryptoHooks = { onSync, decryptEvent, encryptEvent };
 
   return {
     hooks,
     getMachine: () => ready,
     processOutgoing,
+    sendEncryptedToDevice,
     restoreFromBackup,
     restoreWithKey,
     verification,

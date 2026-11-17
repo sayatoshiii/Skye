@@ -18,10 +18,11 @@ import {
   requestSfu,
   scheduleLeave,
   supportsDelayedEvents,
+  toDeviceKeyContent,
   updateDelayed,
   type CallMembership,
 } from "../matrix/utilities/rtc";
-import { decryptPreview, redactRoomEvent, registerLiveSyncHook, rooms, sendRoomEvent, session } from "./matrix";
+import { decryptPreview, redactRoomEvent, registerLiveSyncHook, registerToDeviceHook, rooms, sendEncryptedToDevice, sendRoomEvent, session } from "./matrix";
 import { toast, toastKey } from "./toast";
 import { getLocalisedText } from "../accessibility/language/translation";
 
@@ -148,10 +149,22 @@ const createKeyProvider = async (): Promise<KeyProvider & { provider: unknown }>
   return { provider, setParticipantKey: provider.setParticipantKey };
 };
 
-const sendKey = (current: Live) => {
+const keyTargets = (current: Live, only?: Set<string>) => {
+  const own = ownIdentity();
+  return (get(callMembers)[current.roomId] ?? [])
+    .map((member) => ({ userId: member.userId, deviceId: member.deviceId, identity: identityOf(member.userId, member.deviceId) }))
+    .filter((member) => member.identity !== own && (!only || only.has(member.identity)))
+    .map(({ userId, deviceId }) => ({ userId, deviceId }));
+};
+
+const sendKey = (current: Live, only?: Set<string>) => {
   const active = get(session);
+  const key = encodeKey(current.key);
   return active && current.keys
-    ? sendRoomEvent(KEYS_TYPE, { keys: [{ index: current.keyIndex, key: encodeKey(current.key) }], device_id: active.deviceId, call_id: "", sent_ts: Date.now() }, current.roomId)
+    ? Promise.allSettled([
+        sendRoomEvent(KEYS_TYPE, { keys: [{ index: current.keyIndex, key }], device_id: active.deviceId, call_id: "", sent_ts: Date.now() }, current.roomId),
+        sendEncryptedToDevice(KEYS_TYPE, keyTargets(current, only), toDeviceKeyContent(active, current.roomId, current.keyIndex, key)),
+      ])
     : undefined;
 };
 
@@ -174,6 +187,25 @@ registerCallEventHook((roomId, event) => {
     (event.content?.keys ?? []).forEach((entry: { index?: number; key?: string }) =>
       current.keys?.setParticipantKey(identityOf(event.sender ?? "", event.content?.device_id ?? ""), entry.index ?? 0, decodeKey(entry.key ?? "")),
     );
+});
+
+type ToDeviceKey = { room_id?: string; media_key?: { index?: number; key?: string }; keys?: { index?: number; key?: string }; member?: { claimed_device_id?: string } };
+
+registerToDeviceHook((event) => {
+  const current = live;
+  const content = (event.content ?? {}) as ToDeviceKey;
+  const media = content.media_key ?? content.keys;
+  const deviceId = content.member?.claimed_device_id ?? "";
+  const identity = identityOf(event.sender ?? "", deviceId);
+  event.type === KEYS_TYPE &&
+    current?.roomId === content.room_id &&
+    !!event.sender &&
+    !!deviceId &&
+    identity !== ownIdentity() &&
+    typeof media?.key === "string" &&
+    !!media.key &&
+    typeof media.index === "number" &&
+    current?.keys?.setParticipantKey(identity, media.index, decodeKey(media.key));
 });
 
 const QUALITY: Record<string, VoiceQuality> = { excellent: "excellent", good: "good", poor: "poor", lost: "lost" };
@@ -249,11 +281,12 @@ const keepMembership = async (current: Live, focus: Parameters<typeof membership
 const watchMembers = (current: Live) =>
   callMembers.subscribe((all) => {
     const identities = new Set((all[current.roomId] ?? []).map((member) => identityOf(member.userId, member.deviceId)));
-    const joined = [...identities].some((identity) => !current.known.has(identity));
+    const fresh = new Set([...identities].filter((identity) => !current.known.has(identity)));
+    const joined = fresh.size > 0;
     const left = [...current.known].some((identity) => !identities.has(identity));
     current.known = identities;
     current.keys && left && rotateKey(current);
-    current.keys && joined && !left && sendKey(current);
+    current.keys && joined && !left && sendKey(current, fresh);
   });
 
 export const voiceFocus = async (roomId: RoomId) => {
