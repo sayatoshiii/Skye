@@ -1,3 +1,4 @@
+import type { PasswordPrompt } from "../matrix/utilities/account";
 import { markdownToContent } from "../misc/formatting";
 import { mentionsOf, pillMarkdown, type Pill } from "../misc/mentions";
 import { derived, get, writable } from "svelte/store";
@@ -518,6 +519,7 @@ export const getEncryptionStatus = async () => {
     crossSigning: !!identity,
     verified: !!device && device.isCrossSigningTrusted(),
     backup: await handle.hasBackup().catch(() => false),
+    recovery: await handle.hasRecovery().catch(() => false),
   };
 };
 
@@ -541,6 +543,16 @@ export const restoreHistory = (
       markHistoryRestored();
       return result;
     });
+};
+
+export const setupRecovery = (askPassword: PasswordPrompt) => {
+  if (!cryptoHandle) throw new Error("No active Matrix session.");
+  return cryptoHandle.setupRecovery(askPassword);
+};
+
+export const unlockRecovery = (secret: string) => {
+  if (!cryptoHandle) throw new Error("No active Matrix session.");
+  return cryptoHandle.unlockRecovery(secret).then((result) => (markHistoryRestored(), result));
 };
 
 export const startVerification = () => cryptoHandle?.verification.start();

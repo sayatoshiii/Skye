@@ -1,6 +1,6 @@
 import { BackupDecryptionKey } from "@matrix-org/matrix-sdk-crypto-wasm";
 import { deriveRecoveryKeyFromPassphrase } from "matrix-js-sdk/lib/crypto-api/key-passphrase.js";
-import { decodeRecoveryKey } from "matrix-js-sdk/lib/crypto-api/recovery-key.js";
+import { decodeRecoveryKey, encodeRecoveryKey } from "matrix-js-sdk/lib/crypto-api/recovery-key.js";
 import decryptAESSecretStorageItem from "matrix-js-sdk/lib/utils/decryptAESSecretStorageItem.js";
 import encryptAESSecretStorageItem from "matrix-js-sdk/lib/utils/encryptAESSecretStorageItem.js";
 import { isMatrixError } from "../../api/client";
@@ -60,7 +60,7 @@ export const isBackupError = (error: unknown): error is BackupError =>
 
 const trimEquals = (value: string) => value.replace(/=+$/, "");
 
-const getAccountData = <T>(session: Session, type: string) =>
+export const getAccountData = <T>(session: Session, type: string) =>
   sessionRequest<T>(session, {
     endpoint: `user/${encodeURIComponent(session.userId)}/account_data/${encodeURIComponent(type)}`,
     method: "GET",
@@ -232,3 +232,54 @@ export const fetchBackedUpKeys = (session: Session, version: string) =>
     method: "GET",
     query: { version },
   });
+
+const CROSS_SIGNING_SECRETS = ["m.cross_signing.master", "m.cross_signing.self_signing", "m.cross_signing.user_signing"] as const;
+
+const putAccountData = (session: Session, type: string, body: Record<string, unknown>) =>
+  sessionRequest(session, {
+    endpoint: `user/${encodeURIComponent(session.userId)}/account_data/${encodeURIComponent(type)}`,
+    method: "PUT",
+    body,
+  });
+
+export const hasSecretStorage = async (session: Session) => {
+  const defaultKey = await getAccountData<{ key?: string }>(session, "m.secret_storage.default_key");
+  return !!defaultKey?.key && !!(await getAccountData<SecretStorageKeyInfo>(session, `m.secret_storage.key.${defaultKey.key}`));
+};
+
+export const createSecretStorage = async (session: Session, secrets: Record<string, string>) => {
+  const key = crypto.getRandomValues(new Uint8Array(32));
+  const keyId = Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const check = await encryptAESSecretStorageItem("\0".repeat(32), key, "");
+  await putAccountData(session, `m.secret_storage.key.${keyId}`, { algorithm: SECRET_STORAGE_ALGORITHM, iv: check.iv, mac: check.mac });
+  await Promise.all(
+    Object.entries(secrets).map(async ([name, value]) =>
+      putAccountData(session, name, { encrypted: { [keyId]: await encryptAESSecretStorageItem(value, key, name) } }),
+    ),
+  );
+  await putAccountData(session, "m.secret_storage.default_key", { key: keyId });
+  return encodeRecoveryKey(key) ?? "";
+};
+
+export const openSecretStorage = async (session: Session, secret: string) => {
+  const defaultKey = await getAccountData<{ key?: string }>(session, "m.secret_storage.default_key");
+  const keyId = defaultKey?.key ?? "";
+  const keyInfo = keyId ? await getAccountData<SecretStorageKeyInfo>(session, `m.secret_storage.key.${keyId}`) : null;
+  if (!keyInfo) throw backupError("no_secret");
+  if (keyInfo.algorithm !== SECRET_STORAGE_ALGORITHM) throw backupError("unsupported");
+  const key = decodeKey(secret);
+  if (!(await matchesKeyInfo(key, keyInfo))) throw backupError("wrong_key");
+  const read = async (name: string) => {
+    const payload = (await getAccountData<EncryptedSecret>(session, name))?.encrypted?.[keyId];
+    return payload ? decryptAESSecretStorageItem(payload, key, name).catch(() => undefined) : undefined;
+  };
+  const [master, selfSigning, userSigning] = await Promise.all(CROSS_SIGNING_SECRETS.map(read));
+  return { master, selfSigning, userSigning };
+};
+
+export const crossSigningSecrets = (keys: { master?: string; selfSigning?: string; userSigning?: string }) =>
+  Object.fromEntries(
+    CROSS_SIGNING_SECRETS.map((name, index) => [name, [keys.master, keys.selfSigning, keys.userSigning][index]]).filter((entry): entry is [string, string] => !!entry[1]),
+  );
+
+export const BACKUP_SECRET_NAME = BACKUP_SECRET;
