@@ -104,6 +104,40 @@
   let width = $state(0);
   let height = $state(0);
 
+  const SIZE_KEY = "skye:stage_height";
+  const MIN_STAGE = 160;
+  const readSize = () => {
+    try {
+      return Number(localStorage.getItem(SIZE_KEY)) || null;
+    } catch {
+      return null;
+    }
+  };
+  const saveSize = (value: number | null) => {
+    try {
+      value ? localStorage.setItem(SIZE_KEY, String(Math.round(value))) : localStorage.removeItem(SIZE_KEY);
+    } catch {}
+  };
+  let slot = $state<HTMLDivElement>();
+  let custom = $state<number | null>(typeof localStorage === "undefined" ? null : readSize());
+  let dragging = $state(false);
+  const resetSize = () => ((custom = null), saveSize(null));
+  const fit = (value: number) => Math.max(MIN_STAGE, Math.min(value, (slot?.parentElement?.clientHeight ?? Infinity) - MIN_STAGE));
+  const grab = (event: PointerEvent) => {
+    const top = slot?.getBoundingClientRect().top ?? 0;
+    const handle = event.currentTarget as HTMLElement;
+    handle.setPointerCapture(event.pointerId);
+    dragging = true;
+    const move = (next: PointerEvent) => (custom = fit(next.clientY - top));
+    const release = () => ((dragging = false), saveSize(custom), handle.removeEventListener("pointermove", move), handle.removeEventListener("pointerup", release), handle.removeEventListener("pointercancel", release));
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", release);
+    handle.addEventListener("pointercancel", release);
+  };
+  const nudge = (event: KeyboardEvent) =>
+    ({ ArrowUp: -24, ArrowDown: 24 })[event.key as "ArrowUp"] && (event.preventDefault(), (custom = fit((custom ?? slot?.clientHeight ?? 0) + ({ ArrowUp: -24, ArrowDown: 24 })[event.key as "ArrowUp"])), saveSize(custom));
+  const sizeItems = (): MenuItem[] => [{ id: "stage-reset", label: text("reset_size"), icon: MENU_ICONS.retry, run: resetSize }];
+
   const columns = $derived(
     Array.from({ length: Math.max(strip.length, 1) }, (_, index) => index + 1).reduce(
       (best, count) => {
@@ -155,6 +189,12 @@
 
   const openVoiceSettings = () => (settingsSection.set("voice"), settingsOpen.set(true));
   const toggleStage = () => ((staged = !staged), (chatOpen = false));
+  const overflowItems = (): MenuItem[] => [
+    ...(here && !legacy && screenSupported ? [{ id: "overflow-screen", label: text($screenOn ? "screen_stop" : "screen_start"), icon: MENU_ICONS.open, run: toggleScreen }] : []),
+    { id: "overflow-stage", label: text(staged ? "collapse" : "expand"), icon: staged ? SETTINGS_ICONS.collapse : SETTINGS_ICONS.expand, run: toggleStage },
+    ...(here ? [{ id: "overflow-settings", label: text("settings"), icon: MENU_ICONS.settings, separated: true, run: openVoiceSettings }] : []),
+  ];
+  const openOverflow = (event: MouseEvent) => (event.preventDefault(), event.currentTarget?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: event.clientX, clientY: event.clientY })));
   const toggleEvents = () => setShowCallEvents(!$mediaSettings.showCallEvents);
 
   const stageItems = (): MenuItem[] => [
@@ -189,7 +229,7 @@
   const ringItems = (): MenuItem[] => [{ id: "stage-ring", label: text("ring_again"), icon: SETTINGS_ICONS.call, run: () => ringAgain(roomId) }, ...leaveItems()];
 </script>
 
-<div class="stage-slot" class:open class:staged={staged && open} class:media={!!focused || tiles.some((tile) => tile.video)} inert={!open}>
+<div class="stage-slot" class:open class:staged={staged && open} class:media={!!focused || tiles.some((tile) => tile.video)} class:dragging bind:this={slot} style:height={custom && open && !staged ? `${custom}px` : null} inert={!open}>
   <section class="stage col" class:direct aria-label={text("in_voice").replace("{count}", String(tiles.length))} use:menu={stageItems}>
     <div class="tiles" bind:clientWidth={width} bind:clientHeight={height}>
       {#each tiles as tile (tile.id)}
@@ -327,6 +367,9 @@
         <button type="button" class="ghost round control press" aria-label={text(staged ? "collapse" : "expand")} use:tooltip={text(staged ? "collapse" : "expand")} onclick={toggleStage} use:menu={stageItems}>
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d={staged ? SETTINGS_ICONS.collapse : SETTINGS_ICONS.expand} /></svg>
         </button>
+        <button type="button" class="ghost round control press overflow" aria-label={text("more")} use:tooltip={text("more")} onclick={openOverflow} use:menu={overflowItems}>
+          <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+        </button>
         <div class="slide desk-only" class:open={here}>
           <button type="button" class="ghost round control press" inert={!here} aria-label={text("settings")} use:tooltip={text("settings")} onclick={openVoiceSettings} use:menu={() => [{ id: "stage-settings", label: text("settings"), icon: MENU_ICONS.settings, run: openVoiceSettings }]}>
             <Icon name="gear" size={20} />
@@ -335,6 +378,7 @@
       </div>
     </div>
   </section>
+  <div class="resize" class:shown={open && !staged} role="separator" aria-orientation="horizontal" aria-label={text("resize")} tabindex={open && !staged ? 0 : -1} onpointerdown={grab} ondblclick={resetSize} onkeydown={nudge} use:menu={sizeItems}></div>
 </div>
 
 <style>
@@ -478,6 +522,33 @@
       height 520ms var(--ease),
       max-height 520ms var(--ease),
       opacity 420ms var(--ease);
+  }
+
+  .stage-slot {
+    position: relative;
+  }
+
+  .stage-slot.dragging {
+    transition: none;
+    user-select: none;
+  }
+
+  .resize {
+    position: absolute;
+    inset: auto 0 0;
+    z-index: 3;
+    height: 10px;
+    cursor: row-resize;
+    touch-action: none;
+    pointer-events: none;
+  }
+
+  .resize.shown {
+    pointer-events: auto;
+  }
+
+  .resize:focus-visible {
+    outline: none;
   }
 
   .stage-slot.open {
@@ -812,6 +883,7 @@
   }
 
   .bar {
+    container-type: inline-size;
     flex: none;
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -887,7 +959,34 @@
     scale: 1;
   }
 
+  .overflow {
+    display: none !important;
+  }
+
+  .dots {
+    display: flex;
+    gap: 3px;
+  }
+
+  .dots i {
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  @container (max-width: 560px) {
+    .side.end > :not(.overflow, .phone-chat) {
+      display: none !important;
+    }
+
+    .side.end > .overflow {
+      display: grid !important;
+    }
+  }
+
   .control {
+    flex: none;
     display: grid;
     place-items: center;
     width: 44px;
