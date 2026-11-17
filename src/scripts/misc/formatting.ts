@@ -15,6 +15,8 @@ const ALLOWED_ATTR = ["href", "src", "alt", "title", "width", "height", "start",
 
 const LINK_SCHEMES = ["http:", "https:", "mailto:", "matrix:"];
 const URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<>"'`]+[^\s<>"'`.,;:!?)\]}]/gi;
+const MXC_PATTERN = /\bmxc:\/\/[\w.:[\]-]+\/[\w-]+/g;
+const LINKISH = new RegExp(`${URL_PATTERN.source}|${MXC_PATTERN.source}`, "gi");
 const COLOUR_PATTERN = /^#[0-9a-f]{6}$/i;
 const MENTION_PATTERN = /^https:\/\/matrix\.to\/#\/(@[^/?]+)/;
 const ROOM_PATTERN = /^https:\/\/matrix\.to\/#\/((?:[#!]|%23|%21)[^/?]+)\/?(?:\?.*)?$/;
@@ -48,6 +50,16 @@ const UNDERLINE = {
   },
 };
 
+const mxcHTML = (raw: string) => `<span data-mx-mxc>${escapeHTML(raw)}</span>`;
+
+const MXC = {
+  name: "mxc",
+  level: "inline" as const,
+  start: (src: string) => src.indexOf("mxc://"),
+  tokenizer: (src: string) => (([raw]) => raw && { type: "mxc", raw })(/^mxc:\/\/[\w.:[\]-]+\/[\w-]+/.exec(src) ?? [""]),
+  renderer: (token: any) => mxcHTML(token.raw),
+};
+
 const marked = new Marked({
   gfm: true,
   breaks: true,
@@ -55,7 +67,7 @@ const marked = new Marked({
   renderer: {
     html: ({ text }: Tokens.HTML | Tokens.Tag) => escapeHTML(text),
   },
-  extensions: [SPOILER, UNDERLINE],
+  extensions: [SPOILER, UNDERLINE, MXC],
 });
 
 let purifier: ReturnType<typeof DOMPurify> | null = null;
@@ -223,22 +235,27 @@ const renderLinks = (text: string): RenderedBody => {
   let html = "";
   let index = 0;
 
-  for (const match of text.matchAll(URL_PATTERN)) {
+  for (const match of text.matchAll(LINKISH)) {
     const raw = match[0];
     const href = safeHref(raw.startsWith("www.") ? `https://${raw}` : raw);
     html += renderEmoji(text.slice(index, match.index));
-    html += href
-      ? `<a href="${escapeHTML(href)}" rel="noopener noreferrer nofollow" target="_blank">${escapeHTML(raw)}</a>`
-      : escapeHTML(raw);
+    html += raw.startsWith("mxc://")
+      ? mxcHTML(raw)
+      : href
+        ? `<a href="${escapeHTML(href)}" rel="noopener noreferrer nofollow" target="_blank">${escapeHTML(raw)}</a>`
+        : escapeHTML(raw);
     index = match.index! + raw.length;
   }
 
   return { html: html + renderEmoji(text.slice(index)), mentionsMe: false };
 };
 
-export const findLinks = (text: string) =>
-  [...new Set([...text.matchAll(URL_PATTERN)].map((match) => safeHref(match[0].startsWith("www.") ? `https://${match[0]}` : match[0])))]
-    .filter((href): href is string => !!href && href.startsWith("http"));
+export const findLinks = (text: string) => [
+  ...new Set([
+    ...[...text.matchAll(URL_PATTERN)].map((match) => safeHref(match[0].startsWith("www.") ? `https://${match[0]}` : match[0])).filter((href): href is string => !!href && href.startsWith("http")),
+    ...[...text.matchAll(MXC_PATTERN)].map((match) => match[0]),
+  ]),
+];
 
 export const stripReplyFallback = (body: string) => {
   const lines = body.split("\n");

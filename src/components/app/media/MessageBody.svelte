@@ -261,6 +261,13 @@
     text-decoration: underline;
   }
 
+  .rich :global([data-mx-mxc]) {
+    color: var(--colours-accent);
+    text-decoration: underline dotted color-mix(in oklab, var(--colours-accent) 50%, transparent);
+    text-underline-offset: 3px;
+    word-break: break-all;
+  }
+
   .rich :global(a.mention) {
     padding: 0 4px;
     border-radius: var(--azure-radius-sm);
