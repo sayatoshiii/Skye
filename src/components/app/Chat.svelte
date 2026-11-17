@@ -26,10 +26,10 @@
   import { linkPreviewsEnabled, mediaSettings, setHideRedacted, setKeepImageMetadata, type MediaSettings } from "../../scripts/settings/media";
   import { toEntity } from "../../scripts/stores/entities";
   import { lightbox } from "../../scripts/stores/lightbox";
+  import { visibleTimeline } from "../../scripts/stores/ignored";
   import {
     canLoadOlder,
     currentRoom,
-    currentTimeline,
     discardMessage,
     editRoomMessage,
     detached,
@@ -248,7 +248,7 @@
 
   const relations = $derived.by(() => {
     const map = new Map<string, TimelineEvent[]>();
-    for (const event of $currentTimeline) {
+    for (const event of $visibleTimeline) {
       const target = relatedTo(event);
       if (!target || event.content["m.relates_to"]?.rel_type !== "m.reference") continue;
       const list = map.get(target);
@@ -259,11 +259,11 @@
 
   const threads = $derived.by(() => {
     const map = new Map<string, Summary>();
-    $currentTimeline.forEach((event) => {
+    $visibleTimeline.forEach((event) => {
       const bundled = bundledThread(event);
       if (bundled) map.set(event.event_id, bundled);
     });
-    $currentTimeline.forEach((event) => {
+    $visibleTimeline.forEach((event) => {
       const root = threadRootOf(event);
       const current = root ? (map.get(root) ?? { count: 0 }) : undefined;
       if (!root || !current || event.redacted || (current.latest && event.origin_server_ts <= current.latest.origin_server_ts)) return;
@@ -288,7 +288,7 @@
   ];
 
   const callStart = (callId: string) =>
-    $currentTimeline.find((event) => event.type === "m.call.invite" && event.content.call_id === callId);
+    $visibleTimeline.find((event) => event.type === "m.call.invite" && event.content.call_id === callId);
 
   const mayModerate = (userId: string) => !!$currentRoom && canRedact($currentRoom, userId, "");
 
@@ -339,7 +339,7 @@
     !!userId && mentionsUser(content, userId, [$currentRoom?.members[userId]?.displayName ?? ""]);
 
   const baseMessages = $derived(
-    $currentTimeline
+    $visibleTimeline
       .filter((event) => VISIBLE_TYPES.includes(event.type) && !(settings?.hideRedacted && event.redacted))
       .flatMap((event) => {
         const described = describe(event);
@@ -405,7 +405,7 @@
   const reactions = $derived.by(() => {
     const map = new Map<string, ReactionGroup[]>();
     const seen = new Set<string>();
-    for (const event of $currentTimeline) {
+    for (const event of $visibleTimeline) {
       if (event.type !== "m.reaction" || event.redacted || event.localStatus === "failed") continue;
       const relation = event.content["m.relates_to"];
       if (relation?.rel_type !== "m.annotation" || typeof relation.key !== "string" || typeof relation.event_id !== "string") continue;
@@ -539,7 +539,7 @@
     }
     const position = new Map<string, string>();
     let last: string | undefined;
-    for (const event of $currentTimeline) {
+    for (const event of $visibleTimeline) {
       last = owner.get(event.event_id) ?? last;
       if (last) position.set(event.event_id, last);
     }
@@ -620,7 +620,7 @@
   const pollEnded = (message: Message) =>
     (relations.get(message.eventId) ?? []).some((event) => POLL_END.includes(event.type) && (event.sender === message.sender || mayModerate(event.sender)));
 
-  const findReply = (eventId: string) => $currentTimeline.find((event) => event.event_id === eventId);
+  const findReply = (eventId: string) => $visibleTimeline.find((event) => event.event_id === eventId);
 
   const formatTime = (ts: number) =>
     new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(ts);
@@ -1725,7 +1725,7 @@
       <ThreadPanel
         roomId={room.id}
         rootId={threadView.rootId}
-        events={$currentTimeline}
+        events={$visibleTimeline}
         {encrypted}
         {ownUserId}
         keepImageMetadata={settings?.keepImageMetadata}
