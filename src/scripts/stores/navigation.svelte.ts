@@ -279,3 +279,7 @@ export const messageUser = (userId: string) => {
   if (hasDirect(userId)) return openDirect(userId);
   userMenu.confirm = { kind: "direct", userId };
 };
+
+export const roomSettings = $state<{ roomId: string | null }>({ roomId: null });
+
+export const openRoomSettings = (roomId: string) => (roomSettings.roomId = roomId);
