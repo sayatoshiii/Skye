@@ -634,8 +634,10 @@ const openLink = async (current: Live, focus: LiveKitFocus, publish: boolean, se
       const publication = participant.getTrackPublication(kit.Track.Source.Microphone);
       const track = publication?.track;
       const level = !track || publication.isMuted ? 0 : Math.max(meter(track.mediaStreamTrack)(), participant.isLocal ? 0 : ((track as RemoteTrack).receiver?.getSynchronizationSources()[0]?.audioLevel ?? 0));
+      levels[participant.identity] = Math.min(1, level * 2.5);
       level > SPEAKING_LEVEL && heard.set(participant.identity, now);
     });
+    pushLevels(byUser(levels));
     const next = new Set([...heard].filter(([, at]) => now - at < SPEAKING_HOLD).map(([identity]) => identity));
     (next.size !== link.speakers.size || [...next].some((identity) => !link.speakers.has(identity))) && ((link.speakers = next), refreshSpeaking(current), applyVolumes());
   }, 80);
