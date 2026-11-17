@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { ignoredUsers } from "../../scripts/stores/ignored";
   import { copied, toastKey, type ToastIcon } from "../../scripts/stores/toast";
   import { tooltip } from "../../scripts/misc/tooltip";
   import EmojiText from "../ui/EmojiText.svelte";
@@ -156,7 +157,7 @@
   };
 
   const invites = $derived(
-    tree ? [] : Object.values($rooms).filter((room) => room.membership === "invite").map(inviteInfo),
+    tree ? [] : Object.values($rooms).filter((room) => room.membership === "invite").map(inviteInfo).filter((invite) => !$ignoredUsers.has(invite.inviter ?? "")),
   );
   let inviteBusy: string | null = $state(null);
 

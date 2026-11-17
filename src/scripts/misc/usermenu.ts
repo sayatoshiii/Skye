@@ -11,6 +11,7 @@ import { settingsOpen, settingsSection } from "../stores/settings";
 import { copied, toastKey } from "../stores/toast";
 import { longpress } from "./longpress";
 import { MENU_ICONS } from "./icons";
+import { ignoredUsers, setIgnored } from "../stores/ignored";
 
 type Target = { userId: string; roomId?: string } | undefined;
 
@@ -62,6 +63,11 @@ export const moderate = async (kind: "kick" | "ban", userId: string, roomId: str
   }
 };
 
+export const ignoreItem = (userId: string, separated = true): MenuItem => {
+  const ignored = get(ignoredUsers).has(userId);
+  return { id: "user-ignore", label: text(ignored ? "unignore" : "ignore"), icon: MENU_ICONS[ignored ? "show" : "hide"], filled: true, danger: !ignored, separated, run: () => void setIgnored(userId, !ignored) };
+};
+
 export const userMenuItems = (userId: string, roomId?: string): MenuItem[] => {
   const ownUserId = loadSession()?.userId;
   const room = roomId ? get(rooms)[roomId] : undefined;
@@ -82,6 +88,7 @@ export const userMenuItems = (userId: string, roomId?: string): MenuItem[] => {
     { id: "user-mention", label: text("mention"), icon: MENU_ICONS.mention, filled: true, disabled: !composerMentions.insert, run: () => insertMention(userId) },
     { id: "user-message", label: text("message"), icon: MENU_ICONS.message, filled: true, run: () => void messageUser(userId) },
     copy,
-    ...moderation.map((kind, index): MenuItem => ({ id: `user-${kind}`, label: text(kind), icon: MENU_ICONS[kind], filled: true, danger: true, separated: index === 0, run: ask(kind, userId, roomId!) })),
+    ignoreItem(userId),
+    ...moderation.map((kind, index): MenuItem => ({ id: `user-${kind}`, label: text(kind), icon: MENU_ICONS[kind], filled: true, danger: true,  run: ask(kind, userId, roomId!) })),
   ];
 };
