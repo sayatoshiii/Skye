@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, type Component } from "svelte";
+  import { get } from "svelte/store";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { dismissible } from "../../scripts/misc/dismiss.svelte";
   import { menu } from "../../scripts/misc/entitymenu.svelte";
@@ -22,6 +23,7 @@
   import NotificationsSection from "./NotificationsSection.svelte";
   import PrivacySection from "./PrivacySection.svelte";
   import ProfileSection from "./ProfileSection.svelte";
+  import VoiceSection from "./VoiceSection.svelte";
 
   type Group = "user" | "app";
   type Entry = { id: SettingsSection; group: Group; icon: SettingsIcon; parts: string[]; view: Component<{ go: (id: SettingsSection) => void }> };
@@ -33,6 +35,7 @@
     { id: "privacy", group: "user", icon: "privacy", parts: ["encryption", "backup", "ignored"], view: PrivacySection },
     { id: "appearance", group: "app", icon: "appearance", parts: ["theme", "accent", "motion"], view: AppearanceSection },
     { id: "notifications", group: "app", icon: "notifications", parts: ["browser", "synced"], view: NotificationsSection },
+    { id: "voice", group: "app", icon: "mic", parts: ["input", "output", "talk"], view: VoiceSection },
   ];
   const GROUPS: Group[] = ["user", "app"];
   const BY_ID = Object.fromEntries(SECTIONS.map((entry) => [entry.id, entry])) as Record<SettingsSection, Entry>;
@@ -40,8 +43,9 @@
   const text = (...path: string[]) => getLocalisedText(undefined, "settings", ...path) as string;
   const signOutLabel = getLocalisedText(undefined, "profile", "sign_out") as string;
 
-  let section = $state<SettingsSection>("profile");
-  let paged = $state(false);
+  const requested = get(settingsSection);
+  let section = $state<SettingsSection>(requested ?? "profile");
+  let paged = $state(!!requested);
   let confirming = $state(false);
   let leaving = $state(false);
   let query = $state("");

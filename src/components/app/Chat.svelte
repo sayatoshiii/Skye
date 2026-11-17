@@ -77,6 +77,10 @@
   import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
   import PinnedMessages from "./PinnedMessages.svelte";
   import ThreadPanel from "./ThreadPanel.svelte";
+  import CallStage from "./CallStage.svelte";
+  import { placeCall, leaveCall } from "../../scripts/stores/calls";
+  import { joinable, voice } from "../../scripts/stores/voice";
+  import { SETTINGS_ICONS } from "../settings/icons";
   import ThreadSummary from "./ThreadSummary.svelte";
   import { bundledThread, threadRootOf, type ThreadSummary as Summary } from "../../scripts/matrix/timeline";
   import ConfirmDialog from "../ui/ConfirmDialog.svelte";
@@ -87,7 +91,7 @@
   import LocationCard from "./media/LocationCard.svelte";
   import Poll from "./media/Poll.svelte";
   import PollDialog from "./PollDialog.svelte";
-  import { BEACON, BEACON_INFO, LOCATION_KEYS, POLL_END, POLL_START, formatCoordinates, getLocation, getPoll, locationContent, osmLink, pollEndContent, pollStartContent, relatedTo, type GeoLocation } from "../../scripts/matrix/utilities/content";
+  import { BEACON, CALL_MEMBER, BEACON_INFO, LOCATION_KEYS, POLL_END, POLL_START, formatCoordinates, getLocation, getPoll, locationContent, osmLink, pollEndContent, pollStartContent, relatedTo, type GeoLocation } from "../../scripts/matrix/utilities/content";
   import { SYSTEM_ICONS, SYSTEM_TYPES, describeSystem, type MemberVerb, type SystemLine } from "../../scripts/matrix/utilities/system";
   import { navigation, openJoined, openRoom, openRoomMenu, openRoomSettings, openUserMenu, roomSettings } from "../../scripts/stores/navigation.svelte";
   import { openFullProfile, openMiniProfile } from "../../scripts/stores/profile";
@@ -104,6 +108,7 @@
   const LONG_PRESS = 480;
   const SWIPE_REPLY = 64;
   const SWIPE_EDIT = 140;
+  const CALL_EVENT_TYPES = ["m.call.invite", "m.call.hangup", ...CALL_MEMBER];
   const VISIBLE_TYPES = ["m.room.message", "m.room.encrypted", "m.sticker", ...LOCATION_KEYS, ...POLL_START, ...BEACON_INFO, ...SYSTEM_TYPES];
   const MEMBER_GROUP = 3;
   const MEMBER_VERBS: MemberVerb[] = ["joined", "left", "invited", "removed", "profile"];
@@ -209,6 +214,18 @@
   $effect(() => () => pending.forEach((item) => item.preview && URL.revokeObjectURL(item.preview)));
 
   const room = $derived($currentRoom && toEntity($currentRoom, $session?.userId));
+  let stagedFor = $state<string | null>(null);
+  let chatOpen = $state(false);
+  let stageActive = $state(false);
+  let headerSpace = $state(57);
+  let stagedRoom: string | undefined;
+  const staged = $derived(!!room && stagedFor === room.id && stageActive);
+
+  $effect(() => {
+    const id = room?.id;
+    id !== stagedRoom && ((stagedRoom = id), (stagedFor = id && $joinable.has(id) ? id : null), (chatOpen = false));
+  });
+
   const tombstone = $derived($currentRoom ? getTombstone($currentRoom) : undefined);
   const predecessor = $derived($currentRoom ? getPredecessor($currentRoom) : undefined);
   const replacementJoined = $derived($rooms[tombstone?.replacement ?? ""]?.membership === "join");
@@ -376,7 +393,7 @@
 
   const baseMessages = $derived(
     $visibleTimeline
-      .filter((event) => VISIBLE_TYPES.includes(event.type) && !(settings?.hideRedacted && event.redacted))
+      .filter((event) => VISIBLE_TYPES.includes(event.type) && !(settings?.hideRedacted && event.redacted) && (settings?.showCallEvents || !CALL_EVENT_TYPES.includes(event.type)))
       .flatMap((event) => {
         const described = describe(event);
         if (!described) return [];
@@ -1371,6 +1388,9 @@
 <section
   class="chat col min-0"
   class:threaded={!!threadView && !threadClosing}
+  class:staged
+  class:chat-open={chatOpen}
+  style:--header-space="{headerSpace}px"
   style:--composer-space="{dockHeight + 35}px"
   {ondragenter}
   {ondragover}
@@ -1378,7 +1398,7 @@
   {ondrop}
   aria-label={roomLabel}
 >
-  <header class="header row-nw align-centre gap-sm hairline-b">
+  <header class="header row-nw align-centre gap-sm hairline-b" bind:offsetHeight={headerSpace}>
     <button class="icon ghost press mobile-only" aria-label={text("navigation", "open_channels")} onclick={onchannels}>
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
         <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16" />
@@ -1413,6 +1433,20 @@
       {/if}
     {/if}
     <span class="flex-max"></span>
+    {#if room?.isDirect}
+      {@const callId = room.id}
+      {@const inCall = $voice?.roomId === callId}
+      <button
+        class="icon ghost press call-button"
+        class:active={inCall}
+        aria-label={text("voice", inCall ? "disconnect" : "call")}
+        use:tooltip={text("voice", inCall ? "disconnect" : "call")}
+        onclick={() => (inCall ? leaveCall() : placeCall(callId))}
+        use:entityMenu={() => [{ id: "dm-call", label: text("voice", inCall ? "disconnect" : "call"), icon: inCall ? SETTINGS_ICONS.hangup : SETTINGS_ICONS.call, danger: inCall, run: () => (inCall ? leaveCall() : placeCall(callId)) }]}
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d={inCall ? SETTINGS_ICONS.hangup : SETTINGS_ICONS.call} /></svg>
+      </button>
+    {/if}
     {#if room}
       <button
         class="icon pins-button ghost press"
@@ -1463,6 +1497,7 @@
   </header>
 
   {#if room}
+    <CallStage roomId={room.id} bind:active={stageActive} bind:chatOpen bind:staged={() => staged, (value) => (stagedFor = value ? room.id : null)} />
     {#if lockedOut && dismissedRoom !== room.id}
       <div class="decrypt-banner row-nw align-centre gap-sm sm" role="status">
         <span class="banner-text row-nw align-centre gap-sm min-0">
@@ -2193,8 +2228,24 @@
     }
   }
 
+  :global(:where(section.chat > *)) {
+    transition:
+      opacity 420ms cubic-bezier(0.32, 0.72, 0, 1),
+      visibility 0s linear 0s;
+  }
+
+  .chat.staged:not(.chat-open) > :global(*:not(header):not(.stage-slot):not(aside.thread)) {
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transition:
+      opacity 420ms cubic-bezier(0.32, 0.72, 0, 1),
+      visibility 0s linear 420ms;
+  }
+
   .chat {
     --composer-space: 95px;
+    overflow: clip;
     --thread-width: min(420px, 45%);
 
     height: 100%;

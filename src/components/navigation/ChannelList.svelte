@@ -27,6 +27,9 @@
   import PresenceDot from "../ui/PresenceDot.svelte";
   import { statusTextOf } from "../../scripts/stores/presence";
   import ConfirmDialog from "../ui/ConfirmDialog.svelte";
+  import { callMembers, joinable, joinVoice, voice } from "../../scripts/stores/voice";
+  import { placeCall } from "../../scripts/stores/calls";
+  import VoiceMembers from "./VoiceMembers.svelte";
 
   let { onpick }: { onpick?: () => void } = $props();
 
@@ -234,8 +237,15 @@
 
     const user = room.isDirect && room.directUserId ? userMenuItems(room.directUserId, room.id).filter((item) => !item.separated && !item.danger) : [];
 
+    const live = !!$callMembers[room.id]?.length;
+    const here = $voice?.roomId === room.id;
+    const voiceItems: MenuItem[] = here
+      ? []
+      : [{ id: "voice", label: text("voice", live ? "join" : room.isDirect ? "call" : "start"), icon: room.isDirect ? SETTINGS_ICONS.call : SETTINGS_ICONS.headphones, separated: user.length > 0, run: () => (room.isDirect ? placeCall(room.id) : joinVoice(room.id)) }];
+
     return [
       ...user,
+      ...voiceItems,
       { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, separated: user.length > 0, run: () => (markAsRead(room.id), toastKey("marked_read", { icon: "check", tone: "success" })) },
       { id: "unread", label: text("room_menu", "mark_unread"), icon: MENU_ICONS.unread, run: () => markUnread(room.id) && toastKey("marked_unread", { icon: "unread", tone: "accent" }) },
       ...(["all", "mentions"] as const).map((level, index) => ({ id: `notify-${level}`, label: text("room_menu", `notify_${level}`), icon: NOTIFY_ICONS[level], selected: roomLevel($pushRules, room.id) === level, separated: index === 0, run: () => setRoomLevel(room.id, level) })),
@@ -363,6 +373,7 @@
                     class:silenced={room.muted && !room.mentions}
                     aria-current={active ? "page" : undefined}
                     onclick={() => pick(room.id)}
+                    ondblclick={() => ($callMembers[room.id]?.length || $joinable.has(room.id)) && $voice?.roomId !== room.id && (room.isDirect ? placeCall(room.id) : joinVoice(room.id))}
                     oncontextmenu={(event) => {
                       event.preventDefault();
                       openMenu(room, event.clientX, event.clientY);
@@ -381,6 +392,9 @@
                           <span class="dm-status xs muted truncate"><EmojiText text={status} /></span>
                         {/if}
                       </span>
+                    {:else if $joinable.has(room.id) || $callMembers[room.id]?.length}
+                      <svg class="hash faint" class:live={$voice?.roomId === room.id} viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d={SETTINGS_ICONS.speaker} /></svg>
+                      <span class="truncate flex-max"><EmojiText text={room.name} /></span>
                     {:else}
                       <span class="hash faint" aria-hidden="true">#</span>
                       <span class="truncate flex-max"><EmojiText text={room.name} /></span>
@@ -391,6 +405,7 @@
                     {/if}
                   </button>
                   </div>
+                  <VoiceMembers roomId={room.id} />
                 </li>
             {/each}
           </ul>
@@ -430,6 +445,15 @@
 {/if}
 
 <style>
+  svg.hash {
+    flex: none;
+    transition: color 320ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .hash.live {
+    color: var(--colours-success);
+  }
+
   .channels {
     height: 100%;
     background-color: var(--colours-foreground);
