@@ -187,7 +187,7 @@
   const ringItems = (): MenuItem[] => [{ id: "stage-ring", label: text("ring_again"), icon: SETTINGS_ICONS.call, run: () => ringAgain(roomId) }, ...leaveItems()];
 </script>
 
-<div class="stage-slot" class:open class:staged={staged && open} inert={!open}>
+<div class="stage-slot" class:open class:staged={staged && open} class:media={!!focused || tiles.some((tile) => tile.video)} inert={!open}>
   <section class="stage col" class:direct aria-label={text("in_voice").replace("{count}", String(tiles.length))} use:menu={stageItems}>
     <div class="tiles" bind:clientWidth={width} bind:clientHeight={height}>
       {#each tiles as tile (tile.id)}
@@ -487,6 +487,18 @@
     max-height: min(max(45%, 220px), calc(100% - var(--header-space, 57px) - var(--composer-space, 95px) - env(safe-area-inset-bottom)));
   }
 
+  .stage-slot.open.media:not(.staged) {
+    --room: calc(100% - var(--header-space, 57px) - var(--composer-space, 95px) - env(safe-area-inset-bottom));
+    height: min(max(62%, 380px), var(--room));
+    max-height: var(--room);
+  }
+
+  @media (max-width: 767px) {
+    .stage-slot.open.media:not(.staged) {
+      height: min(calc(56.25vw + 150px), var(--room));
+    }
+  }
+
   .stage-slot.staged {
     height: calc(100% - var(--header-space, 57px));
   }
@@ -518,6 +530,11 @@
     height: 188px;
     min-height: 0;
     transition: height 520ms var(--ease);
+  }
+
+  .media .tiles {
+    flex: 1;
+    height: auto;
   }
 
   .staged .tiles {
