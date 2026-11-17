@@ -217,14 +217,18 @@
     <h3 class="set-label">{account("preview")}</h3>
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div class="card editable" onclick={editFrom}>
-      <ProfileIdentity {userId} displayName={shownName} avatar={shownAvatar} banner={shownBanner} status={message ?? undefined} size="sm" surface="var(--colours-foreground)" />
+      {#key `${shownAvatar}|${shownBanner}`}
+        <div class="swap">
+          <ProfileIdentity {userId} displayName={shownName} avatar={shownAvatar} banner={shownBanner} status={message ?? undefined} size="sm" surface="var(--colours-foreground)" />
+        </div>
+      {/key}
     </div>
   </aside>
 </div>
 
 {#if dirty || saving}
   <div class="unsaved-dock">
-    <div class="unsaved motion-keep row-nw align-centre gap-sm" bind:this={bar} role="status" onanimationend={(event) => event.animationName.includes("flash") && bar?.classList.remove("nudged")}>
+    <div class="unsaved motion-keep row-nw align-centre gap-sm" bind:this={bar} role="status" onanimationend={(event) => event.target === bar && event.animationName.includes("flash") && bar?.classList.remove("nudged")}>
       <span class="unsaved-text truncate">{text("unsaved")}</span>
       <button type="button" class="unsaved-reset ghost press" disabled={saving} onclick={reset}>{text("reset")}</button>
       <button type="button" class="unsaved-save ghost press" disabled={saving} onclick={save}>{saving ? account("uploading") : text("save")}</button>
@@ -299,6 +303,18 @@
     pointer-events: none;
   }
 
+  .swap {
+    animation: image-swap 520ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  @keyframes image-swap {
+    from {
+      opacity: 0.35;
+      filter: blur(12px);
+      transform: scale(0.98);
+    }
+  }
+
   .unsaved {
     max-width: 100%;
     pointer-events: auto;
@@ -361,16 +377,37 @@
   }
 
   .unsaved:global(.nudged) .unsaved-text {
-    font-weight: 700;
+    animation: unsaved-bold 600ms var(--azure-ease-out);
   }
 
   .unsaved:global(.nudged) .unsaved-reset {
-    color: white;
+    animation: unsaved-reset-flash 600ms var(--azure-ease-out);
   }
 
   .unsaved:global(.nudged) .unsaved-save {
-    color: var(--colours-danger);
-    background-color: white;
+    animation: unsaved-save-flash 600ms var(--azure-ease-out);
+  }
+
+  @keyframes unsaved-bold {
+    0%,
+    35% {
+      font-weight: 700;
+    }
+  }
+
+  @keyframes unsaved-reset-flash {
+    0%,
+    35% {
+      color: white;
+    }
+  }
+
+  @keyframes unsaved-save-flash {
+    0%,
+    35% {
+      color: var(--colours-danger);
+      background-color: white;
+    }
   }
 
   @keyframes unsaved-in {

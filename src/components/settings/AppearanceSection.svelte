@@ -5,6 +5,7 @@
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { tooltip } from "../../scripts/misc/tooltip";
   import { accentPresets, getAccent, getAccentPreset, isHexColour, setAccent, type AccentPreset } from "../../scripts/settings/accent";
+  import { mediaSettings, setHideRedacted } from "../../scripts/settings/media";
   import { getMotionChoice, setMotionChoice, systemReducesMotion } from "../../scripts/settings/motion";
   import { copied } from "../../scripts/stores/toast";
   import type { MenuItem } from "../app/MessageMenu.svelte";
@@ -30,7 +31,8 @@
 
   const typed = (value: string) => {
     hex = value.replace(/[^0-9a-f]/gi, "").slice(0, 6).toUpperCase();
-    [3, 6].includes(hex.length) && choose(`#${hex.toLowerCase()}`);
+    const colour = `#${hex.toLowerCase()}`;
+    [3, 6].includes(hex.length) && setAccent(colour) && (accent = colour);
   };
 
   const toggleAnimations = (on: boolean) => {
@@ -105,6 +107,16 @@
       <p class="set-hint">{look(system ? "animations_system" : "animations_hint")}</p>
     </div>
     <Toggle checked={!system && !reduce} disabled={system} label={look("animations")} onchange={toggleAnimations} />
+  </div>
+</section>
+
+<section class="set-section" data-part="redacted">
+  <div class="split">
+    <div class="head col">
+      <h3 class="set-heading title">{look("hide_redacted")}</h3>
+      <p class="set-hint">{look("hide_redacted_hint")}</p>
+    </div>
+    <Toggle checked={$mediaSettings.hideRedacted} label={look("hide_redacted")} onchange={setHideRedacted} />
   </div>
 </section>
 
