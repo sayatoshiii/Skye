@@ -563,7 +563,20 @@
         "camera": "Camera device",
         "camera_hint": "The camera Skye uses when you turn video on in a call.",
         "allow_camera": "Allow camera",
-        "allow_camera_hint": "Your browser hides camera names until you allow the camera once."
+        "allow_camera_hint": "Your browser hides camera names until you allow the camera once.",
+        "heading_processing": "Voice processing",
+        "noise": "Noise suppression",
+        "noise_hint": "Filters out background noise like fans, typing and traffic.",
+        "auto_sensitivity": "Automatic sensitivity",
+        "auto_sensitivity_hint": "Skye decides when you're talking.",
+        "sensitivity": "Input sensitivity",
+        "sensitivity_hint": "Your mic only sends sound louder than the marker. Talk normally and drag it just under the bar.",
+        "sensitivity_value": "{db} dB",
+        "echo": "Echo cancellation",
+        "echo_hint": "Stops people hearing themselves through your speakers.",
+        "auto_live": "When the bar lights up, Skye is sending your voice.",
+        "more": "Show {count} more",
+        "fewer": "Show fewer"
       }
     },
     "login": {
