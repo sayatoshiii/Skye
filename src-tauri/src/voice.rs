@@ -27,6 +27,8 @@ const HOLD: Duration = Duration::from_millis(350);
 const VOICE: f32 = 0.55;
 const FLOOR: f32 = -100.0;
 
+static AUDIO: Mutex<()> = Mutex::new(());
+
 #[derive(Deserialize, Clone, Copy)]
 pub struct Tuning {
   noise: bool,
@@ -172,6 +174,7 @@ fn mix(engine: &Engine, out: &mut [f32], channels: usize) {
 }
 
 fn run(engine: Arc<Engine>, stop: mpsc::Receiver<()>) {
+  let guard = AUDIO.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
   let host = cpal::default_host();
   let input = pick(&engine.input.lock().unwrap(), host.input_devices().ok().map(Iterator::collect), host.default_input_device());
   let output = pick(&engine.output.lock().unwrap(), host.output_devices().ok().map(Iterator::collect), host.default_output_device());
@@ -202,6 +205,7 @@ fn run(engine: Arc<Engine>, stop: mpsc::Receiver<()>) {
   });
   let _ = capture.as_ref().map(StreamTrait::play);
   let _ = playback.as_ref().map(StreamTrait::play);
+  drop(guard);
   let worker = engine.clone();
   let alive = Arc::new(AtomicBool::new(true));
   let flag = alive.clone();
@@ -307,12 +311,12 @@ fn options(keys: &Option<KeyProvider>, relay: bool) -> RoomOptions {
 
 #[tauri::command]
 pub async fn voice_connect(app: AppHandle, voice: State<'_, Voice>, link: String, url: String, token: String, encrypted: bool, publish: bool, keys: Vec<(String, i32, Vec<u8>)>) -> Answer {
-  let engine = engine(&app, &voice)?;
   let provider = encrypted.then(provider);
   keys.into_iter().for_each(|(identity, index, key)| provider.iter().for_each(|provider| (provider.set_key(&identity.clone().into(), index, key.clone()), ()).1));
   let (room, mut events) = match Room::connect(&url, &token, options(&provider, false)).await { Ok(joined) => joined, Err(_) => Room::connect(&url, &token, options(&provider, true)).await.map_err(fail)? };
   let room = Arc::new(room);
   room.e2ee_manager().set_enabled(encrypted);
+  let engine = engine(&app, &voice)?;
   let track = LocalAudioTrack::create_audio_track("microphone", RtcAudioSource::Native(engine.source.clone()));
   track.mute();
   let mic = match publish {
@@ -372,9 +376,23 @@ pub async fn voice_tuning(voice: State<'_, Voice>, tuning: Tuning) -> Answer {
 
 #[tauri::command]
 pub async fn voice_devices() -> Answer<Devices> {
+  tauri::async_runtime::spawn_blocking(devices).await.map_err(fail)
+}
+
+fn devices() -> Devices {
+  let _guard = AUDIO.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
   let host = cpal::default_host();
-  let list = |devices: Option<Vec<cpal::Device>>| devices.unwrap_or_default().into_iter().filter_map(|device| Some(Device { id: device.id().ok()?.to_string(), label: device.description().ok()?.name().to_owned() })).collect();
-  Ok(Devices { inputs: list(host.input_devices().ok().map(Iterator::collect)), outputs: list(host.output_devices().ok().map(Iterator::collect)) })
+  let list = |devices: Option<Vec<cpal::Device>>| {
+    let mut seen = std::collections::HashSet::new();
+    devices
+      .unwrap_or_default()
+      .into_iter()
+      .filter_map(|device| Some(Device { id: device.id().ok()?.to_string(), label: device.description().ok()?.name().to_owned() }))
+      .filter(|device| !device.label.starts_with("Monitor of") && !device.id.contains("default") && seen.insert(device.label.clone()))
+      .collect::<Vec<_>>()
+  };
+  let inputs = list(host.input_devices().ok().map(Iterator::collect)).into_iter().filter(|device| !device.id.contains("output") && !device.id.ends_with("_sink")).collect();
+  Devices { inputs, outputs: list(host.output_devices().ok().map(Iterator::collect)) }
 }
 
 #[tauri::command]
