@@ -239,7 +239,7 @@
       { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, separated: user.length > 0, run: () => (markAsRead(room.id), toastKey("marked_read", { icon: "check", tone: "success" })) },
       { id: "unread", label: text("room_menu", "mark_unread"), icon: MENU_ICONS.unread, run: () => markUnread(room.id) && toastKey("marked_unread", { icon: "unread", tone: "accent" }) },
       ...(["all", "mentions"] as const).map((level, index) => ({ id: `notify-${level}`, label: text("room_menu", `notify_${level}`), icon: NOTIFY_ICONS[level], selected: roomLevel($pushRules, room.id) === level, separated: index === 0, run: () => setRoomLevel(room.id, level) })),
-      ...[roomLevel($pushRules, room.id) === "mute"].map((muted) => ({ id: "notify-mute", label: text("room_menu", muted ? "notify_unmute" : "notify_mute"), icon: muted ? SETTINGS_ICONS.notifications : MENU_ICONS.mute, run: () => setRoomLevel(room.id, muted ? "all" : "mute") })),
+      ...[roomLevel($pushRules, room.id) === "mute"].map((muted) => ({ id: "notify-mute", label: text("room_menu", muted ? "notify_unmute" : "notify_mute"), icon: muted ? MENU_ICONS.volume : MENU_ICONS.mute, run: () => setRoomLevel(room.id, muted ? "all" : "mute") })),
       { id: "link", label: text("room_menu", "copy_link"), separated: true, icon: MENU_ICONS.link, run: () => copy(toMatrixTo(room.alias ?? room.id, via), "link_copied", "link") },
       { id: "id", label: text("room_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(room.id, "id_copied", "id") },
       ...(inSpace
