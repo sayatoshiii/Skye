@@ -5,6 +5,8 @@
   import { menu } from "../../scripts/misc/entitymenu.svelte";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { tooltip } from "../../scripts/misc/tooltip";
+  import { zoomable } from "../../scripts/misc/zoom";
+  import { idle, pictureInPicture, pipSupported } from "../../scripts/misc/screen";
   import { userMenuItems } from "../../scripts/misc/usermenu";
   import { mediaSettings, setShowCallEvents } from "../../scripts/settings/media";
   import { leaveCall, placeCall, ringAgain, ringing, stopRinging } from "../../scripts/stores/calls";
@@ -26,6 +28,8 @@
     screenSupported,
     speaking,
     userOfIdentity,
+    userVolumes,
+    setStreamVolume,
     toggleCamera,
     toggleDeafen,
     toggleMute,
@@ -156,9 +160,18 @@
     { id: "stage-events", label: text($mediaSettings.showCallEvents ? "events_hide" : "events_show"), icon: $mediaSettings.showCallEvents ? MENU_ICONS.hide : MENU_ICONS.show, separated: true, run: toggleEvents },
   ];
   const joinItems = (): MenuItem[] => [{ id: "stage-join", label, icon: direct ? SETTINGS_ICONS.call : SETTINGS_ICONS.headphones, run: join }, ...stageItems()];
-  const fullscreen = (id: string) => void document.querySelector<HTMLElement>(`[data-tile="${CSS.escape(id)}"] video`)?.requestFullscreen().catch(() => undefined);
+  let fullTile = $state<string | null>(null);
+  $effect(() => {
+    const sync = () => (fullTile = (document.fullscreenElement as HTMLElement | null)?.dataset.tile ?? null);
+    document.addEventListener("fullscreenchange", sync);
+    return () => document.removeEventListener("fullscreenchange", sync);
+  });
+  const tileNode = (id: string) => document.querySelector<HTMLElement>(`[data-tile="${CSS.escape(id)}"]`);
+  const fullscreen = (id: string) => void (fullTile === id ? document.exitFullscreen() : tileNode(id)?.requestFullscreen())?.catch(() => undefined);
+  const pip = (id: string) => pictureInPicture(tileNode(id)?.querySelector("video"));
   const tileItems = (tile: Tile): MenuItem[] => [
-    ...(tile.screen ? [{ id: "tile-fullscreen", label: text("fullscreen"), icon: MENU_ICONS.fullscreen, run: () => fullscreen(tile.id) }] : []),
+    ...(tile.screen ? [{ id: "tile-fullscreen", label: text(fullTile === tile.id ? "fullscreen_exit" : "fullscreen"), icon: fullTile === tile.id ? MENU_ICONS.fullscreenExit : MENU_ICONS.fullscreen, run: () => fullscreen(tile.id) }] : []),
+    ...(tile.screen && pipSupported ? [{ id: "tile-pip", label: text("pip"), icon: MENU_ICONS.pip, run: () => pip(tile.id) }] : []),
     { id: "tile-spot", label: text(focused === tile.id ? "unspotlight" : "spotlight"), icon: focused === tile.id ? SETTINGS_ICONS.collapse : SETTINGS_ICONS.expand, run: () => toggleSpot(tile.id) },
     ...(tile.screen ? volumeItems(tile.userId).filter((item) => item.id === "voice-stream-volume").map((item) => ({ ...item, separated: true })) : [...userMenuItems(tile.userId, roomId).map((item, index) => (index ? item : { ...item, separated: true })), ...volumeItems(tile.userId)]),
   ];
@@ -199,6 +212,8 @@
             ondblclick={() => (tile.screen ? fullscreen(tile.id) : focusTile(tile.id))}
             onkeydown={(event) => event.key === "Enter" && toggleSpot(tile.id)}
             use:menu={() => tileItems(tile)}
+            use:zoomable={tile.screen && !!tile.video}
+            use:idle
           >
             {#if tile.video}
               <video class="feed" class:contain={tile.screen} class:mirror={tile.video.local && !tile.screen} use:attach={tile.video?.track} transition:feed muted playsinline></video>
@@ -211,6 +226,30 @@
             </span>
             <span class="ringing-label xs muted" class:shown={tile.pending}>{text("ringing")}</span>
             {#if tile.screen}
+              <div class="screen-ui" onclick={(event) => event.stopPropagation()} ondblclick={(event) => event.stopPropagation()} role="presentation">
+                <span class="screen-top row-nw align-centre md bold"><span class="truncate"><EmojiText text={text("screen_of").replace("{name}", name)} /></span></span>
+                <div class="screen-bar row-nw align-centre gap-sm">
+                  {#if !self}
+                    <label class="screen-volume row-nw align-centre gap-xs" use:menu={() => volumeItems(tile.userId).filter((item) => item.id === "voice-stream-volume")}>
+                      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.volume} /></svg>
+                      <input type="range" min="0" max="200" step="5" aria-label={text("stream_volume")} value={Math.round(($userVolumes[tile.userId]?.stream ?? 1) * 100)} oninput={(event) => setStreamVolume(tile.userId, Number(event.currentTarget.value) / 100)} />
+                    </label>
+                  {/if}
+                  {#if pipSupported}
+                    <button type="button" class="ghost round screen-control press" aria-label={text("pip")} use:tooltip={text("pip")} onclick={() => pip(tile.id)} use:menu={() => tileItems(tile)}>
+                      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.pip} /></svg>
+                    </button>
+                  {/if}
+                  <button type="button" class="ghost round screen-control press" aria-label={text("fullscreen_exit")} use:tooltip={text("fullscreen_exit")} onclick={() => fullscreen(tile.id)} use:menu={() => tileItems(tile)}>
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.fullscreenExit} /></svg>
+                  </button>
+                </div>
+              </div>
+              {#if pipSupported}
+                <button type="button" class="ghost round full-button pip-button press" aria-label={text("pip")} use:tooltip={text("pip")} onclick={(event) => (event.stopPropagation(), pip(tile.id))} ondblclick={(event) => event.stopPropagation()} use:menu={() => tileItems(tile)}>
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.pip} /></svg>
+                </button>
+              {/if}
               <button type="button" class="ghost round full-button press" aria-label={text("fullscreen")} use:tooltip={text("fullscreen")} onclick={(event) => (event.stopPropagation(), fullscreen(tile.id))} ondblclick={(event) => event.stopPropagation()} use:menu={() => tileItems(tile)}>
                 <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.fullscreen} /></svg>
               </button>
@@ -316,6 +355,100 @@
       opacity 280ms cubic-bezier(0.32, 0.72, 0, 1),
       scale 280ms cubic-bezier(0.32, 0.72, 0, 1),
       background-color 280ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .pip-button {
+    right: 50px;
+  }
+
+  .screen-ui {
+    position: absolute;
+    inset: 0;
+    z-index: 3;
+    display: none;
+    pointer-events: none;
+    color: white;
+  }
+
+  .tile:fullscreen {
+    border-radius: 0;
+    background: black;
+  }
+
+  .tile:fullscreen .screen-ui {
+    display: block;
+  }
+
+  .tile:fullscreen > :not(.feed, .screen-ui) {
+    display: none;
+  }
+
+  .screen-top,
+  .screen-bar {
+    position: absolute;
+    left: 0;
+    right: 0;
+    padding: 20px 24px;
+    transition:
+      opacity 420ms cubic-bezier(0.32, 0.72, 0, 1),
+      translate 420ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .screen-top {
+    top: 0;
+    background: linear-gradient(rgb(0 0 0 / 0.6), transparent);
+  }
+
+  .screen-bar {
+    bottom: 0;
+    justify-content: flex-end;
+    background: linear-gradient(transparent, rgb(0 0 0 / 0.6));
+  }
+
+  .screen-bar > * {
+    pointer-events: auto;
+  }
+
+  .tile:fullscreen:global(.idle) {
+    cursor: none;
+  }
+
+  .tile:fullscreen:global(.idle) .screen-top {
+    opacity: 0;
+    translate: 0 -12px;
+  }
+
+  .tile:fullscreen:global(.idle) .screen-bar {
+    opacity: 0;
+    translate: 0 12px;
+  }
+
+  .screen-control {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    padding: 0;
+    border-radius: 50%;
+    background: rgb(255 255 255 / 0.14);
+    color: white;
+    transition: background-color 280ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .screen-control:hover {
+    background: rgb(255 255 255 / 0.26);
+  }
+
+  .screen-volume {
+    padding: 0 14px;
+    height: 40px;
+    border-radius: 20px;
+    background: rgb(255 255 255 / 0.14);
+  }
+
+  .screen-volume input {
+    width: 120px;
+    accent-color: white;
   }
 
   .full-button svg {
@@ -458,11 +591,31 @@
     object-fit: contain;
   }
 
+  .tile .feed.contain {
+    translate: var(--pan-x, 0) var(--pan-y, 0);
+    scale: var(--zoom, 1);
+    transition:
+      translate 220ms cubic-bezier(0.32, 0.72, 0, 1),
+      scale 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .tile:global(.dragging) .feed.contain {
+    transition: none;
+  }
+
+  .tile:global(.zoomed) {
+    cursor: grab;
+  }
+
+  .tile:global(.dragging) {
+    cursor: grabbing;
+  }
+
   .feed.mirror {
     scale: -1 1;
   }
 
-  .tile > :not(.feed, .full-button) {
+  .tile > :not(.feed, .full-button, .screen-ui) {
     position: relative;
   }
 
