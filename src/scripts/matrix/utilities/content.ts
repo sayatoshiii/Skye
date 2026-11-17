@@ -48,15 +48,6 @@ export const formatCoordinates = (geo: Geo, digits = 5) => `${geo.lat.toFixed(di
 export const osmLink = (geo: Geo) =>
   `https://www.openstreetmap.org/?mlat=${geo.lat.toFixed(6)}&mlon=${geo.long.toFixed(6)}#map=16/${geo.lat.toFixed(6)}/${geo.long.toFixed(6)}`;
 
-export const tilePosition = (geo: Geo, zoom: number) => {
-  const scale = 2 ** zoom;
-  const rad = (geo.lat * Math.PI) / 180;
-  const x = ((geo.long + 180) / 360) * scale;
-  const y = ((1 - Math.log(Math.tan(rad) + 1 / Math.cos(rad)) / Math.PI) / 2) * scale;
-
-  return { x, y };
-};
-
 const extensibleText = (value: any): string => {
   if (typeof value === "string") return value;
   if (!value || typeof value !== "object") return "";
@@ -191,3 +182,31 @@ export const formatDuration = (ms: number) => {
 
   return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${rest}` : `${minutes}:${rest}`;
 };
+
+export const pollStartContent = (question: string, answers: string[], maxSelections: number, disclosed: boolean) => {
+  const options = answers.map((answer, index) => ({ id: `option-${index + 1}`, text: answer }));
+  const kind = disclosed ? "disclosed" : "undisclosed";
+  const body = [question, ...options.map((option, index) => `${index + 1}. ${option.text}`)].join("\n");
+
+  return {
+    "org.matrix.msc3381.poll.start": {
+      question: { "org.matrix.msc1767.text": question, body: question },
+      kind: `org.matrix.msc3381.poll.${kind}`,
+      max_selections: maxSelections,
+      answers: options.map((option) => ({ id: option.id, "org.matrix.msc1767.text": option.text })),
+    },
+    "org.matrix.msc1767.text": body,
+  };
+};
+
+export const geoUri = (geo: Geo) => `geo:${geo.lat.toFixed(6)},${geo.long.toFixed(6)}${geo.uncertainty ? `;u=${Math.round(geo.uncertainty)}` : ""}`;
+
+export const locationContent = (geo: Geo, body: string) => ({
+  msgtype: "m.location",
+  body: `${body} ${geoUri(geo)}`,
+  geo_uri: geoUri(geo),
+  "org.matrix.msc3488.location": { uri: geoUri(geo), description: body },
+  "org.matrix.msc3488.asset": { type: "m.self" },
+  "org.matrix.msc3488.ts": Date.now(),
+  "org.matrix.msc1767.text": `${body} ${geoUri(geo)}`,
+});

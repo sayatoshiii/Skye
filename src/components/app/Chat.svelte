@@ -4,7 +4,7 @@
   import { flip } from "svelte/animate";
   import { backOut, cubicOut } from "svelte/easing";
   import KeyText from "../ui/KeyText.svelte";
-  import { copied, toastKey, type ToastIcon } from "../../scripts/stores/toast";
+  import { copied, toast, toastKey, type ToastIcon } from "../../scripts/stores/toast";
   import { tooltip } from "../../scripts/misc/tooltip";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { canCopyMedia, copyMedia } from "../../scripts/misc/clipboard";
@@ -81,7 +81,8 @@
   import { entityText, menu as entityMenu } from "../../scripts/misc/entitymenu.svelte";
   import LocationCard from "./media/LocationCard.svelte";
   import Poll from "./media/Poll.svelte";
-  import { BEACON, BEACON_INFO, LOCATION_KEYS, POLL_END, POLL_START, formatCoordinates, getLocation, getPoll, pollEndContent, relatedTo, type GeoLocation } from "../../scripts/matrix/utilities/content";
+  import PollDialog from "./PollDialog.svelte";
+  import { BEACON, BEACON_INFO, LOCATION_KEYS, POLL_END, POLL_START, formatCoordinates, getLocation, getPoll, locationContent, osmLink, pollEndContent, pollStartContent, relatedTo, type GeoLocation } from "../../scripts/matrix/utilities/content";
   import { SYSTEM_ICONS, SYSTEM_TYPES, describeSystem, type MemberVerb, type SystemLine } from "../../scripts/matrix/utilities/system";
   import { navigation, openRoom, openRoomMenu, openUserMenu } from "../../scripts/stores/navigation.svelte";
   import { openFullProfile, openMiniProfile } from "../../scripts/stores/profile";
@@ -917,10 +918,32 @@
     replying = null;
 
     if (isDetached) jumpToPresent();
-    if (body) sendMessage(body, reply, trimPills(draft, pills).pills).catch(() => undefined);
+    const emote = /^\/me\s+\S/i.test(body);
+    const cut = emote ? body.match(/^\/me\s+/i)![0].length : 0;
+    const sent = trimPills(draft, pills).pills.map((pill) => ({ ...pill, from: pill.from - cut, to: pill.to - cut })).filter((pill) => pill.from >= 0);
+    if (body) sendMessage(body.slice(cut), reply, sent, undefined, emote ? "m.emote" : "m.text").catch(() => undefined);
     if (items.length) uploadPending(items, room.id, encrypted, body ? undefined : reply);
 
     draft = "";
+  };
+
+  let pollOpen = $state(false);
+
+  const createPoll = (question: string, answers: string[], disclosed: boolean, multiple: boolean) =>
+    sendRoomEvent(POLL_START[1], pollStartContent(question, answers, multiple ? answers.length : 1, disclosed)).then(() => (stuck = true));
+
+  const shareLocation = () => {
+    const roomId = room?.id;
+    if (!roomId || !("geolocation" in navigator)) return void toast(text("location", "unavailable"), { icon: "location", tone: "danger" });
+    toast(text("location", "locating"), { icon: "location" });
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        stuck = true;
+        sendRoomMessage(locationContent({ lat: coords.latitude, long: coords.longitude, uncertainty: coords.accuracy }, text("location", "my_location")), undefined, roomId).catch(() => undefined);
+      },
+      (error) => toast(text("location", error.code === error.PERMISSION_DENIED ? "denied" : "unavailable"), { icon: "location", tone: "danger" }),
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
   };
 
   const retry = (txnId?: string) => {
@@ -1063,6 +1086,7 @@
 
     if (message.location) {
       const location = message.location;
+      add("open-maps", text("location", "open_osm"), MENU_ICONS.open, () => window.open(osmLink(location), "_blank", "noopener,noreferrer"));
       add("coordinates", text("chat", "copy_coordinates"), MENU_ICONS.copy, () => copy(formatCoordinates(location, 6), "coordinates_copied"));
     }
     const question = message.kind === "poll" ? getPoll(message.event)?.question : undefined;
@@ -1692,6 +1716,8 @@
       onremove={removePending}
       oneditlast={editLast}
       onmetadata={setKeepImageMetadata}
+      onpoll={() => (pollOpen = true)}
+      onlocation={shareLocation}
     />
 
     {#if dragDepth > 0}
@@ -1764,6 +1790,10 @@
       onremove={() => target.selected && toggleReaction(target.message.eventId, target.selected)}
       onclose={() => (people = null)}
     />
+  {/if}
+
+  {#if pollOpen}
+    <PollDialog onsubmit={createPoll} onclose={() => (pollOpen = false)} />
   {/if}
 
   {#if confirming}
