@@ -1024,6 +1024,8 @@
       "tombstone": "{actor} upgraded this room",
       "go_to_room": "Go to the new room",
       "call_started": "{actor} started a call",
+      "call_lasted": "{actor} started a call that lasted {minutes} minutes",
+      "call_lasted_one": "{actor} started a call that lasted a minute",
       "call_ended": "Call ended",
       "call_ended_after": "Call ended · {minutes}m",
       "call_joined": "{actor} joined the call",

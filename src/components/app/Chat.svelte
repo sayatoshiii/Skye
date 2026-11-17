@@ -27,7 +27,7 @@
   import { findLinks, stripReplyFallback, toPreviewLine } from "../../scripts/misc/formatting";
   import { mentionsUser, recoverPills, trimPills, type Pill } from "../../scripts/misc/mentions";
   import { MEDIA } from "../../scripts/settings/config";
-  import { linkPreviewsEnabled, mediaSettings, setHideRedacted, setKeepImageMetadata, type MediaSettings } from "../../scripts/settings/media";
+  import { linkPreviewsEnabled, mediaSettings, setHideRedacted, setShowCallEvents, setKeepImageMetadata, type MediaSettings } from "../../scripts/settings/media";
   import { toEntity } from "../../scripts/stores/entities";
   import { lightbox } from "../../scripts/stores/lightbox";
   import { visibleTimeline } from "../../scripts/stores/ignored";
@@ -340,6 +340,25 @@
     { id: "threads-open", label: text("chat", threadView ? "close" : "threads"), icon: threadView ? MENU_ICONS.close : MENU_ICONS.thread, run: () => (threadView = threadView ? null : { rootId: null }) },
   ];
 
+  const callSessions = $derived.by(() => {
+    const sessions = new Map<string, { end?: number }>();
+    const invites = new Map<string, string>();
+    const active = new Set<string>();
+    let open = "";
+    $visibleTimeline.forEach((event) => {
+      const member = CALL_MEMBER.includes(event.type);
+      const live = member && Object.keys(event.content ?? {}).length > 0 && !(Array.isArray(event.content.memberships) && !event.content.memberships.length);
+      const before = active.size;
+      member && (live ? active.add(event.state_key ?? event.sender) : active.delete(event.state_key ?? event.sender));
+      member && !before && active.size && ((open = event.event_id), sessions.set(open, {}));
+      member && before && !active.size && open && sessions.set(open, { end: event.origin_server_ts });
+      event.type === "m.call.invite" && typeof event.content.call_id === "string" && !invites.has(event.content.call_id) && (invites.set(event.content.call_id, event.event_id), sessions.set(event.event_id, {}));
+      event.type === "m.call.hangup" && invites.has(event.content.call_id) && sessions.set(invites.get(event.content.call_id)!, { end: event.origin_server_ts });
+    });
+    return sessions;
+  });
+  const callSummary: boolean = $derived(!!$currentRoom?.isDirect && !(settings as MediaSettings | null)?.showCallEvents);
+
   const callStart = (callId: string) =>
     $visibleTimeline.find((event) => event.type === "m.call.invite" && event.content.call_id === callId);
 
@@ -361,7 +380,9 @@
   const describe = (event: TimelineEvent): Described | null => {
     if (SYSTEM_TYPES.includes(event.type)) {
       if (event.redacted) return null;
-      const system = describeSystem(event, resolveName, callStart);
+      const session = callSummary ? callSessions.get(event.event_id) : undefined;
+      const minutes = session?.end ? Math.max(1, Math.round((session.end - event.origin_server_ts) / 60000)) : 0;
+      const system = session ? { icon: "call" as const, tone: "accent" as const, key: minutes ? (minutes === 1 ? "call_lasted_one" : "call_lasted") : "call_started", params: { actor: resolveName(event.sender), minutes: String(minutes) } } : describeSystem(event, resolveName, callStart);
       return system && { kind: "system", body: "", system };
     }
     if (event.redacted) return { kind: "redacted", body: text("chat", "redacted") };
@@ -393,7 +414,7 @@
 
   const baseMessages = $derived(
     $visibleTimeline
-      .filter((event) => VISIBLE_TYPES.includes(event.type) && !(settings?.hideRedacted && event.redacted) && (settings?.showCallEvents || !CALL_EVENT_TYPES.includes(event.type)))
+      .filter((event) => VISIBLE_TYPES.includes(event.type) && !(settings?.hideRedacted && event.redacted) && (settings?.showCallEvents || !CALL_EVENT_TYPES.includes(event.type) || (callSummary && callSessions.has(event.event_id))))
       .flatMap((event) => {
         const described = describe(event);
         if (!described) return [];
@@ -1546,7 +1567,7 @@
         {/if}
         {@const offset = swipe?.id === message.id ? swipe.dx : 0}
         {#if message.kind === "system" && message.system}
-          <li class="system row-nw align-centre gap-sm xs" data-event-id={message.eventId}>{@render systemLine(message.system, message.ts)}</li>
+          <li class="system row-nw align-centre gap-sm xs" data-event-id={message.eventId} use:entityMenu={() => (message.system?.icon === "call" || message.system?.icon === "hangup" ? [{ id: "call-events", label: getLocalisedText(undefined, "voice", (settings as MediaSettings | null)?.showCallEvents ? "events_hide" : "events_show") as string, icon: (settings as MediaSettings | null)?.showCallEvents ? MENU_ICONS.hide : MENU_ICONS.show, run: () => setShowCallEvents(!(settings as MediaSettings | null)?.showCallEvents) }] : [])}>{@render systemLine(message.system, message.ts)}</li>
         {:else if message.kind === "members" && message.members}
           <li class="system members xs" data-event-id={message.eventId}>
             <details>
