@@ -1,7 +1,14 @@
+<script lang="ts" module>
+  const endingPolls = new Set<string>();
+</script>
+
 <script lang="ts">
   import { getLocalisedText } from "../../../scripts/accessibility/language/translation";
   import type { TimelineEvent } from "../../../scripts/matrix/types";
-  import { POLL_RESPONSE, getPoll, pollResponseContent, tallyPoll } from "../../../scripts/matrix/utilities/content";
+  import { quintOut } from "svelte/easing";
+  import EmojiText from "../../ui/EmojiText.svelte";
+  import { now } from "../../../scripts/misc/now";
+  import { POLL_END, POLL_RESPONSE, getPoll, pollEndContent, pollResponseContent, tallyPoll } from "../../../scripts/matrix/utilities/content";
   import { fetchRelations, sendRoomEvent } from "../../../scripts/stores/matrix";
   import { entityText, menu } from "../../../scripts/misc/entitymenu.svelte";
   import { MENU_ICONS } from "../../../scripts/misc/icons";
@@ -14,10 +21,13 @@
     mayEnd,
   }: { event: TimelineEvent; related: TimelineEvent[]; ownUserId?: string; mayEnd: (sender: string) => boolean } = $props();
 
+  const ENDING = endingPolls;
+  const grow = (_: Element) => ({ duration: 420, css: (t: number) => `grid-template-rows: ${t}fr; opacity: ${t};`, easing: quintOut });
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
 
   let fetched: TimelineEvent[] = $state.raw([]);
   let failed = $state(false);
+  let loaded = $state(false);
 
   const poll = $derived(getPoll(event));
 
@@ -26,7 +36,7 @@
     if (id.startsWith("~")) return;
     let live = true;
     fetchRelations(id)
-      .then((events) => live && (fetched = events))
+      .then((events) => live && ((fetched = events), (loaded = true)))
       .catch(() => live && (failed = true));
     return () => (live = false);
   });
@@ -37,7 +47,20 @@
     return [...seen.values()];
   });
 
-  const tally = $derived(poll ? tallyPoll(poll, event, merged, ownUserId, mayEnd) : null);
+  const tally = $derived(poll ? tallyPoll(poll, event, merged, ownUserId, mayEnd, $now) : null);
+
+  $effect(() => {
+    if (!poll || !tally || !loaded || !tally.ended || tally.closed || event.sender !== ownUserId || ENDING.has(event.event_id)) return;
+    ENDING.add(event.event_id);
+    sendRoomEvent(POLL_END[poll.unstable ? 1 : 0], pollEndContent(event, text("poll", "ended"))).catch(() => ENDING.delete(event.event_id));
+  });
+
+  const remaining = $derived.by(() => {
+    if (!poll?.endsAt || tally?.ended) return "";
+    const minutes = Math.max(1, Math.round((poll.endsAt - $now) / 60000));
+    const [value, unit] = minutes >= 1440 ? [Math.round(minutes / 1440), "day"] : minutes >= 60 ? [Math.round(minutes / 60), "hour"] : [minutes, "minute"];
+    return text("poll", "ends").replace("{time}", new Intl.RelativeTimeFormat(document.documentElement.lang || undefined, { numeric: "always" }).format(value, unit as Intl.RelativeTimeFormatUnit));
+  });
   const reveal = $derived(!!tally && (poll?.disclosed || tally.ended));
 
   const open = $derived(!!poll && !!tally && !tally.ended && !event.event_id.startsWith("~"));
@@ -79,13 +102,14 @@
 
 {#if poll && tally}
   <div class="poll set-surface set-panel col" class:ended={tally.ended}>
-    <p class="question set-title selectable" use:menu={pollItems}>{poll.question}</p>
+    <p class="question set-title selectable" use:menu={pollItems}><EmojiText text={poll.question} /></p>
     <p class="hint set-hint">{tally.ended ? text("poll", "ended") : poll.maxSelections > 1 ? text("poll", "pick").replace("{count}", String(poll.maxSelections)) : text("poll", "pick_one")}</p>
     <ul class="answers col" role={poll.maxSelections > 1 ? "group" : "radiogroup"} aria-label={poll.question}>
       {#each poll.answers as answer (answer.id)}
         {@const chosen = tally.mine.includes(answer.id)}
         {@const winner = tally.winners.includes(answer.id)}
-        <li>
+        <li class="answer-row" transition:grow>
+          <div class="clip">
           <button
             type="button"
             class="answer ghost press row-nw align-centre gap-md"
@@ -99,9 +123,10 @@
             style:--share={reveal ? `${share(answer.id)}%` : "0%"}
           >
             <span class="tick" class:square={poll.maxSelections > 1} aria-hidden="true"></span>
-            <span class="label flex-max min-0">{answer.text}</span>
+            <span class="label flex-max min-0"><EmojiText text={answer.text} /></span>
             {#if reveal}<span class="count">{votes(tally.counts[answer.id])} · {share(answer.id)}%</span>{/if}
           </button>
+          </div>
         </li>
       {/each}
     </ul>
@@ -109,6 +134,7 @@
       {#if tally.ended}{text("poll", "final").replace("{count}", votes(tally.total))}
       {:else if !poll.disclosed}{text("poll", "hidden")}
       {:else}{tally.total ? votes(tally.total) : text("poll", "no_votes")}{/if}
+      {#if remaining} · {remaining}{/if}
       {#if failed} · {text("poll", "failed")}{/if}
     </p>
   </div>
@@ -127,8 +153,18 @@
     font-size: var(--text-xs);
   }
 
+  .answer-row {
+    display: grid;
+    grid-template-rows: 1fr;
+  }
+
+  .clip {
+    min-height: 0;
+    overflow: hidden;
+    padding-bottom: var(--azure-spacing-sm);
+  }
+
   .answers {
-    gap: var(--azure-spacing-sm);
     margin: var(--azure-spacing-md) 0;
     padding: 0;
     list-style: none;

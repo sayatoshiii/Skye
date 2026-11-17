@@ -9,7 +9,10 @@ export type Poll = {
   maxSelections: number;
   disclosed: boolean;
   unstable: boolean;
+  endsAt?: number;
 };
+
+export const POLL_ENDS_AT = "chat.skye.poll.ends_at";
 
 export const POLL_START = ["m.poll.start", "org.matrix.msc3381.poll.start"];
 export const POLL_RESPONSE = ["m.poll.response", "org.matrix.msc3381.poll.response"];
@@ -70,6 +73,7 @@ export const getPoll = (event: TimelineEvent): Poll | null => {
   if (!answers.length) return null;
 
   const max = Number(block.max_selections);
+  const endsAt = Number(event.content[POLL_ENDS_AT]);
 
   return {
     question: extensibleText(block.question) || extensibleText(event.content),
@@ -77,6 +81,7 @@ export const getPoll = (event: TimelineEvent): Poll | null => {
     maxSelections: Number.isInteger(max) && max > 0 ? Math.min(max, answers.length) : 1,
     disclosed: !String(block.kind ?? "m.disclosed").endsWith("undisclosed"),
     unstable,
+    endsAt: Number.isFinite(endsAt) && endsAt > 0 ? endsAt : undefined,
   };
 };
 
@@ -92,6 +97,7 @@ export type PollTally = {
   total: number;
   mine: string[];
   ended: boolean;
+  closed: boolean;
   winners: string[];
 };
 
@@ -101,11 +107,13 @@ export const tallyPoll = (
   related: TimelineEvent[],
   ownUserId: string | undefined,
   mayEnd: (sender: string) => boolean,
+  now = Date.now(),
 ): PollTally => {
   const end = related
     .filter((event) => POLL_END.includes(event.type) && !event.redacted && (event.sender === start.sender || mayEnd(event.sender)))
     .sort((a, b) => a.origin_server_ts - b.origin_server_ts)[0];
-  const cutoff = end ? end.origin_server_ts : Infinity;
+  const cutoff = Math.min(end ? end.origin_server_ts : Infinity, poll.endsAt ?? Infinity);
+  const expired = !!poll.endsAt && now >= poll.endsAt;
   const valid = new Set(poll.answers.map((answer) => answer.id));
   const latest = new Map<string, TimelineEvent>();
 
@@ -136,8 +144,9 @@ export const tallyPoll = (
     counts,
     total,
     mine,
-    ended: !!end,
-    winners: end && top > 0 ? poll.answers.filter((answer) => counts[answer.id] === top).map((answer) => answer.id) : [],
+    ended: !!end || expired,
+    closed: !!end,
+    winners: (end || expired) && top > 0 ? poll.answers.filter((answer) => counts[answer.id] === top).map((answer) => answer.id) : [],
   };
 };
 
@@ -183,7 +192,7 @@ export const formatDuration = (ms: number) => {
   return hours ? `${hours}:${String(minutes).padStart(2, "0")}:${rest}` : `${minutes}:${rest}`;
 };
 
-export const pollStartContent = (question: string, answers: string[], maxSelections: number, disclosed: boolean) => {
+export const pollStartContent = (question: string, answers: string[], maxSelections: number, disclosed: boolean, endsAt?: number) => {
   const options = answers.map((answer, index) => ({ id: `option-${index + 1}`, text: answer }));
   const kind = disclosed ? "disclosed" : "undisclosed";
   const body = [question, ...options.map((option, index) => `${index + 1}. ${option.text}`)].join("\n");
@@ -196,6 +205,7 @@ export const pollStartContent = (question: string, answers: string[], maxSelecti
       answers: options.map((option) => ({ id: option.id, "org.matrix.msc1767.text": option.text })),
     },
     "org.matrix.msc1767.text": body,
+    ...(endsAt ? { [POLL_ENDS_AT]: endsAt } : {}),
   };
 };
 
