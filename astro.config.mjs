@@ -32,7 +32,14 @@ const appFallback = () => {
 export default defineConfig({
   integrations: [svelte()],
   devToolbar: { enabled: false },
+  server: { host: process.env.TAURI_DEV_HOST || false },
   vite: {
+    clearScreen: false,
+    server: {
+      hmr: process.env.TAURI_DEV_HOST
+        ? { protocol: "ws", host: process.env.TAURI_DEV_HOST, port: 4322 }
+        : undefined,
+    },
     plugins: [appFallback()],
     optimizeDeps: {
       exclude: ["@matrix-org/matrix-sdk-crypto-wasm"],
