@@ -29,6 +29,7 @@
     status,
     left = false,
     role,
+    namedRole,
     size = "md",
     surface = "var(--colours-foreground)",
     onopen,
@@ -43,6 +44,7 @@
     status?: string;
     left?: boolean;
     role?: "admin" | "moderator" | "member";
+    namedRole?: { name: string; color?: string; icon?: string };
     size?: "sm" | "md" | "lg";
     surface?: string;
     onopen?: () => void;
@@ -113,9 +115,9 @@
     </div>
 
     {#if onopen}
-      <button type="button" class="name-button ghost" use:usermenu={{ userId, roomId }} aria-label={openLabel} onclick={onopen}><h2 class="name bold"><EmojiText text={displayName} /></h2></button>
+      <button type="button" class="name-button ghost" use:usermenu={{ userId, roomId }} aria-label={openLabel} onclick={onopen}><h2 class="name bold" style:color={namedRole?.color}><EmojiText text={displayName} /></h2></button>
     {:else}
-      <h2 class="name bold" use:usermenu={{ userId, roomId }}><EmojiText text={displayName} /></h2>
+      <h2 class="name bold" style:color={namedRole?.color} use:usermenu={{ userId, roomId }}><EmojiText text={displayName} /></h2>
     {/if}
     <div class="handle row-nw align-centre gap-xs">
       <span class="id sm truncate">{userId}</span>
@@ -135,7 +137,11 @@
       <p class="activity xs">{activity}</p>
     {/if}
 
-    {#if role}
+    {#if namedRole}
+      <span class="role xs bold row-nw align-centre gap-xs" data-role="named" style:--role-colour={namedRole.color}>
+        {#if namedRole.icon?.startsWith("mxc://")}<Avatar name={namedRole.name} url={namedRole.icon} size="14px" radius="3px" />{:else}<span class="role-dot" aria-hidden="true"></span>{/if}<EmojiText text={namedRole.name} />
+      </span>
+    {:else if role}
       <span class="role xs bold row-nw align-centre gap-xs" data-role={role}>
         <span class="role-dot" aria-hidden="true"></span>{text("user_profile", role)}
       </span>
@@ -288,6 +294,11 @@
 
   .role[data-role="member"] .role-dot {
     background-color: var(--colours-text-faint);
+    box-shadow: none;
+  }
+
+  .role[data-role="named"] .role-dot {
+    background-color: var(--role-colour, var(--colours-text-faint));
     box-shadow: none;
   }
 

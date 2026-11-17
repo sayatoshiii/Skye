@@ -3,6 +3,7 @@ import { fetchProfileCard, type ExtendedProfile } from "../../scripts/matrix/uti
 import { joinedMembers, presenceDetails, rooms, session, type PresenceDetails } from "../../scripts/stores/matrix";
 import { ownStatus, statusMessage, type OwnStatus } from "../../scripts/stores/presence";
 import { roleOf } from "../../scripts/stores/profile";
+import { roleOf as namedRoleOf } from "../../scripts/matrix/utilities/power";
 
 export const createProfileData = (target: () => { userId?: string; roomId?: string }) => {
   let allRooms: Record<string, RoomSummary> = $state.raw({});
@@ -75,6 +76,9 @@ export const createProfileData = (target: () => { userId?: string; roomId?: stri
     },
     get role() {
       return target().userId ? roleOf(room, target().userId!) : undefined;
+    },
+    get namedRole() {
+      return target().userId ? namedRoleOf(room, target().userId!) : undefined;
     },
     get memberSince() {
       const userId = target().userId;

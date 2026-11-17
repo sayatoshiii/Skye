@@ -3,6 +3,7 @@
   import EmojiText from "../ui/EmojiText.svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { getPowerLevel } from "../../scripts/matrix/rooms";
+  import { levelOf, roleIcon, roleIndex } from "../../scripts/matrix/utilities/power";
   import { currentRoom, joinedMembers } from "../../scripts/stores/matrix";
   import { presenceKinds } from "../../scripts/stores/presence";
   import PresenceDot from "../ui/PresenceDot.svelte";
@@ -19,6 +20,8 @@
   const text = (...path: string[]) =>
     getLocalisedText(undefined, ...path) as string;
 
+  const roles = $derived(roleIndex(room));
+
   const members = $derived.by(() => {
     if (!room) return [];
 
@@ -32,6 +35,7 @@
         avatar: member.avatarUrl ?? room.members[member.userId]?.avatarUrl,
         presence: $presenceKinds(member.userId),
         powerLevel: getPowerLevel(room, member.userId),
+        role: roles.get(levelOf(room, member.userId)),
       }))
       .sort((a, b) => b.powerLevel - a.powerLevel || a.displayName.localeCompare(b.displayName));
   });
@@ -57,22 +61,35 @@
     return () => observer.disconnect();
   });
 
+  const named = $derived(
+    [...roles.values()]
+      .sort((a, b) => b.level - a.level)
+      .map((role) => ({
+        id: `role:${role.level}`,
+        name: role.name,
+        members: members.filter((member) => member.role === role && member.presence !== "offline"),
+      })),
+  );
+
+  const unranked = $derived(members.filter((member) => !member.role || member.presence === "offline"));
+
   const groups = $derived(
     [
+      ...named,
       {
         id: "online",
         name: text("navigation", "online"),
-        members: members.filter((member) => member.presence !== "offline" && member.presence !== "unsupported"),
+        members: unranked.filter((member) => member.presence !== "offline" && member.presence !== "unsupported"),
       },
       {
         id: "offline",
         name: text("navigation", "offline"),
-        members: members.filter((member) => member.presence === "offline"),
+        members: unranked.filter((member) => member.presence === "offline"),
       },
       {
         id: "unknown",
         name: text("navigation", "unknown"),
-        members: members.filter((member) => member.presence === "unsupported"),
+        members: unranked.filter((member) => member.presence === "unsupported"),
       },
     ].filter((group) => group.members.length),
   );
@@ -109,8 +126,9 @@
           <PresenceDot userId={member.userId} size={32}>
             <Avatar name={member.displayName} url={member.avatar} size="32px" radius="50%" />
           </PresenceDot>
-          <span class="md truncate" class:admin={member.powerLevel >= 100}
-            class:moderator={member.powerLevel >= 50 && member.powerLevel < 100}><EmojiText text={member.displayName} /></span>
+          <span class="md truncate" class:admin={member.powerLevel >= 100 && !room?.isDirect}
+            class:moderator={member.powerLevel >= 50 && member.powerLevel < 100 && !room?.isDirect} style:color={member.role?.color}><EmojiText text={member.displayName} /></span>
+          {#if roleIcon(member.role)}<span class="role-icon" aria-hidden="true"><Avatar name={member.role?.name ?? ""} url={roleIcon(member.role)} size="16px" radius="4px" /></span>{/if}
         </button>
         </li>
       {/each}
@@ -188,6 +206,11 @@
 
   .member.offline {
     opacity: 0.45;
+  }
+
+  .role-icon {
+    display: inline-flex;
+    flex: none;
   }
 
   .admin {

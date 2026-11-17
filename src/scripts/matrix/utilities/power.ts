@@ -87,3 +87,14 @@ export const setRoles = (session: Session, roomId: RoomId, content: RolesContent
     method: "PUT",
     body: content,
   });
+
+export const levelOf = (room: RoomSummary | undefined | null, userId: string) =>
+  room?.powerLevels?.users?.[userId] ?? room?.powerLevels?.users_default ?? 0;
+
+export const roleIndex = (room: RoomSummary | undefined | null) =>
+  new Map(readRoles(room ?? undefined).filter((role) => role.name).map((role) => [role.level, role]));
+
+export const roleOf = (room: RoomSummary | undefined | null, userId: string, index = roleIndex(room)) =>
+  index.get(levelOf(room, userId));
+
+export const roleIcon = (role: RoleMeta | undefined) => (role?.icon?.startsWith("mxc://") ? role.icon : undefined);
