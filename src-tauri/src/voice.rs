@@ -148,7 +148,7 @@ fn process(engine: &Engine, denoise: &mut DenoiseState, raw: &[f32], loud: &mut 
   let open = loud.elapsed() < HOLD;
   let out: Vec<i16> = heard.iter().map(|&sample| (sample * open as u8 as f32).clamp(-32768.0, 32767.0) as i16).collect();
   let _ = tauri::async_runtime::block_on(engine.source.capture_frame(&AudioFrame { data: Cow::Owned(out), sample_rate: RATE, num_channels: 1, samples_per_channel: FRAME as u32 }));
-  *tick = (*tick + 1) % 5;
+  *tick = (*tick + 1) % 8;
   (*tick == 0).then(|| engine.app.emit("voice:level", Level { db, open }));
 }
 
