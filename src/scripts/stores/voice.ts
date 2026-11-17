@@ -1,8 +1,20 @@
-import type { Room as LiveKitRoom, RemoteTrack, Participant } from "livekit-client";
+import type { Room as LiveKitRoom, RemoteTrack, Participant, Track } from "livekit-client";
 import { derived, get, readable, writable } from "svelte/store";
-import type { MatrixEvent, RoomId, SyncResponse, UserId } from "../matrix/types";
+import type { MatrixEvent, RoomId, StateEvent, SyncResponse, UserId } from "../matrix/types";
+import { serverNameFromUserId } from "../matrix/discovery";
 import {
+  backendIdentities,
   callMemberships,
+  hashIdentity,
+  hashKey,
+  memberFocus,
+  RTC_MEMBER_TYPE,
+  STICKY_MAX,
+  stickyKeyOf,
+  transportKey,
+  usesCsApi,
+  type LiveKitFocus,
+  type StickyEvent,
   decodeKey,
   encodeKey,
   homeserverFoci,
@@ -22,7 +34,7 @@ import {
   updateDelayed,
   type CallMembership,
 } from "../matrix/utilities/rtc";
-import { decryptPreview, redactRoomEvent, registerLiveSyncHook, registerToDeviceHook, rooms, sendEncryptedToDevice, sendRoomEvent, session } from "./matrix";
+import { decryptPreview, redactRoomEvent, registerLiveSyncHook, registerSyncHook, registerToDeviceHook, rooms, sendEncryptedToDevice, sendRoomEvent, session } from "./matrix";
 import { toast, toastKey } from "./toast";
 import { getLocalisedText } from "../accessibility/language/translation";
 
@@ -39,12 +51,12 @@ export type VoiceState = {
   startedAt: number;
 };
 
-export type VoicePrefs = { input: string; output: string; pushToTalk: boolean; pttKey: string; pttLabel: string };
+export type VoicePrefs = { input: string; output: string; camera: string; pushToTalk: boolean; pttKey: string; pttLabel: string };
 
 export type IncomingCall = { roomId: RoomId; kind: VoiceKind; callerId: UserId; callId?: string };
 
 const PREFS_KEY = "skye:voice";
-const DEFAULT_PREFS: VoicePrefs = { input: "default", output: "default", pushToTalk: false, pttKey: "KeyV", pttLabel: "V" };
+const DEFAULT_PREFS: VoicePrefs = { input: "default", output: "default", camera: "default", pushToTalk: false, pttKey: "KeyV", pttLabel: "V" };
 
 const readPrefs = (): VoicePrefs => {
   try {
@@ -78,14 +90,102 @@ const tick = readable(Date.now(), (set) => {
   return () => clearInterval(timer);
 });
 
-export const callMembers = derived([rooms, tick], ([$rooms]) =>
+export const stickyMembers = writable<Record<RoomId, Record<string, StickyEvent>>>({});
+export const identityHashes = writable<Record<string, string>>({});
+
+const stickyTtl = (event: MatrixEvent) =>
+  Math.min(
+    ((event.unsigned as Record<string, unknown> | undefined)?.msc4354_sticky_duration_ttl_ms as number | undefined) ??
+      ((event as MatrixEvent & { msc4354_sticky?: { duration_ms?: number } }).msc4354_sticky?.duration_ms ?? STICKY_MAX),
+    STICKY_MAX,
+  );
+
+const keepSticky = (roomId: RoomId, event: MatrixEvent, ttl: number) =>
+  event.type === RTC_MEMBER_TYPE &&
+  !!event.sender &&
+  stickyMembers.update((all) => {
+    const entry = { ...(event as StateEvent), state_key: "", until: Date.now() + ttl } as StickyEvent;
+    const key = stickyKeyOf(entry);
+    const previous = all[roomId]?.[key];
+    return (previous?.origin_server_ts ?? 0) > (entry.origin_server_ts ?? 0) ? all : { ...all, [roomId]: { ...all[roomId], [key]: entry } };
+  });
+
+registerSyncHook((response: SyncResponse) =>
+  Object.entries(response.rooms?.join ?? {}).forEach(([roomId, room]) =>
+    [...(room.msc4354_sticky?.events ?? []), ...(room.timeline?.events ?? []).filter((event) => event.type === RTC_MEMBER_TYPE || "msc4354_sticky" in event)]
+      .filter((event) => event.type === RTC_MEMBER_TYPE || event.type === "m.room.encrypted")
+      .forEach((event) =>
+        decryptPreview(event, roomId).then((clear) => clear && keepSticky(roomId, { ...clear, sender: event.sender, origin_server_ts: event.origin_server_ts, event_id: event.event_id, unsigned: event.unsigned }, stickyTtl(event))),
+      ),
+  ),
+);
+
+export const callMembers = derived([rooms, stickyMembers, tick], ([$rooms, $sticky]) =>
   Object.fromEntries(
     Object.values($rooms)
       .filter((room) => room.membership === "join")
-      .map((room) => [room.roomId, callMemberships(room)] as const)
+      .map((room) => [room.roomId, callMemberships(room, Object.values($sticky[room.roomId] ?? {}))] as const)
       .filter(([, list]) => list.length),
   ) as Record<RoomId, CallMembership[]>,
 );
+
+callMembers.subscribe((all) =>
+  Object.values(all)
+    .flat()
+    .filter((member) => member.foci.some((focus) => typeof focus.url === "string") && !get(identityHashes)[hashKey(member.userId, member.memberId)])
+    .forEach((member) =>
+      hashIdentity(member.userId, member.memberId).then(
+        (hash) => identityHashes.update((hashes) => ({ ...hashes, [hashKey(member.userId, member.memberId)]: hash })),
+        () => undefined,
+      ),
+    ),
+);
+
+export const memberIdentities = derived([callMembers, identityHashes], ([$members, $hashes]) =>
+  Object.fromEntries(
+    Object.values($members)
+      .flat()
+      .map((member) => [identityOf(member.userId, member.deviceId), backendIdentities(member, $hashes)] as const),
+  ) as Record<string, string[]>,
+);
+
+export const identityOwners = derived(memberIdentities, ($identities) =>
+  Object.fromEntries(Object.entries($identities).flatMap(([legacy, list]) => list.map((identity) => [identity, legacy] as const))) as Record<string, string>,
+);
+
+export const userOfIdentity = (identity: string) => (get(identityOwners)[identity] ?? identity).replace(/:[^:]*$/, "");
+export const selfSpeaking = derived([speaking, session], ([$speaking, $session]) => [...$speaking].some((identity) => userOfIdentity(identity) === $session?.userId));
+
+export type UserVolume = { volume: number; muted: boolean };
+
+const VOLUME_KEY = "skye:volumes";
+
+const readVolumes = (): Record<UserId, UserVolume> => {
+  try {
+    return JSON.parse(localStorage.getItem(VOLUME_KEY) ?? "{}");
+  } catch {
+    return {};
+  }
+};
+
+export const userVolumes = writable<Record<UserId, UserVolume>>(typeof localStorage === "undefined" ? {} : readVolumes());
+
+userVolumes.subscribe((volumes) => {
+  try {
+    localStorage.setItem(VOLUME_KEY, JSON.stringify(volumes));
+  } catch {}
+});
+
+export const volumeOf = (userId: UserId): UserVolume => get(userVolumes)[userId] ?? { volume: 1, muted: false };
+export const setUserVolume = (userId: UserId, volume: number) => userVolumes.update((all) => ({ ...all, [userId]: { ...volumeOf(userId), volume } }));
+export const toggleUserMute = (userId: UserId) => userVolumes.update((all) => ({ ...all, [userId]: { ...volumeOf(userId), muted: !volumeOf(userId).muted } }));
+
+export type CallMedia = { id: string; identity: string; source: "camera" | "screen"; track: Track; local: boolean };
+
+export const callMedia = writable<CallMedia[]>([]);
+export const cameraOn = writable(false);
+export const screenOn = writable(false);
+export const screenSupported = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
 
 export const joinable = derived(rooms, ($rooms) => new Set(Object.values($rooms).filter(isCallRoom).map((room) => room.roomId)));
 
@@ -114,26 +214,35 @@ registerLiveSyncHook((response: SyncResponse) =>
   }),
 );
 
+type KeyProvider = { setParticipantKey: (identity: string, index: number, key: Uint8Array) => Promise<void> };
+
+type Link = { key: string; room: LiveKitRoom; keys: (KeyProvider & { provider: unknown }) | null; publish: boolean; speakers: Set<string> };
+
 type Live = {
-  room: LiveKitRoom;
   roomId: RoomId;
-  keys: KeyProvider | null;
+  encrypted: boolean;
+  focus: LiveKitFocus;
+  links: Map<string, Link>;
   keyIndex: number;
   key: Uint8Array;
+  received: Map<string, Map<number, Uint8Array>>;
   known: Set<string>;
   timers: ReturnType<typeof setInterval>[];
   delayId: string | null;
-  audio: Map<string, HTMLMediaElement>;
   stop: (() => void)[];
 };
 
-type KeyProvider = { setParticipantKey: (identity: string, index: number, key: Uint8Array) => Promise<void> };
-
 let live: Live | null = null;
 
-const ownIdentity = () => {
+const ownLegacy = () => {
   const active = get(session);
   return active ? identityOf(active.userId, active.deviceId) : "";
+};
+
+const ownIdentities = (current: Live) => {
+  const active = get(session);
+  const hash = active && get(identityHashes)[hashKey(active.userId, ownLegacy())];
+  return [ownLegacy(), ...(usesCsApi(current.focus) && hash ? [hash] : [])];
 };
 
 const createKeyProvider = async (): Promise<KeyProvider & { provider: unknown }> => {
@@ -149,8 +258,21 @@ const createKeyProvider = async (): Promise<KeyProvider & { provider: unknown }>
   return { provider, setParticipantKey: provider.setParticipantKey };
 };
 
+const applyKey = (current: Live, legacy: string, index: number, key: Uint8Array) =>
+  (get(memberIdentities)[legacy] ?? [legacy]).forEach((identity) => current.links.forEach((link) => link.keys?.setParticipantKey(identity, index, key)));
+
+const storeKey = (current: Live, legacy: string, index: number, key: Uint8Array) => {
+  current.received.set(legacy, (current.received.get(legacy) ?? new Map()).set(index, key));
+  applyKey(current, legacy, index, key);
+};
+
+const replayKeys = (current: Live) => current.received.forEach((keys, legacy) => keys.forEach((key, index) => applyKey(current, legacy, index, key)));
+
+const setOwnKey = (current: Live, index: number, key: Uint8Array) =>
+  ownIdentities(current).forEach((identity) => current.links.forEach((link) => link.keys?.setParticipantKey(identity, index, key)));
+
 const keyTargets = (current: Live, only?: Set<string>) => {
-  const own = ownIdentity();
+  const own = ownLegacy();
   return (get(callMembers)[current.roomId] ?? [])
     .map((member) => ({ userId: member.userId, deviceId: member.deviceId, identity: identityOf(member.userId, member.deviceId) }))
     .filter((member) => member.identity !== own && (!only || only.has(member.identity)))
@@ -160,7 +282,7 @@ const keyTargets = (current: Live, only?: Set<string>) => {
 const sendKey = (current: Live, only?: Set<string>) => {
   const active = get(session);
   const key = encodeKey(current.key);
-  return active && current.keys
+  return active && current.encrypted
     ? Promise.allSettled([
         sendRoomEvent(KEYS_TYPE, { keys: [{ index: current.keyIndex, key }], device_id: active.deviceId, call_id: "", sent_ts: Date.now() }, current.roomId),
         sendEncryptedToDevice(KEYS_TYPE, keyTargets(current, only), toDeviceKeyContent(active, current.roomId, current.keyIndex, key)),
@@ -174,7 +296,7 @@ const rotateKey = (current: Live) => {
   const index = current.keyIndex;
   const key = current.key;
   sendKey(current);
-  setTimeout(() => live === current && current.keys?.setParticipantKey(ownIdentity(), index, key), 1000);
+  setTimeout(() => live === current && setOwnKey(current, index, key), 1000);
 };
 
 registerCallEventHook((roomId, event) => {
@@ -185,7 +307,7 @@ registerCallEventHook((roomId, event) => {
     event.type === KEYS_TYPE &&
     !own &&
     (event.content?.keys ?? []).forEach((entry: { index?: number; key?: string }) =>
-      current.keys?.setParticipantKey(identityOf(event.sender ?? "", event.content?.device_id ?? ""), entry.index ?? 0, decodeKey(entry.key ?? "")),
+      storeKey(current, identityOf(event.sender ?? "", event.content?.device_id ?? ""), entry.index ?? 0, decodeKey(entry.key ?? "")),
     );
 });
 
@@ -201,11 +323,11 @@ registerToDeviceHook((event) => {
     current?.roomId === content.room_id &&
     !!event.sender &&
     !!deviceId &&
-    identity !== ownIdentity() &&
+    identity !== ownLegacy() &&
     typeof media?.key === "string" &&
     !!media.key &&
     typeof media.index === "number" &&
-    current?.keys?.setParticipantKey(identity, media.index, decodeKey(media.key));
+    storeKey(current!, identity, media.index, decodeKey(media.key));
 });
 
 const QUALITY: Record<string, VoiceQuality> = { excellent: "excellent", good: "good", poor: "poor", lost: "lost" };
@@ -225,6 +347,32 @@ const syncAudio = () => audioElements.forEach(applyOutput);
 deafened.subscribe(syncAudio);
 voicePrefs.subscribe(syncAudio);
 
+const publishLink = () => [...(live?.links.values() ?? [])].find((link) => link.publish);
+
+const voiceOf = () => {
+  const entries = [...(live?.links.values() ?? [])].flatMap((link) => [...link.room.remoteParticipants.values()].map((participant) => ({ participant, rank: link.speakers.has(participant.identity) ? 2 : participant.isMicrophoneEnabled ? 1 : 0 })));
+  return entries.reduce<Record<string, { participant: Participant; rank: number }>>((best, entry) => {
+    const user = userOfIdentity(entry.participant.identity);
+    return entry.rank > (best[user]?.rank ?? -1) ? { ...best, [user]: entry } : best;
+  }, {});
+};
+
+const applyVolumes = () => {
+  const chosen = voiceOf();
+  live?.links.forEach((link) =>
+    link.room.remoteParticipants.forEach((participant) => {
+      const level = volumeOf(userOfIdentity(participant.identity));
+      const volume = get(deafened) || level.muted || chosen[userOfIdentity(participant.identity)]?.participant !== participant ? 0 : level.volume;
+      participant.setVolume(volume);
+      participant.setVolume(volume, "screen_share_audio" as Parameters<typeof participant.setVolume>[1]);
+    }),
+  );
+};
+
+deafened.subscribe(applyVolumes);
+userVolumes.subscribe(applyVolumes);
+identityOwners.subscribe(applyVolumes);
+
 const micOpen = () => !get(muted) && !get(deafened) && (!get(voicePrefs).pushToTalk || get(pttHeld));
 
 type MicHook = (open: boolean) => void;
@@ -233,7 +381,7 @@ export const registerMicHook = (hook: MicHook) => void micHooks.add(hook);
 
 const applyMic = () => {
   const open = micOpen();
-  live?.room.localParticipant.setMicrophoneEnabled(open).then(() => open && micBlocked.set(false), () => open && blockMic());
+  publishLink()?.room.localParticipant.setMicrophoneEnabled(open).then(() => open && micBlocked.set(false), () => open && blockMic());
   micHooks.forEach((hook) => hook(open));
 };
 
@@ -256,18 +404,58 @@ typeof window !== "undefined" &&
     live && active && leaveOnUnload(active, live.roomId);
   }));
 
-export const switchDevice = (kind: "audioinput" | "audiooutput", deviceId: string) => {
-  voicePrefs.update((prefs) => ({ ...prefs, [kind === "audioinput" ? "input" : "output"]: deviceId }));
-  live?.room.switchActiveDevice(kind, deviceId).catch(() => undefined);
+const PREF_OF = { audioinput: "input", audiooutput: "output", videoinput: "camera" } as const;
+
+export const switchDevice = (kind: "audioinput" | "audiooutput" | "videoinput", deviceId: string) => {
+  voicePrefs.update((prefs) => ({ ...prefs, [PREF_OF[kind]]: deviceId }));
+  live?.links.forEach((link) => (link.publish || kind === "audiooutput") && link.room.switchActiveDevice(kind, deviceId === "default" ? "default" : deviceId).catch(() => undefined));
   micHooks.forEach((hook) => hook(micOpen()));
 };
 
 export const toggleMute = () => (get(deafened) ? (deafened.set(false), muted.set(false)) : muted.update((value) => !value));
 export const toggleDeafen = () => deafened.update((value) => !value);
 
-const trackSpeakers = (speakers: Participant[]) => speaking.set(new Set(speakers.map((participant) => participant.identity)));
+const SPEAKING_LEVEL = 0.015;
+const SPEAKING_HOLD = 450;
+const meters = new WeakMap<MediaStreamTrack, () => number>();
+const meter = (track: MediaStreamTrack) =>
+  meters.get(track) ??
+  (() => {
+    const context = new AudioContext();
+    const analyser = Object.assign(context.createAnalyser(), { fftSize: 512 });
+    const data = new Float32Array(analyser.fftSize);
+    context.createMediaStreamSource(new MediaStream([track])).connect(analyser);
+    track.addEventListener("ended", () => context.close().catch(() => undefined), { once: true });
+    const read = () => (analyser.getFloatTimeDomainData(data), Math.sqrt(data.reduce((sum, value) => sum + value * value, 0) / data.length) * 4);
+    meters.set(track, read);
+    return read;
+  })();
 
-const keepMembership = async (current: Live, focus: Parameters<typeof membershipContent>[1]) => {
+const refreshSpeaking = (current: Live) => live === current && speaking.set(new Set([...current.links.values()].flatMap((link) => [...link.speakers])));
+
+const refreshMedia = (current: Live) => {
+  const link = [...current.links.values()].find((entry) => entry.publish);
+  live === current &&
+    (callMedia.set(
+      [...current.links.values()].flatMap((entry) =>
+        [...(entry.publish ? [entry.room.localParticipant] : []), ...entry.room.remoteParticipants.values()].flatMap((participant) =>
+          [...participant.trackPublications.values()]
+            .filter((publication) => publication.kind === "video" && !!publication.track && !publication.isMuted && publication.track.mediaStreamTrack?.readyState !== "ended")
+            .map((publication) => ({
+              id: `${participant.identity}:${publication.trackSid}`,
+              identity: participant.identity,
+              source: publication.source === "screen_share" ? ("screen" as const) : ("camera" as const),
+              track: publication.track!,
+              local: participant.isLocal,
+            })),
+        ),
+      ),
+    ),
+    cameraOn.set(!!link?.room.localParticipant.isCameraEnabled),
+    screenOn.set(!!link?.room.localParticipant.isScreenShareEnabled));
+};
+
+const keepMembership = async (current: Live, focus: LiveKitFocus) => {
   const active = get(session)!;
   const delayed = await supportsDelayedEvents(active);
   current.delayId = delayed ? await scheduleLeave(active, current.roomId).catch(() => null) : null;
@@ -278,6 +466,30 @@ const keepMembership = async (current: Live, focus: Parameters<typeof membership
   );
 };
 
+const neededFoci = (current: Live) => {
+  const members = (get(callMembers)[current.roomId] ?? []).filter((member) => identityOf(member.userId, member.deviceId) !== ownLegacy());
+  return new Map(
+    members
+      .map((member) => ({ member, focus: memberFocus(member, members[0]) }))
+      .filter((entry): entry is { member: CallMembership; focus: LiveKitFocus } => !!entry.focus)
+      .map((entry) => [transportKey(entry.focus), entry] as const),
+  );
+};
+
+const syncLinks = (current: Live) => {
+  const needed = neededFoci(current);
+  current.links.forEach((link, key) => !link.publish && !needed.has(key) && closeLink(current, key));
+  needed.forEach((entry, key) => !current.links.has(key) && openLink(current, entry.focus, false, serverNameFromUserId(entry.member.userId)).catch((error) => console.warn("Skye could not reach another MatrixRTC server", error)));
+};
+
+const closeLink = (current: Live, key: string) => {
+  const link = current.links.get(key);
+  current.links.delete(key);
+  link?.room.disconnect().catch(() => undefined);
+  refreshSpeaking(current);
+  refreshMedia(current);
+};
+
 const watchMembers = (current: Live) =>
   callMembers.subscribe((all) => {
     const identities = new Set((all[current.roomId] ?? []).map((member) => identityOf(member.userId, member.deviceId)));
@@ -285,13 +497,97 @@ const watchMembers = (current: Live) =>
     const joined = fresh.size > 0;
     const left = [...current.known].some((identity) => !identities.has(identity));
     current.known = identities;
-    current.keys && left && rotateKey(current);
-    current.keys && joined && !left && sendKey(current, fresh);
+    current.encrypted && left && rotateKey(current);
+    current.encrypted && joined && !left && sendKey(current, fresh);
+    replayKeys(current);
+    syncLinks(current);
   });
 
 export const voiceFocus = async (roomId: RoomId) => {
   const active = get(session);
   return active ? pickFocus(callMemberships(get(rooms)[roomId]), await homeserverFoci(active)) : undefined;
+};
+
+const openLink = async (current: Live, focus: LiveKitFocus, publish: boolean, serverName?: string) => {
+  const active = get(session)!;
+  const key = transportKey(focus);
+  const kit = await import("livekit-client");
+  const keys = current.encrypted ? await createKeyProvider() : null;
+  const worker = keys ? new Worker(new URL("livekit-client/e2ee-worker", import.meta.url), { type: "module" }) : undefined;
+  const prefs = get(voicePrefs);
+  const room = new kit.Room({
+    adaptiveStream: true,
+    dynacast: true,
+    webAudioMix: true,
+    audioCaptureDefaults: { deviceId: prefs.input === "default" ? undefined : prefs.input, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    videoCaptureDefaults: { deviceId: prefs.camera === "default" ? undefined : prefs.camera },
+    audioOutput: { deviceId: prefs.output === "default" ? undefined : prefs.output },
+    e2ee: keys && worker ? { keyProvider: keys.provider as InstanceType<typeof kit.BaseKeyProvider>, worker } : undefined,
+  });
+  const link: Link = { key, room, keys, publish, speakers: new Set() };
+  current.links.set(key, link);
+  const media = () => (refreshMedia(current), applyVolumes());
+  const heard = new Map<string, number>();
+  const poll = setInterval(() => {
+    const now = performance.now();
+    [...(publish ? [room.localParticipant] : []), ...room.remoteParticipants.values()].forEach((participant: Participant) => {
+      const publication = participant.getTrackPublication(kit.Track.Source.Microphone);
+      const track = publication?.track;
+      const level = !track || publication.isMuted ? 0 : Math.max(meter(track.mediaStreamTrack)(), participant.isLocal ? 0 : ((track as RemoteTrack).receiver?.getSynchronizationSources()[0]?.audioLevel ?? 0));
+      level > SPEAKING_LEVEL && heard.set(participant.identity, now);
+    });
+    const next = new Set([...heard].filter(([, at]) => now - at < SPEAKING_HOLD).map(([identity]) => identity));
+    (next.size !== link.speakers.size || [...next].some((identity) => !link.speakers.has(identity))) && ((link.speakers = next), refreshSpeaking(current), applyVolumes());
+  }, 80);
+  room.once(kit.RoomEvent.Disconnected, () => clearInterval(poll));
+  room
+    .on(kit.RoomEvent.ConnectionQualityChanged, (quality, participant) => publish && participant.isLocal && patch({ quality: QUALITY[quality] ?? "unknown" }))
+    .on(kit.RoomEvent.Reconnecting, () => publish && patch({ status: "reconnecting" }))
+    .on(kit.RoomEvent.Reconnected, () => publish && patch({ status: "connected" }))
+    .on(kit.RoomEvent.Disconnected, () => live === current && current.links.get(key) === link && (publish ? disconnect() : closeLink(current, key)))
+    .on(kit.RoomEvent.TrackSubscribed, (track: RemoteTrack, _publication, participant: Participant) => (track.kind === "audio" && userOfIdentity(participant.identity) !== get(session)?.userId && track.attach(), media()))
+    .on(kit.RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => (track.detach().forEach((element) => element.remove()), media()))
+    .on(kit.RoomEvent.TrackMuted, media)
+    .on(kit.RoomEvent.TrackUnmuted, media)
+    .on(kit.RoomEvent.TrackUnpublished, media)
+    .on(kit.RoomEvent.TrackPublished, media)
+    .on(kit.RoomEvent.LocalTrackPublished, (publication) => {
+      const track = publication.track;
+      track?.mediaStreamTrack?.addEventListener("ended", () => (room.localParticipant.unpublishTrack(track).catch(() => undefined).finally(media), media()), { once: true });
+      media();
+    })
+    .on(kit.RoomEvent.LocalTrackUnpublished, media)
+    .on(kit.RoomEvent.ParticipantConnected, media)
+    .on(kit.RoomEvent.ParticipantDisconnected, media);
+  keys && setOwnKey(current, current.keyIndex, current.key);
+  keys && replayKeys(current);
+  const grant = await requestSfu(active, focus, current.roomId, publish, serverName);
+  await room.connect(grant.url, grant.jwt).catch(() => room.connect(grant.url, grant.jwt, { rtcConfig: { iceTransportPolicy: "relay" } }));
+  keys && (await room.setE2EEEnabled(true));
+  live === current && current.links.get(key) === link ? media() : room.disconnect().catch(() => undefined);
+  return link;
+};
+
+const MEDIA_ERRORS = ["NotAllowedError", "AbortError"];
+
+export const toggleCamera = () => {
+  const link = publishLink();
+  const next = !get(cameraOn);
+  const prefs = get(voicePrefs);
+  link &&
+    link.room.localParticipant
+      .setCameraEnabled(next, { deviceId: prefs.camera === "default" ? undefined : prefs.camera })
+      .catch(() => voiceError.set("camera"))
+      .finally(() => live && refreshMedia(live));
+};
+
+export const toggleScreen = () => {
+  const link = publishLink();
+  link &&
+    link.room.localParticipant
+      .setScreenShareEnabled(!get(screenOn), { audio: true, selfBrowserSurface: "exclude", surfaceSwitching: "include" })
+      .catch((error) => !MEDIA_ERRORS.includes((error as Error)?.name) && voiceError.set("screen"))
+      .finally(() => live && refreshMedia(live));
 };
 
 const ringTargets = (roomId: RoomId) => {
@@ -339,44 +635,21 @@ export const joinVoice = async (roomId: RoomId) => {
   micBlocked.set(false);
   const encrypted = !!summary.encryption;
   voice.set({ kind: "rtc", roomId, status: "connecting", quality: "unknown", encrypted, startedAt: Date.now() });
+  const current: Live = { roomId, encrypted, focus, links: new Map(), keyIndex: 0, key: crypto.getRandomValues(new Uint8Array(16)), received: new Map(), known: new Set(), timers: [], delayId: null, stop: [] };
+  live = current;
   try {
-    const kit = await import("livekit-client");
-    const keys = encrypted ? await createKeyProvider() : null;
-    const worker = keys ? new Worker(new URL("livekit-client/e2ee-worker", import.meta.url), { type: "module" }) : undefined;
-    const prefs = get(voicePrefs);
-    const room = new kit.Room({
-      adaptiveStream: true,
-      dynacast: true,
-      audioCaptureDefaults: { deviceId: prefs.input === "default" ? undefined : prefs.input, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      audioOutput: { deviceId: prefs.output === "default" ? undefined : prefs.output },
-      e2ee: keys && worker ? { keyProvider: keys.provider as InstanceType<typeof kit.BaseKeyProvider>, worker } : undefined,
-    });
-    const current: Live = { room, roomId, keys, keyIndex: 0, key: crypto.getRandomValues(new Uint8Array(16)), known: new Set(), timers: [], delayId: null, audio: new Map(), stop: [] };
-    live = current;
-    const grant = await requestSfu(active, focus, roomId);
-    room
-      .on(kit.RoomEvent.ActiveSpeakersChanged, trackSpeakers)
-      .on(kit.RoomEvent.ConnectionQualityChanged, (quality, participant) => participant.isLocal && patch({ quality: QUALITY[quality] ?? "unknown" }))
-      .on(kit.RoomEvent.Reconnecting, () => patch({ status: "reconnecting" }))
-      .on(kit.RoomEvent.Reconnected, () => patch({ status: "connected" }))
-      .on(kit.RoomEvent.Disconnected, () => live === current && disconnect())
-      .on(kit.RoomEvent.TrackSubscribed, (track: RemoteTrack, _publication, participant) => {
-        const element = track.kind === "audio" ? track.attach() : null;
-        element && (applyOutput(element), audioElements.add(element), current.audio.set(`${participant.identity}:${track.sid}`, element));
-      })
-      .on(kit.RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => track.detach().forEach((element) => (audioElements.delete(element), element.remove())));
-    keys && (await keys.setParticipantKey(ownIdentity(), 0, current.key));
-    await room.connect(grant.url, grant.jwt);
-    keys && (await room.setE2EEEnabled(true));
-    await room.localParticipant.setMicrophoneEnabled(micOpen()).catch((error) => (console.warn("Skye could not open the microphone", error), blockMic()));
+    const ownHash = await hashIdentity(active.userId, ownLegacy());
+    identityHashes.update((hashes) => ({ ...hashes, [hashKey(active.userId, ownLegacy())]: ownHash }));
+    const link = await openLink(current, focus, true);
+    await link.room.localParticipant.setMicrophoneEnabled(micOpen()).catch((error) => (console.warn("Skye could not open the microphone", error), blockMic()));
     live === current && patch({ status: "connected" });
     current.stop.push(watchMembers(current));
     await keepMembership(current, focus);
     sendKey(current);
   } catch (error) {
     console.warn("Skye could not join voice", error);
-    voiceError.set((error as Error)?.message === "sfu_failed" ? "sfu_failed" : "join_failed");
-    await disconnect();
+    live === current && voiceError.set((error as Error)?.message === "sfu_failed" ? "sfu_failed" : "join_failed");
+    live === current && (await disconnect());
   }
 };
 
@@ -386,12 +659,14 @@ export const disconnect = async () => {
   live = null;
   voice.update((state) => (state?.kind === "rtc" ? null : state));
   speaking.set(new Set());
+  callMedia.set([]);
+  cameraOn.set(false);
+  screenOn.set(false);
   pttHeld.set(false);
   if (!current || !active) return;
   current.timers.forEach(clearInterval);
   current.stop.forEach((stop) => stop());
-  current.audio.forEach((element) => (audioElements.delete(element), element.remove()));
-  await current.room.disconnect().catch(() => undefined);
+  await Promise.allSettled([...current.links.values()].map((link) => link.room.disconnect()));
+  current.links.clear();
   await (current.delayId ? updateDelayed(active, current.delayId, "send") : Promise.reject()).catch(() => putMembership(active, current.roomId, {})).catch(() => undefined);
 };
-

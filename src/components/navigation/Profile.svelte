@@ -10,6 +10,7 @@
   import StatusDialog from "./StatusDialog.svelte";
   import EmojiText from "../ui/EmojiText.svelte";
   import PresenceDot from "../ui/PresenceDot.svelte";
+  import { selfSpeaking } from "../../scripts/stores/voice";
 
   const text = (...path: string[]) =>
     getLocalisedText(undefined, ...path) as string;
@@ -83,7 +84,7 @@
     {oncontextmenu}
   >
     <PresenceDot userId={$ownProfile?.userId} size={32} hint={$serverPresence === "unsupported" ? text("status", "unsupported") : undefined}>
-      <Avatar name={name} url={$ownProfile?.avatarUrl} size="32px" radius="50%" />
+      <span class="ring" class:talking={$selfSpeaking}><Avatar name={name} url={$ownProfile?.avatarUrl} size="32px" radius="50%" /></span>
     </PresenceDot>
     <span class="who col min-0">
       <span class="name bold sm truncate">{name}</span>
@@ -106,6 +107,17 @@
 {/if}
 
 <style>
+  .ring {
+    display: grid;
+    border-radius: 50%;
+    box-shadow: 0 0 0 0 transparent;
+    transition: box-shadow 220ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .ring.talking {
+    box-shadow: 0 0 0 2px var(--colours-success);
+  }
+
   .profile {
     flex: 1 1 auto;
   }

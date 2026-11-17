@@ -35,7 +35,7 @@
     { id: "privacy", group: "user", icon: "privacy", parts: ["encryption", "backup", "ignored"], view: PrivacySection },
     { id: "appearance", group: "app", icon: "appearance", parts: ["theme", "accent", "motion"], view: AppearanceSection },
     { id: "notifications", group: "app", icon: "notifications", parts: ["browser", "synced"], view: NotificationsSection },
-    { id: "voice", group: "app", icon: "mic", parts: ["input", "output", "talk"], view: VoiceSection },
+    { id: "voice", group: "app", icon: "mic", parts: ["input", "output", "camera", "talk"], view: VoiceSection },
   ];
   const GROUPS: Group[] = ["user", "app"];
   const BY_ID = Object.fromEntries(SECTIONS.map((entry) => [entry.id, entry])) as Record<SettingsSection, Entry>;
