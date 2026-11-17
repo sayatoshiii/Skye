@@ -32,10 +32,18 @@
 
   $effect(() => historyRestored.subscribe(() => void getEncryptionStatus().then((value) => (status = value), () => (status = null))));
 
+  const bezier = (a: number, b: number) => (s: number) => 3 * a * s * (1 - s) ** 2 + 3 * b * s * s * (1 - s) + s ** 3;
+  const x = bezier(0.32, 0);
+  const y = bezier(0.72, 1);
+  const curve = (t: number) => {
+    const s = Array.from({ length: 24 }).reduce<[number, number]>(([lo, hi]) => (x((lo + hi) / 2) < t ? [(lo + hi) / 2, hi] : [lo, (lo + hi) / 2]), [0, 1]);
+    return y((s[0] + s[1]) / 2);
+  };
+
   const reveal = (node: HTMLElement) => ({
     duration: 320,
+    easing: curve,
     css: (t: number) => `opacity: ${t}; transform: scale(${0.96 + t * 0.04}); height: ${t * node.offsetHeight}px; margin-block-end: ${(t - 1) * 8}px`,
-    easing: (t: number) => 1 - Math.pow(1 - t, 3),
   });
 
   const nameOf = (userId: string) =>
