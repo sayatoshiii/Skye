@@ -19,6 +19,23 @@ fn unlock(window: &tauri::WebviewWindow) {
 #[cfg(not(target_os = "linux"))]
 fn unlock(_: &tauri::WebviewWindow) {}
 
+#[cfg(target_os = "linux")]
+unsafe extern "C" {
+  #[link_name = "_ZN14modules_portal18InitializePipewireEPv"]
+  fn initialize_pipewire(module: *mut std::ffi::c_void);
+}
+
+#[cfg(target_os = "linux")]
+fn audio() {
+  let module = unsafe { libc::dlopen(c"libpipewire-0.3.so.0".as_ptr(), libc::RTLD_NOW | libc::RTLD_GLOBAL) };
+  (!module.is_null()).then(|| unsafe { initialize_pipewire(module) });
+  pipewire::init();
+  std::mem::forget(cpal::default_host());
+}
+
+#[cfg(not(target_os = "linux"))]
+fn audio() {}
+
 fn reveal(app: &tauri::AppHandle) {
   app.get_webview_window("main").map(|window| (window.show(), window.unminimize(), window.set_focus()));
 }
@@ -77,6 +94,7 @@ fn single(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  audio();
   engine(single(tauri::Builder::default()))
     .plugin(tauri_plugin_log::Builder::default().level([log::LevelFilter::Warn, log::LevelFilter::Info][cfg!(debug_assertions) as usize]).build())
     .plugin(tauri_plugin_notification::init())
