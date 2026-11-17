@@ -36,11 +36,14 @@
   let multiple = $state(false);
   let duration = $state(0);
   let busy = $state(false);
-  let picking: { anchor: HTMLElement; field: HTMLInputElement; set: (value: string) => void } | null = $state(null);
+  let picking: { key: string; anchor: HTMLElement; field: HTMLInputElement; set: (value: string) => void } | null = $state(null);
   let next = 3;
   const FACES = ["😀", "😄", "😁", "😆", "😊", "😉", "😎", "🤩", "🥳", "😺", "🙂", "🤗"];
-  let face = $state(FACES[0]);
-  const shuffle = () => (face = FACES[Math.floor(Math.random() * FACES.length)]);
+  let faces: Record<string, string> = $state({});
+  const randomFace = () => FACES[Math.floor(Math.random() * FACES.length)];
+  const initial = new Map<string, string>();
+  const shuffle = (key: string) => (faces[key] = randomFace());
+  const faceOf = (key: string) => faces[key] ?? initial.get(key) ?? initial.set(key, randomFace()).get(key)!;
 
   const filled = $derived(options.map((option) => option.value.trim()).filter(Boolean));
   const ready = $derived(!!question.trim() && filled.length >= 2 && !busy);
@@ -59,10 +62,10 @@
       .catch(() => (busy = false));
   };
 
-  const pick = (event: MouseEvent, set: (value: string) => void) => {
+  const pick = (event: MouseEvent, key: string, set: (value: string) => void) => {
     const anchor = event.currentTarget as HTMLElement;
     const field = anchor.closest(".field-row")?.querySelector("input");
-    picking = field && picking?.anchor !== anchor ? { anchor, field, set } : null;
+    picking = field && picking?.anchor !== anchor ? { key, anchor, field, set } : null;
   };
 
   const insert = async (unicode: string) => {
@@ -77,8 +80,8 @@
     field.setSelectionRange(start + unicode.length, start + unicode.length);
   };
 
-  const emojiMenu = (node: HTMLElement, set: (value: string) => void) =>
-    menu(node, () => [{ id: "poll-emoji", label: text("add_emoji"), icon: SMILE, run: () => pick({ currentTarget: node } as unknown as MouseEvent, set) }]);
+  const emojiMenu = (node: HTMLElement, { key, set }: { key: string; set: (value: string) => void }) =>
+    menu(node, () => [{ id: "poll-emoji", label: text("add_emoji"), icon: SMILE, run: () => pick({ currentTarget: node } as unknown as MouseEvent, key, set) }]);
 
   const preview = $derived({
     event_id: "~preview",
@@ -102,9 +105,9 @@
   const durationItems = () => DURATIONS.map((item) => ({ id: `poll-duration-${item.key}`, label: text(`duration_${item.key}`), icon: MENU_ICONS.retry, selected: item.ms === duration, run: () => (duration = item.ms) }));
 </script>
 
-{#snippet emojiButton(set: (value: string) => void)}
-  <button type="button" class="emoji ghost press" class:open={!!picking} aria-label={text("add_emoji")} aria-haspopup="dialog" onmouseenter={shuffle} onclick={(event) => pick(event, set)} use:emojiMenu={set}>
-    <img src={getEmojiURL(twemojiFile(face))} alt="" width="20" height="20" draggable="false" />
+{#snippet emojiButton(key: string, set: (value: string) => void)}
+  <button type="button" class="emoji ghost press" class:open={picking?.key === key} aria-label={text("add_emoji")} aria-haspopup="dialog" onmouseenter={() => shuffle(key)} onclick={(event) => pick(event, key, set)} use:emojiMenu={{ key, set }}>
+    <img src={getEmojiURL(twemojiFile(faceOf(key)))} alt="" width="20" height="20" draggable="false" />
   </button>
 {/snippet}
 
@@ -117,7 +120,7 @@
       <span class="set-input flex-max min-0" use:menu={() => [{ id: "poll-question-copy", label: entityText("copy_question"), icon: MENU_ICONS.copy, disabled: !question.trim(), run: () => copied(question) }]}>
         <!-- svelte-ignore a11y_autofocus -->
         <input type="text" maxlength="300" autofocus aria-label={text("question")} placeholder={text("question_hint")} bind:value={question} />
-        {@render emojiButton((value) => (question = value))}
+        {@render emojiButton("question", (value) => (question = value))}
       </span>
       <span class="spacer" aria-hidden="true"></span>
       </span>
@@ -131,7 +134,7 @@
               <span class="field-row row-nw align-centre gap-xs">
               <span class="set-input flex-max min-0">
                 <input type="text" maxlength="200" placeholder={text("option_hint").replace("{number}", String(index + 1))} aria-label={text("option_hint").replace("{number}", String(index + 1))} bind:value={option.value} />
-                {@render emojiButton((value) => (option.value = value))}
+                {@render emojiButton(`option-${option.id}`, (value) => (option.value = value))}
               </span>
                 <button type="button" class="remove ghost press" class:hidden={options.length <= 2} aria-label={text("remove_option")} disabled={options.length <= 2} onclick={() => remove(option.id)}>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.close} /></svg>
