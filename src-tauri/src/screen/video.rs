@@ -90,7 +90,7 @@ fn convert(info: &spa::param::video::VideoInfoRaw, bytes: &[u8], stride: u32) ->
 }
 
 fn frame(feed: &mut Feed, bytes: &[u8], stride: u32) {
-  let Some(mut buffer) = convert(&feed.info, bytes, stride) else { return };
+  let Some(mut buffer) = convert(&feed.info, bytes, stride) else { return log::warn!("screen: frame skipped {} bytes stride {stride}", bytes.len()) };
   let due = feed.shown.elapsed() >= PREVIEW;
   due.then(|| (deliver(LOCAL, &mut buffer, 960), feed.shown = Instant::now()));
   let stamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|since| since.as_micros() as i64).unwrap_or_default();
@@ -107,7 +107,7 @@ pub fn run(picked: Picked, source: NativeVideoSource, stop: pw::channel::Receive
     .add_local_listener_with_user_data(feed)
     .param_changed(|_, feed, id, param| {
       let wanted = id == spa::param::ParamType::Format.as_raw();
-      param.filter(|_| wanted).map(|param| feed.info.parse(param));
+      param.filter(|_| wanted).map(|param| (feed.info.parse(param), log::warn!("screen: format {:?} {}x{}", feed.info.format(), feed.info.size().width, feed.info.size().height)));
     })
     .process(|stream, feed| {
       stream.dequeue_buffer().map(|mut buffer| {
@@ -121,6 +121,7 @@ pub fn run(picked: Picked, source: NativeVideoSource, stop: pw::channel::Receive
     .register()?;
   let values = format();
   let mut params = [spa::pod::Pod::from_bytes(&values).ok_or(pw::Error::CreationFailed)?];
+  log::warn!("screen: connecting pipewire");
   stream.connect(spa::utils::Direction::Input, Some(picked.node), pw::stream::StreamFlags::AUTOCONNECT | pw::stream::StreamFlags::MAP_BUFFERS, &mut params)?;
   let quitter = mainloop.clone();
   let _stop = stop.attach(mainloop.loop_(), move |_| quitter.quit());

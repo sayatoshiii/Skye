@@ -1,5 +1,6 @@
 <script lang="ts">
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
+  import { audioPickable, pickAudio } from "../../scripts/stores/nativescreen";
   import { identityOf } from "../../scripts/matrix/utilities/rtc";
   import { fetchProfile } from "../../scripts/matrix/utilities/profile";
   import { menu } from "../../scripts/misc/entitymenu.svelte";
@@ -205,11 +206,17 @@
   let fullTile = $state<string | null>(null);
   $effect(() => {
     const sync = () => (fullTile = (document.fullscreenElement as HTMLElement | null)?.dataset.tile ?? null);
-    document.addEventListener("fullscreenchange", sync);
-    return () => document.removeEventListener("fullscreenchange", sync);
+    const events = ["fullscreenchange", "webkitfullscreenchange"];
+    events.forEach((event) => document.addEventListener(event, sync));
+    window.addEventListener("resize", sync);
+    return () => (events.forEach((event) => document.removeEventListener(event, sync)), window.removeEventListener("resize", sync));
   });
   const tileNode = (id: string) => document.querySelector<HTMLElement>(`[data-tile="${CSS.escape(id)}"]`);
-  const fullscreen = (id: string) => void (fullTile === id ? document.exitFullscreen() : tileNode(id)?.requestFullscreen())?.catch(() => undefined);
+  const fullscreen = (id: string) => {
+    const current = (document.fullscreenElement as HTMLElement | null)?.dataset.tile ?? null;
+    fullTile = current;
+    void (current === id ? document.exitFullscreen() : tileNode(id)?.requestFullscreen())?.catch(() => (fullTile = (document.fullscreenElement as HTMLElement | null)?.dataset.tile ?? null));
+  };
   const pip = (id: string) => pictureInPicture(tileNode(id)?.querySelector("video"));
   const tileItems = (tile: Tile): MenuItem[] => [
     ...(tile.screen ? [{ id: "tile-fullscreen", label: text(fullTile === tile.id ? "fullscreen_exit" : "fullscreen"), icon: fullTile === tile.id ? MENU_ICONS.fullscreenExit : MENU_ICONS.fullscreen, run: () => fullscreen(tile.id) }] : []),
@@ -221,7 +228,10 @@
     { id: "stage-camera", label: text($cameraOn ? "camera_off" : "camera_on"), icon: $cameraOn ? SETTINGS_ICONS.cameraOff : SETTINGS_ICONS.camera, run: toggleCamera },
     { id: "stage-camera-settings", label: text("settings"), icon: MENU_ICONS.settings, separated: true, run: openVoiceSettings },
   ];
-  const screenItems = (): MenuItem[] => [{ id: "stage-screen", label: text($screenOn ? "screen_stop" : "screen_start"), icon: $screenOn ? SETTINGS_ICONS.screenOff : SETTINGS_ICONS.screen, run: toggleScreen }];
+  const screenItems = (): MenuItem[] => [
+    { id: "stage-screen", label: text($screenOn ? "screen_stop" : "screen_start"), icon: $screenOn ? SETTINGS_ICONS.screenOff : SETTINGS_ICONS.screen, run: toggleScreen },
+    ...($screenOn && audioPickable ? [{ id: "stage-screen-audio", label: getLocalisedText(undefined, "voice", "share_audio_choose") as string, icon: SETTINGS_ICONS.headphones, run: () => pickAudio() }] : []),
+  ];
   const muteItems = (): MenuItem[] => [{ id: "stage-mute", label: text($muted ? "unmute" : "mute"), icon: $muted ? SETTINGS_ICONS.mic : SETTINGS_ICONS.micOff, run: toggleMute }];
   const deafenItems = (): MenuItem[] => [{ id: "stage-deafen", label: text($deafened ? "undeafen" : "deafen"), icon: $deafened ? SETTINGS_ICONS.headphones : SETTINGS_ICONS.headphonesOff, run: toggleDeafen }];
   const leaveItems = (): MenuItem[] => [{ id: "stage-leave", label: text(direct ? "hang_up" : "leave"), icon: SETTINGS_ICONS.hangup, danger: true, run: leaveCall }];

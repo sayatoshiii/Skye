@@ -30,6 +30,36 @@
   let gliding = $state(false);
   let glide = $state(420);
   let dragging = $state(false);
+  const SIZE_KEY = "skye:mini_width";
+  const DEFAULT_WIDTH = 320;
+  const readWidth = () => {
+    try {
+      return Number(localStorage.getItem(SIZE_KEY)) || DEFAULT_WIDTH;
+    } catch {
+      return DEFAULT_WIDTH;
+    }
+  };
+  let width = $state(readWidth());
+  let ratio = $state(16 / 9);
+  const measure = () => video?.videoWidth && video.videoHeight && (ratio = video.videoWidth / video.videoHeight);
+  let resizing = $state(false);
+  const fit = (value: number) => Math.round(Math.min(Math.max(value, 200), Math.min(innerWidth - 32, 760)));
+  const resize = (value: number) => {
+    width = fit(value);
+    try {
+      localStorage.setItem(SIZE_KEY, String(width));
+    } catch {}
+  };
+  let grab: { x: number; y: number; width: number } | null = null;
+  const gripDown = (event: PointerEvent) => (event.stopPropagation(), event.preventDefault(), (event.currentTarget as Element).setPointerCapture(event.pointerId), (grab = { x: event.clientX, y: event.clientY, width }), (resizing = true));
+  const gripMove = (event: PointerEvent) => {
+    if (!grab) return;
+    event.stopPropagation();
+    const across = (event.clientX - grab.x) * (corner.x ? -1 : 1);
+    const down = (event.clientY - grab.y) * (corner.y ? -1 : 1) * (16 / 9);
+    width = fit(grab.width + (Math.abs(across) > Math.abs(down) ? across : down));
+  };
+  const gripUp = (event: PointerEvent) => grab && (event.stopPropagation(), (grab = null), (resizing = false), resize(width));
   let node = $state<HTMLElement>();
   let video = $state<HTMLVideoElement>();
 
@@ -39,6 +69,9 @@
   const items = (): MenuItem[] => [
     { id: "mini-back", label: text("back_to_call"), icon: MENU_ICONS.open, run: back },
     ...(pipSupported ? [{ id: "mini-pip", label: text("pip"), icon: MENU_ICONS.pip, run: pip }] : []),
+    { id: "mini-bigger", label: text("mini_bigger"), icon: MENU_ICONS.fullscreen, separated: true, run: () => resize(width * 1.25) },
+    { id: "mini-smaller", label: text("mini_smaller"), icon: MENU_ICONS.fullscreenExit, run: () => resize(width / 1.25) },
+    ...(width !== DEFAULT_WIDTH ? [{ id: "mini-reset", label: text("mini_reset"), icon: MENU_ICONS.read, run: () => resize(DEFAULT_WIDTH) }] : []),
     { id: "mini-close", label: text("hide_player"), icon: MENU_ICONS.close, separated: true, run: close },
   ];
 
@@ -106,6 +139,9 @@
     class:bottom={corner.y === 1}
     class:gliding
     class:dragging
+    class:resizing
+    style:width="{width}px"
+    style:aspect-ratio={ratio}
     style:--dx="{offset.x}px"
     style:--dy="{offset.y}px"
     style:--glide="{glide}ms"
@@ -122,7 +158,8 @@
     use:menu={items}
     transition:pop
   >
-    <video bind:this={video} use:attach={media.track} muted playsinline></video>
+    <video bind:this={video} use:attach={media.track} muted playsinline onloadedmetadata={measure} onresize={measure}></video>
+    <span class="grip" role="separator" aria-label={text("mini_resize")} onpointerdown={gripDown} onpointermove={gripMove} onpointerup={gripUp} onpointercancel={gripUp} use:menu={items}></span>
     <span class="name xs bold truncate"><EmojiText text={text("screen_of").replace("{name}", name)} /></span>
     <div class="controls row-nw align-centre gap-xs">
       <button type="button" class="ghost round control press" aria-label={text("back_to_call")} use:tooltip={text("back_to_call")} onclick={back} use:menu={items}>
@@ -159,7 +196,9 @@
     cursor: pointer;
     touch-action: none;
     user-select: none;
-    transition: width 420ms var(--ease);
+    transition:
+      width 420ms var(--ease),
+      aspect-ratio 420ms var(--ease);
   }
 
   .mini.right {
@@ -188,6 +227,62 @@
     transition:
       translate var(--glide) var(--ease),
       width 420ms var(--ease);
+  }
+
+  .mini.resizing {
+    transition: none;
+  }
+
+  .grip {
+    position: absolute;
+    z-index: 2;
+    top: 0;
+    left: 0;
+    width: 22px;
+    height: 22px;
+    cursor: nwse-resize;
+    opacity: 0;
+    transition: opacity 240ms var(--ease);
+  }
+
+  .grip::after {
+    content: "";
+    position: absolute;
+    inset: 6px;
+    border-top: 2px solid rgb(255 255 255 / 0.85);
+    border-left: 2px solid rgb(255 255 255 / 0.85);
+    border-top-left-radius: 6px;
+  }
+
+  .mini:not(.right):not(.bottom) .grip {
+    left: auto;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    rotate: 180deg;
+  }
+
+  .mini.right:not(.bottom) .grip {
+    top: auto;
+    bottom: 0;
+    rotate: 270deg;
+  }
+
+  .mini.bottom:not(.right) .grip {
+    left: auto;
+    right: 0;
+    top: 0;
+    rotate: 90deg;
+    cursor: nesw-resize;
+  }
+
+  .mini.right:not(.bottom) .grip {
+    cursor: nesw-resize;
+  }
+
+  .mini:hover .grip,
+  .mini.resizing .grip {
+    opacity: 1;
   }
 
   .mini.dragging {
