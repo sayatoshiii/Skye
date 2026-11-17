@@ -5,7 +5,7 @@
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { tooltip } from "../../scripts/misc/tooltip";
   import { accentPresets, getAccent, getAccentPreset, isHexColour, setAccent, type AccentPreset } from "../../scripts/settings/accent";
-  import { mediaSettings, setHideRedacted } from "../../scripts/settings/media";
+  import { mediaSettings, setHideRedacted, setShowCallEvents } from "../../scripts/settings/media";
   import { getMotionChoice, setMotionChoice, systemReducesMotion } from "../../scripts/settings/motion";
   import { copied } from "../../scripts/stores/toast";
   import type { MenuItem } from "../app/MessageMenu.svelte";
@@ -117,6 +117,16 @@
       <p class="set-hint">{look("hide_redacted_hint")}</p>
     </div>
     <Toggle checked={$mediaSettings.hideRedacted} label={look("hide_redacted")} onchange={setHideRedacted} />
+  </div>
+</section>
+
+<section class="set-section" data-part="calls">
+  <div class="split">
+    <div class="head col">
+      <h3 class="set-heading title">{look("show_call_events")}</h3>
+      <p class="set-hint">{look("show_call_events_hint")}</p>
+    </div>
+    <Toggle checked={$mediaSettings.showCallEvents} label={look("show_call_events")} onchange={setShowCallEvents} />
   </div>
 </section>
 

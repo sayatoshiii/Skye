@@ -2,6 +2,8 @@
   import { onMount, type Snippet } from "svelte";
   import BrowseChannels from "../../components/app/BrowseChannels.svelte";
   import Chat from "../../components/app/Chat.svelte";
+  import IncomingCall from "../../components/app/IncomingCall.svelte";
+  import VoicePanel from "../../components/navigation/VoicePanel.svelte";
   import Lightbox from "../../components/app/media/Lightbox.svelte";
   import Loading from "../../components/app/Loading.svelte";
   import RestoreHistory from "../../components/app/RestoreHistory.svelte";
@@ -163,6 +165,7 @@
   onpointercancel={onpointerup}
 >
   <div class="track">
+    <IncomingCall />
     <div class="pane left col" inert={mobile && navigation.pane !== "channels"}>
       <div class="row-nw flex-max min-0">
         <SpaceRail />
@@ -170,6 +173,7 @@
           <ChannelList onpick={() => go("chat")} />
         </div>
       </div>
+      <VoicePanel />
       {#if footer}
         <footer class="account hairline-t">
           {@render footer()}

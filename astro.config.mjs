@@ -37,6 +37,7 @@ export default defineConfig({
     optimizeDeps: {
       exclude: ["@matrix-org/matrix-sdk-crypto-wasm"],
       include: [
+        "livekit-client",
         "highlight.js/lib/core",
         "highlight.js/lib/languages/javascript",
         "highlight.js/lib/languages/typescript",

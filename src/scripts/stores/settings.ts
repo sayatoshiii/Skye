@@ -8,7 +8,7 @@ export type NotifyPrefs = { directs: boolean; mentionsOnly: boolean };
 
 export const DEFAULT_NOTIFY: NotifyPrefs = { directs: true, mentionsOnly: true };
 
-export type SettingsSection = "profile" | "account" | "devices" | "privacy" | "appearance" | "notifications";
+export type SettingsSection = "profile" | "account" | "devices" | "privacy" | "appearance" | "notifications" | "voice";
 
 export const settingsOpen = writable(false);
 export const settingsSection = writable<SettingsSection | null>(null);

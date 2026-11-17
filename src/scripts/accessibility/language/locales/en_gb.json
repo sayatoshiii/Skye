@@ -307,7 +307,8 @@
         "devices": "Devices",
         "privacy": "Privacy & security",
         "appearance": "Appearance",
-        "notifications": "Notifications"
+        "notifications": "Notifications",
+        "voice": "Voice"
       },
       "sign_out_title": "Sign out of Skye?",
       "sign_out_body": "You'll need to sign in again to use Skye on this device.",
@@ -347,7 +348,9 @@
         "hide_redacted": "Hide deleted messages",
         "hide_redacted_hint": "Hide deleted message indicators from your chats",
         "animations_system": "Your system asks for reduced motion, so animations stay off",
-        "copy_hex": "Copy colour code"
+        "copy_hex": "Copy colour code",
+        "show_call_events": "Show call activity",
+        "show_call_events_hint": "Show when people join or leave calls in your chats"
       },
       "notify": {
         "desktop": "Desktop notifications",
@@ -528,7 +531,33 @@
         "motion": "Animations",
         "browser": "This browser",
         "synced": "Your account",
-        "theme": "Theme"
+        "theme": "Theme",
+        "input": "Microphone",
+        "output": "Speaker",
+        "talk": "Push to talk"
+      },
+      "voice": {
+        "heading_input": "Microphone",
+        "heading_output": "Speaker",
+        "heading_talk": "Push to talk",
+        "input": "Input device",
+        "input_hint": "The microphone Skye uses in voice rooms and calls.",
+        "output": "Output device",
+        "output_hint": "Where you hear everyone else.",
+        "output_unsupported": "This browser always plays through its default speaker.",
+        "default": "System default",
+        "unnamed": "Device {n}",
+        "allow": "Allow microphone",
+        "allow_hint": "Your browser hides device names until you allow the microphone once.",
+        "test": "Test microphone",
+        "testing": "Stop test",
+        "talk": "Push to talk",
+        "talk_hint": "Only send your voice while you hold a key.",
+        "key": "Key",
+        "record": "Press a key",
+        "change_key": "Change key",
+        "pick": "Use this device",
+        "copy_name": "Copy device name"
       }
     },
     "login": {
@@ -1164,7 +1193,8 @@
       "homeserver_copied": "Homeserver copied",
       "recovery_failed": "Couldn't set up recovery. Try again.",
       "recovery_unlocked": "This device is unlocked",
-      "recovery_wrong": "That recovery key didn't work"
+      "recovery_wrong": "That recovery key didn't work",
+      "mic_blocked": "Your microphone is blocked, so you're muted. Allow it in your browser to talk."
     },
     "people": {
       "close": "Close",
@@ -1303,6 +1333,58 @@
       "room": "Room",
       "space": "Space",
       "other_rooms": "Other rooms"
+    },
+    "voice": {
+      "connected": "Voice connected",
+      "connecting": "Connecting",
+      "ringing": "Ringing",
+      "reconnecting": "Reconnecting",
+      "quality_excellent": "Excellent connection",
+      "quality_good": "Good connection",
+      "quality_poor": "Poor connection",
+      "quality_lost": "Connection lost",
+      "quality_unknown": "Checking connection",
+      "mute": "Mute",
+      "unmute": "Unmute",
+      "deafen": "Deafen",
+      "undeafen": "Undeafen",
+      "disconnect": "Disconnect",
+      "settings": "Voice settings",
+      "join": "Join call",
+      "start": "Start call",
+      "call": "Start call",
+      "open_room": "Open room",
+      "in_voice": "{count} in the call",
+      "encrypted": "End-to-end encrypted",
+      "not_encrypted": "Not encrypted",
+      "incoming": "Incoming call",
+      "incoming_voice": "{name} wants you to join the call",
+      "accept": "Accept",
+      "decline": "Decline",
+      "stage_empty": "No one is here yet",
+      "stage_join_hint": "Hop in and others will see you in the room list.",
+      "you": "You",
+      "speaking": "Speaking",
+      "muted": "Muted",
+      "errors": {
+        "no_focus": "Your homeserver doesn't advertise a MatrixRTC server, so group voice isn't available here.",
+        "sfu_failed": "The MatrixRTC server didn't let Skye in.",
+        "join_failed": "Skye couldn't connect to voice.",
+        "mic": "Skye couldn't use your microphone."
+      },
+      "view_profile": "View profile",
+      "copy_id": "Copy user ID",
+      "legacy": "Direct call",
+      "ring_again": "Ring again",
+      "stop_ringing": "Stop ringing",
+      "expand": "Full view",
+      "collapse": "Shrink call",
+      "chat_show": "Show chat",
+      "chat_hide": "Hide chat",
+      "leave": "Leave call",
+      "hang_up": "Hang up",
+      "events_show": "Show call activity",
+      "events_hide": "Hide call activity"
     }
   }
 }

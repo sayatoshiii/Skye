@@ -19,6 +19,7 @@
     "dompurify": "3.4.18",
     "emojibase-data": "18.0.0",
     "highlight.js": "11.12.0",
+    "livekit-client": "2.23.0",
     "marked": "18.2.0",
     "matrix-js-sdk": "^41.3.0-rc.0",
     "svelte": "^5.55.1"

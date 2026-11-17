@@ -6,6 +6,7 @@ export type MediaSettings = {
   alwaysAllowEmbeds: Record<string, boolean>;
   keepImageMetadata: boolean;
   hideRedacted: boolean;
+  showCallEvents: boolean;
 };
 
 const defaults = (): MediaSettings => ({
@@ -13,6 +14,7 @@ const defaults = (): MediaSettings => ({
   alwaysAllowEmbeds: {},
   keepImageMetadata: false,
   hideRedacted: false,
+  showCallEvents: false,
 });
 
 const load = (): MediaSettings => {
@@ -58,5 +60,8 @@ export const setKeepImageMetadata = (keep: boolean) =>
 
 export const setHideRedacted = (hide: boolean) =>
   patch(() => ({ hideRedacted: hide }));
+
+export const setShowCallEvents = (show: boolean) =>
+  patch(() => ({ showCallEvents: show }));
 
 export const getMediaSettings = () => get(mediaSettings);
