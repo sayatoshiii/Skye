@@ -36,6 +36,9 @@ import {
 } from "../matrix/utilities/rtc";
 import { decryptPreview, redactRoomEvent, registerLiveSyncHook, registerSyncHook, registerToDeviceHook, rooms, sendEncryptedToDevice, sendRoomEvent, session } from "./matrix";
 import { toast, toastKey } from "./toast";
+import { native } from "../misc/native";
+import { bridgePublisher, screenShared } from "./nativescreen";
+import { NativeRoom, nativeDevices, nativeLevels, nativeTuning, nativeVoice, nativeVoices } from "./nativeroom";
 import { getLocalisedText } from "../accessibility/language/translation";
 
 export type VoiceKind = "rtc" | "legacy";
@@ -51,12 +54,12 @@ export type VoiceState = {
   startedAt: number;
 };
 
-export type VoicePrefs = { input: string; output: string; camera: string; pushToTalk: boolean; pttKey: string; pttLabel: string };
+export type VoicePrefs = { input: string; output: string; camera: string; pushToTalk: boolean; pttKey: string; pttLabel: string; noiseSuppression: boolean; echoCancellation: boolean; autoSensitivity: boolean; sensitivity: number };
 
 export type IncomingCall = { roomId: RoomId; kind: VoiceKind; callerId: UserId; callId?: string };
 
 const PREFS_KEY = "skye:voice";
-const DEFAULT_PREFS: VoicePrefs = { input: "default", output: "default", camera: "default", pushToTalk: false, pttKey: "KeyV", pttLabel: "V" };
+const DEFAULT_PREFS: VoicePrefs = { input: "default", output: "default", camera: "default", pushToTalk: false, pttKey: "KeyV", pttLabel: "V", noiseSuppression: true, echoCancellation: true, autoSensitivity: true, sensitivity: -50 };
 
 const readPrefs = (): VoicePrefs => {
   try {
@@ -191,7 +194,7 @@ export const screenSupported = typeof navigator !== "undefined" && !!navigator.m
 export const joinable = derived(rooms, ($rooms) => new Set(Object.values($rooms).filter(isCallRoom).map((room) => room.roomId)));
 
 export const listDevices = async (kind: MediaDeviceKind) =>
-  (await navigator.mediaDevices?.enumerateDevices?.().catch(() => []))?.filter((device) => device.kind === kind) ?? [];
+  nativeVoice ? nativeDevices(kind) : (await navigator.mediaDevices?.enumerateDevices?.().catch(() => []))?.filter((device) => device.kind === kind) ?? [];
 
 type CallEventHook = (roomId: RoomId, event: MatrixEvent) => void;
 
@@ -363,7 +366,7 @@ const applyVolumes = () => {
   live?.links.forEach((link) =>
     link.room.remoteParticipants.forEach((participant) => {
       const level = volumeOf(userOfIdentity(participant.identity));
-      const volume = get(deafened) || level.muted || chosen[userOfIdentity(participant.identity)]?.participant !== participant ? 0 : level.volume;
+      const volume = get(deafened) || level.muted || userOfIdentity(participant.identity) === get(session)?.userId || (!nativeVoice && chosen[userOfIdentity(participant.identity)]?.participant !== participant) ? 0 : level.volume;
       participant.setVolume(volume);
       participant.setVolume(get(deafened) || level.muted ? 0 : (level.stream ?? 1), "screen_share_audio" as Parameters<typeof participant.setVolume>[1]);
     }),
@@ -432,7 +435,101 @@ const meter = (track: MediaStreamTrack) =>
     return read;
   })();
 
-const refreshSpeaking = (current: Live) => live === current && speaking.set(new Set([...current.links.values()].flatMap((link) => [...link.speakers])));
+export const captureOf = (prefs: VoicePrefs, exact = false) => ({
+  deviceId: prefs.input === "default" ? undefined : exact ? { exact: prefs.input } : prefs.input,
+  echoCancellation: prefs.echoCancellation,
+  noiseSuppression: prefs.noiseSuppression,
+  autoGainControl: true,
+});
+
+export const inputLevel = writable(0);
+export const transmitting = writable(false);
+const DB_FLOOR = -100;
+const AUTO_DB = -55;
+const GATE_HOLD = 300;
+const listeners = writable(0);
+export const watchInput = () => (listeners.update((count) => count + 1), () => listeners.update((count) => count - 1));
+
+export const userLevels = writable<Record<string, [number, number, number]>>({});
+const VISIBLE_DB = [-62, -18];
+const loudness = (db: number) => Math.max(0, Math.min(1, (db - VISIBLE_DB[0]) / (VISIBLE_DB[1] - VISIBLE_DB[0])));
+const pushLevels = (levels: Record<string, number>) =>
+  userLevels.update((all) => ({ ...all, ...Object.fromEntries(Object.entries(levels).map(([user, level]) => [user, [all[user]?.[1] ?? 0, level, all[user]?.[0] ?? 0] as [number, number, number]])) }));
+const byUser = (levels: Record<string, number>) =>
+  Object.entries(levels).reduce<Record<string, number>>((all, [identity, level]) => ({ ...all, [userOfIdentity(identity)]: Math.max(all[userOfIdentity(identity)] ?? 0, level) }), {});
+
+const showLevel = (db: number, open: boolean) => (
+  inputLevel.set((db - DB_FLOOR) / -DB_FLOOR),
+  transmitting.set(open),
+  nativeVoice && live && get(session) && pushLevels({ [get(session)!.userId]: open && micOpen() ? loudness(db) : 0 })
+);
+
+let gateOpen = true;
+const applyGate = (open: boolean) => {
+  const track = publishLink()?.room.localParticipant.getTrackPublication("microphone" as Track.Source)?.track?.mediaStreamTrack;
+  gateOpen = open;
+  track && (track.enabled = open);
+};
+
+const startMeter = (prefs: VoicePrefs) => {
+  let alive = true;
+  let loud = 0;
+  let stop = () => void (alive = false);
+  navigator.mediaDevices
+    ?.getUserMedia({ audio: captureOf(prefs, true) })
+    .then((stream) => {
+      const context = new AudioContext();
+      const analyser = Object.assign(context.createAnalyser(), { fftSize: 1024 });
+      const data = new Float32Array(analyser.fftSize);
+      context.createMediaStreamSource(stream).connect(analyser);
+      const timer = setInterval(() => {
+        analyser.getFloatTimeDomainData(data);
+        const db = Math.max(DB_FLOOR, 20 * Math.log10(Math.sqrt(data.reduce((sum, value) => sum + value * value, 0) / data.length) || 1e-6));
+        const now = performance.now();
+        const current = get(voicePrefs);
+        loud = db > (current.autoSensitivity ? AUTO_DB : current.sensitivity) ? now : loud;
+        const open = now - loud < GATE_HOLD;
+        showLevel(db, open);
+        const gate = current.autoSensitivity || open;
+        gate !== gateOpen && !nativeVoice && applyGate(gate);
+      }, 40);
+      stop = () => (clearInterval(timer), stream.getTracks().forEach((track) => track.stop()), context.close().catch(() => undefined), showLevel(DB_FLOOR, false));
+      alive || stop();
+    })
+    .catch(() => undefined);
+  return () => stop();
+};
+
+let meterKey = "";
+let stopMeter = () => {};
+derived([voice, voicePrefs, listeners], ([$voice, $prefs, $listeners]) =>
+  (nativeVoice ? !$voice && $listeners > 0 : ($voice && !$prefs.autoSensitivity) || $listeners > 0) ? `${$prefs.input}:${$prefs.noiseSuppression}:${$prefs.echoCancellation}` : "",
+).subscribe((key) => {
+  key !== meterKey && (stopMeter(), (stopMeter = key ? startMeter(get(voicePrefs)) : () => {}), (meterKey = key));
+  key || gateOpen || applyGate(true);
+});
+
+nativeVoice && nativeLevels(showLevel);
+nativeVoice && nativeVoices((levels) => pushLevels(byUser(Object.fromEntries(Object.entries(levels).map(([identity, db]) => [identity, loudness(db)])))));
+
+const capture = (prefs: VoicePrefs) => `${prefs.noiseSuppression}:${prefs.echoCancellation}`;
+let processed = capture(get(voicePrefs));
+voicePrefs.subscribe((prefs) => {
+  const changed = capture(prefs) !== processed;
+  processed = capture(prefs);
+  nativeVoice && nativeTuning(prefs);
+  changed &&
+    !nativeVoice &&
+    (publishLink()?.room.localParticipant.getTrackPublication("microphone" as Track.Source)?.track as { restartTrack?: (options: MediaTrackConstraints) => Promise<void> } | undefined)
+      ?.restartTrack?.(captureOf(prefs))
+      .then(() => applyGate(gateOpen))
+      .catch(() => undefined);
+});
+
+const TALKING = 0.12;
+export const talkingUsers = derived([userLevels, voice], ([$levels, $voice]) => new Set($voice ? Object.keys($levels).filter((user) => Math.max(...$levels[user]) > TALKING) : []));
+
+const refreshSpeaking = (current: Live) => live === current && speaking.set(new Set([...current.links.values()].flatMap((link) => [...link.speakers]).filter((identity) => micOpen() || userOfIdentity(identity) !== get(session)?.userId)));
 
 const refreshMedia = (current: Live) => {
   const link = [...current.links.values()].find((entry) => entry.publish);
@@ -513,14 +610,15 @@ const openLink = async (current: Live, focus: LiveKitFocus, publish: boolean, se
   const active = get(session)!;
   const key = transportKey(focus);
   const kit = await import("livekit-client");
-  const keys = current.encrypted ? await createKeyProvider() : null;
-  const worker = keys ? new Worker(new URL("livekit-client/e2ee-worker", import.meta.url), { type: "module" }) : undefined;
+  const shim = nativeVoice ? new NativeRoom(current.encrypted, publish) : null;
+  const keys = current.encrypted ? (shim ? { provider: null, setParticipantKey: shim.setKey } : await createKeyProvider()) : null;
+  const worker = keys && !shim ? new Worker(new URL("livekit-client/e2ee-worker", import.meta.url), { type: "module" }) : undefined;
   const prefs = get(voicePrefs);
-  const room = new kit.Room({
+  const room = (shim as unknown as LiveKitRoom | null) ?? new kit.Room({
     adaptiveStream: true,
     dynacast: true,
     webAudioMix: true,
-    audioCaptureDefaults: { deviceId: prefs.input === "default" ? undefined : prefs.input, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    audioCaptureDefaults: captureOf(prefs),
     videoCaptureDefaults: { deviceId: prefs.camera === "default" ? undefined : prefs.camera },
     audioOutput: { deviceId: prefs.output === "default" ? undefined : prefs.output },
     e2ee: keys && worker ? { keyProvider: keys.provider as InstanceType<typeof kit.BaseKeyProvider>, worker } : undefined,
@@ -529,8 +627,9 @@ const openLink = async (current: Live, focus: LiveKitFocus, publish: boolean, se
   current.links.set(key, link);
   const media = () => (refreshMedia(current), applyVolumes());
   const heard = new Map<string, number>();
-  const poll = setInterval(() => {
+  const poll = shim ? undefined : setInterval(() => {
     const now = performance.now();
+    const levels: Record<string, number> = {};
     [...(publish ? [room.localParticipant] : []), ...room.remoteParticipants.values()].forEach((participant: Participant) => {
       const publication = participant.getTrackPublication(kit.Track.Source.Microphone);
       const track = publication?.track;
@@ -559,7 +658,8 @@ const openLink = async (current: Live, focus: LiveKitFocus, publish: boolean, se
     })
     .on(kit.RoomEvent.LocalTrackUnpublished, media)
     .on(kit.RoomEvent.ParticipantConnected, media)
-    .on(kit.RoomEvent.ParticipantDisconnected, media);
+    .on(kit.RoomEvent.ParticipantDisconnected, media)
+    .on(kit.RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => shim && ((link.speakers = new Set(speakers.map((participant) => participant.identity))), refreshSpeaking(current), applyVolumes()));
   keys && setOwnKey(current, current.keyIndex, current.key);
   keys && replayKeys(current);
   const grant = await requestSfu(active, focus, current.roomId, publish, serverName);

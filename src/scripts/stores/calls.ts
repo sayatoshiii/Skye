@@ -2,7 +2,7 @@ import { get, writable } from "svelte/store";
 import type { MatrixEvent, RoomId } from "../matrix/types";
 import { NOTIFY_TYPES, turnServers } from "../matrix/utilities/rtc";
 import { rooms, sendRoomEvent, session } from "./matrix";
-import { applyOutput, audioElements, blockMic, callMembers, disconnect, incomingCall, joinVoice, micBlocked, registerCallEventHook, registerMicHook, ringRoom, stopRingRoom, voice, voiceFocus, voicePrefs } from "./voice";
+import { applyOutput, audioElements, blockMic, callMembers, disconnect, incomingCall, joinVoice, micBlocked, registerCallEventHook, registerMicHook, ringRoom, stopRingRoom, voice, voiceFocus, voicePrefs, captureOf } from "./voice";
 
 type Legacy = {
   roomId: RoomId;
@@ -82,10 +82,7 @@ registerMicHook((open) => call && (open && !call.stream ? openStream(call) : cal
 
 const send = (type: string, content: Record<string, unknown>, roomId: RoomId) => sendRoomEvent(type, content, roomId);
 
-const capture = () => {
-  const input = get(voicePrefs).input;
-  return navigator.mediaDevices.getUserMedia({ audio: { deviceId: input === "default" ? undefined : { exact: input }, echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
-};
+const capture = () => navigator.mediaDevices.getUserMedia({ audio: captureOf(get(voicePrefs), true) });
 
 const setup = async (roomId: RoomId, callId: string) => {
   const active = get(session)!;
