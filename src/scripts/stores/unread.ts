@@ -1,3 +1,4 @@
+import { native } from "../misc/native";
 import { derived, get, writable } from "svelte/store";
 import { getLocalisedText } from "../accessibility/language/translation";
 import { isUnread, unreadCountOf } from "../matrix/rooms";
@@ -69,7 +70,9 @@ const readDismissed = () => {
 
 const supported = () => typeof window !== "undefined" && "Notification" in window;
 
-export const notificationPrompt = writable(supported() && Notification.permission === "default" && !readDismissed());
+export const notificationPrompt = writable(!native && supported() && Notification.permission === "default" && !readDismissed());
+
+native && supported() && Notification.requestPermission().catch(() => undefined);
 
 export const enableNotifications = async () => {
   if (!supported()) return notificationPrompt.set(false);
