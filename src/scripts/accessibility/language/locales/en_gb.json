@@ -1405,7 +1405,11 @@
       "spotlight": "Spotlight",
       "unspotlight": "Back to grid",
       "focus": "Focus",
-      "screen_of": "{name}'s screen"
+      "screen_of": "{name}'s screen",
+      "pip": "Picture in picture",
+      "fullscreen_exit": "Exit full screen",
+      "back_to_call": "Back to call",
+      "hide_player": "Hide player"
     }
   }
 }

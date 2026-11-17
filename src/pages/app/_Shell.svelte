@@ -3,6 +3,7 @@
   import BrowseChannels from "../../components/app/BrowseChannels.svelte";
   import Chat from "../../components/app/Chat.svelte";
   import IncomingCall from "../../components/app/IncomingCall.svelte";
+  import MiniPlayer from "../../components/app/MiniPlayer.svelte";
   import VoicePanel from "../../components/navigation/VoicePanel.svelte";
   import Lightbox from "../../components/app/media/Lightbox.svelte";
   import Loading from "../../components/app/Loading.svelte";
@@ -202,6 +203,7 @@
   </div>
 </div>
 
+<MiniPlayer />
 <Lightbox />
 <MiniProfile />
 <FullProfile />
