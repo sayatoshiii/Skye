@@ -1,8 +1,8 @@
 import type { TransitionConfig } from "svelte/transition";
 
-export const prefersReducedMotion = () =>
-  typeof matchMedia === "function" &&
-  matchMedia("(prefers-reduced-motion: reduce)").matches;
+import { reducesMotion } from "../../scripts/settings/motion";
+
+export const prefersReducedMotion = reducesMotion;
 
 export const readDuration = (token: string, fallback: number) => {
   if (prefersReducedMotion()) return 0;

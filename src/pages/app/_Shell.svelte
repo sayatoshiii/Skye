@@ -234,9 +234,9 @@
 
   .account {
     flex: none;
-    padding: var(--azure-spacing-sm) var(--azure-spacing-md);
-    padding-bottom: max(var(--azure-spacing-sm), env(safe-area-inset-bottom));
-    padding-left: max(var(--azure-spacing-md), env(safe-area-inset-left));
+    padding: 6px var(--azure-spacing-sm) 6px var(--azure-spacing-sm);
+    padding-bottom: max(6px, env(safe-area-inset-bottom));
+    padding-left: max(var(--azure-spacing-sm), env(safe-area-inset-left));
     background-color: color-mix(in oklab, var(--colours-foreground) 70%, black);
     border-right: 1px solid var(--colours-outline-hairline);
   }
