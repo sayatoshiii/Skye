@@ -1,10 +1,13 @@
 <script lang="ts">
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { identityOf } from "../../scripts/matrix/utilities/rtc";
+  import { fetchProfile } from "../../scripts/matrix/utilities/profile";
+  import { volumeItems } from "../../scripts/misc/voicemenu";
   import { menu } from "../../scripts/misc/entitymenu.svelte";
   import { userMenuItems } from "../../scripts/misc/usermenu";
+  import { openMiniProfile } from "../../scripts/stores/profile";
   import { rooms, session } from "../../scripts/stores/matrix";
-  import { callMembers, deafened, muted, speaking, voice } from "../../scripts/stores/voice";
+  import { callMembers, deafened, memberIdentities, muted, speaking, userOfIdentity, voice } from "../../scripts/stores/voice";
   import { reveal } from "../auth/motion";
   import Icon from "../settings/Icon.svelte";
   import Avatar from "../ui/Avatar.svelte";
@@ -14,15 +17,19 @@
 
   const text = (...path: string[]) => getLocalisedText(undefined, "voice", ...path) as string;
 
+  let fetched = $state<Record<string, { displayName?: string; avatarUrl?: string } | null>>({});
+  $effect(() => {
+    ($callMembers[roomId] ?? []).map((member) => member.userId).filter((userId) => !$rooms[roomId]?.members[userId]?.avatarUrl && !(userId in fetched)).forEach((userId) => ((fetched[userId] = null), fetchProfile(userId).then((profile) => (fetched[userId] = profile))));
+  });
   const people = $derived(
     [...new Map(($callMembers[roomId] ?? []).map((member) => [member.userId, member])).values()].map((member) => {
-      const profile = $rooms[roomId]?.members[member.userId];
-      const devices = ($callMembers[roomId] ?? []).filter((entry) => entry.userId === member.userId).map((entry) => identityOf(entry.userId, entry.deviceId));
+      const profile = $rooms[roomId]?.members[member.userId]?.avatarUrl ? $rooms[roomId]?.members[member.userId] : { ...$rooms[roomId]?.members[member.userId], ...fetched[member.userId] };
+      const devices = ($callMembers[roomId] ?? []).filter((entry) => entry.userId === member.userId).flatMap((entry) => $memberIdentities[identityOf(entry.userId, entry.deviceId)] ?? [identityOf(entry.userId, entry.deviceId)]);
       return {
         userId: member.userId,
         name: profile?.displayName || member.userId.slice(1).split(":")[0],
         avatar: profile?.avatarUrl,
-        talking: $voice?.roomId === roomId && devices.some((identity) => $speaking.has(identity)),
+        talking: $voice?.roomId === roomId && (devices.some((identity) => $speaking.has(identity)) || [...$speaking].some((identity) => userOfIdentity(identity) === member.userId)),
         self: member.userId === $session?.userId,
       };
     }),
@@ -33,15 +40,15 @@
   <ul class="members col" aria-label={text("in_voice").replace("{count}", String(people.length))}>
     {#each people as person (person.userId)}
       <li transition:reveal>
-        <div class="member row-nw align-centre gap-sm sm" class:talking={person.talking} use:menu={() => userMenuItems(person.userId, roomId)}>
+        <button type="button" class="member ghost row-nw align-centre gap-md sm" class:talking={person.talking} data-profile-trigger onclick={(event) => (event.stopPropagation(), openMiniProfile(person.userId, event.currentTarget, "right", roomId))} use:menu={() => [...userMenuItems(person.userId, roomId), ...volumeItems(person.userId)]}>
           <span class="ring">
-            <Avatar name={person.name} url={person.avatar} size="22px" radius="50%" />
+            <Avatar name={person.name} url={person.avatar} size="24px" radius="50%" />
           </span>
           <span class="truncate flex-max"><EmojiText text={person.name} /></span>
           <span class="flags row-nw" class:shown={person.self && ($muted || $deafened)} aria-label={text("muted")}>
             <Icon name={$deafened ? "headphonesOff" : "micOff"} size={14} />
           </span>
-        </div>
+        </button>
       </li>
     {/each}
   </ul>
@@ -49,13 +56,17 @@
 
 <style>
   .members {
-    margin: 0 0 4px;
-    padding: 0 0 0 30px;
+    margin: 2px 0 6px;
+    padding: 0 6px 0 22px;
     list-style: none;
   }
 
   .member {
-    padding: 3px 8px;
+    width: 100%;
+    padding: 8px 10px;
+    margin: 2px 0;
+    text-align: start;
+    cursor: pointer;
     border-radius: 8px;
     color: var(--colours-text-muted);
     transition:

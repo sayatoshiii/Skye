@@ -1,6 +1,7 @@
 <script lang="ts">
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { identityOf } from "../../scripts/matrix/utilities/rtc";
+  import { fetchProfile } from "../../scripts/matrix/utilities/profile";
   import { menu } from "../../scripts/misc/entitymenu.svelte";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { tooltip } from "../../scripts/misc/tooltip";
@@ -9,7 +10,29 @@
   import { leaveCall, placeCall, ringAgain, ringing, stopRinging } from "../../scripts/stores/calls";
   import { rooms, session } from "../../scripts/stores/matrix";
   import { settingsOpen, settingsSection } from "../../scripts/stores/settings";
-  import { callMembers, deafened, joinable, ringingRooms, joinVoice, muted, speaking, toggleDeafen, toggleMute, voice } from "../../scripts/stores/voice";
+  import type { Track } from "livekit-client";
+  import { volumeItems } from "../../scripts/misc/voicemenu";
+  import {
+    callMedia,
+    callMembers,
+    cameraOn,
+    deafened,
+    joinable,
+    joinVoice,
+    memberIdentities,
+    muted,
+    ringingRooms,
+    screenOn,
+    screenSupported,
+    speaking,
+    userOfIdentity,
+    toggleCamera,
+    toggleDeafen,
+    toggleMute,
+    toggleScreen,
+    voice,
+    type CallMedia,
+  } from "../../scripts/stores/voice";
   import { fluid, readDuration } from "../auth/motion";
   import Icon from "../settings/Icon.svelte";
   import { SETTINGS_ICONS } from "../settings/icons";
@@ -45,35 +68,79 @@
       : [...present],
   );
 
-  const tiles = $derived(
-    ids.map((userId) => ({
-      userId,
-      pending: direct && here && userId === other && calling,
-      identities: members.filter((member) => member.userId === userId).map((member) => identityOf(member.userId, member.deviceId)),
-    })),
+  const identitiesOf = (userId: string) =>
+    members.filter((member) => member.userId === userId).flatMap((member) => $memberIdentities[identityOf(member.userId, member.deviceId)] ?? [identityOf(member.userId, member.deviceId)]);
+
+  const mediaFor = (userId: string, identities: string[]) =>
+    [...new Map($callMedia.map((media) => [media.id, media])).values()].filter((media) => here && media.track.mediaStreamTrack?.readyState !== "ended" && (identities.includes(media.identity) || (media.local && userId === $session?.userId)));
+
+  type Tile = { id: string; userId: string; screen: boolean; pending: boolean; identities: string[]; video?: CallMedia };
+
+  const tiles: Tile[] = $derived(
+    [...new Set(ids)].flatMap((userId) => {
+      const identities = identitiesOf(userId);
+      const media = mediaFor(userId, identities);
+      return [
+        { id: userId, userId, screen: false, pending: direct && here && userId === other && calling, identities, video: media.find((entry) => entry.source === "camera") },
+        ...media.filter((entry) => entry.source === "screen").map((entry) => ({ id: `screen:${entry.id}`, userId, screen: true, pending: false, identities: [], video: entry })),
+      ];
+    }),
   );
+
+  let fetched = $state<Record<string, { displayName?: string; avatarUrl?: string } | null>>({});
+  $effect(() => {
+    ids.filter((userId) => !summary?.members[userId]?.avatarUrl && !(userId in fetched)).forEach((userId) => ((fetched[userId] = null), fetchProfile(userId).then((profile) => (fetched[userId] = profile))));
+  });
+  let spotlight = $state<string | null>(null);
+  const focused = $derived(tiles.some((tile) => tile.id === spotlight) ? spotlight : null);
+  const strip = $derived(focused ? tiles.filter((tile) => tile.id !== focused) : tiles);
 
   let width = $state(0);
   let height = $state(0);
 
   const columns = $derived(
-    Array.from({ length: Math.max(tiles.length, 1) }, (_, index) => index + 1).reduce(
+    Array.from({ length: Math.max(strip.length, 1) }, (_, index) => index + 1).reduce(
       (best, count) => {
-        const rows = Math.ceil(tiles.length / count);
+        const rows = Math.ceil(strip.length / count);
         const score = Math.min(width / count, (height / Math.max(rows, 1)) * 1.6);
         return score > best.score ? { count, score } : best;
       },
       { count: 1, score: -1 },
     ).count,
   );
-  const rows = $derived(Math.max(1, Math.ceil(tiles.length / columns)));
+  const rows = $derived(Math.max(1, Math.ceil(strip.length / columns)));
 
-  const place = (index: number) => {
+  const STAGE = 76;
+
+  const placeGrid = (index: number) => {
     const row = Math.floor(index / columns);
-    const inRow = Math.min(columns, tiles.length - row * columns);
-    const offset = (columns - inRow) / 2;
-    return { x: ((index % columns) + offset) * (100 / columns), y: row * (100 / rows) };
+    const inRow = Math.min(columns, strip.length - row * columns);
+    return { x: (index - row * columns) * (100 / inRow), y: row * (100 / rows), w: 100 / inRow, h: 100 / rows };
   };
+
+  const placeStrip = (index: number) => {
+    const size = Math.min(100 / Math.max(strip.length, 1), 25);
+    return { x: (100 - strip.length * size) / 2 + index * size, y: STAGE, w: size, h: 100 - STAGE };
+  };
+
+  const place = (tile: Tile) => {
+    const index = Math.max(0, strip.findIndex((entry) => entry.id === tile.id));
+    return tile.id === focused ? { x: 0, y: 0, w: 100, h: strip.length ? STAGE : 100 } : focused ? placeStrip(index) : placeGrid(index);
+  };
+
+  const toggleSpot = (id: string) => (spotlight = focused === id ? null : id);
+  const focusTile = (id: string) => ((spotlight = id), (staged = true), (chatOpen = false));
+
+  const attach = (node: HTMLVideoElement, track?: Track) => {
+    let current = track;
+    current?.attach(node);
+    return {
+      update: (next?: Track) => (current?.detach(node), (current = next), next?.attach(node)),
+      destroy: () => void current?.detach(node),
+    };
+  };
+
+  const feed = (_node: Element) => ({ duration: readDuration("--azure-duration-slow", 420), easing: fluid, css: (t: number) => `opacity: ${t};` });
 
   const leaveTile = (_node: Element) => ({ duration: readDuration("--azure-duration-slow", 420), easing: fluid, css: (t: number) => `opacity: ${t}; scale: ${0.9 + t * 0.1};` });
 
@@ -89,6 +156,15 @@
     { id: "stage-events", label: text($mediaSettings.showCallEvents ? "events_hide" : "events_show"), icon: $mediaSettings.showCallEvents ? MENU_ICONS.hide : MENU_ICONS.show, separated: true, run: toggleEvents },
   ];
   const joinItems = (): MenuItem[] => [{ id: "stage-join", label, icon: direct ? SETTINGS_ICONS.call : SETTINGS_ICONS.headphones, run: join }, ...stageItems()];
+  const tileItems = (tile: Tile): MenuItem[] => [
+    { id: "tile-spot", label: text(focused === tile.id ? "unspotlight" : "spotlight"), icon: focused === tile.id ? SETTINGS_ICONS.collapse : SETTINGS_ICONS.expand, run: () => toggleSpot(tile.id) },
+    ...(tile.screen ? [] : [...userMenuItems(tile.userId, roomId).map((item, index) => (index ? item : { ...item, separated: true })), ...volumeItems(tile.userId)]),
+  ];
+  const cameraItems = (): MenuItem[] => [
+    { id: "stage-camera", label: text($cameraOn ? "camera_off" : "camera_on"), icon: $cameraOn ? SETTINGS_ICONS.cameraOff : SETTINGS_ICONS.camera, run: toggleCamera },
+    { id: "stage-camera-settings", label: text("settings"), icon: MENU_ICONS.settings, separated: true, run: openVoiceSettings },
+  ];
+  const screenItems = (): MenuItem[] => [{ id: "stage-screen", label: text($screenOn ? "screen_stop" : "screen_start"), icon: $screenOn ? SETTINGS_ICONS.screenOff : SETTINGS_ICONS.screen, run: toggleScreen }];
   const muteItems = (): MenuItem[] => [{ id: "stage-mute", label: text($muted ? "unmute" : "mute"), icon: $muted ? SETTINGS_ICONS.mic : SETTINGS_ICONS.micOff, run: toggleMute }];
   const deafenItems = (): MenuItem[] => [{ id: "stage-deafen", label: text($deafened ? "undeafen" : "deafen"), icon: $deafened ? SETTINGS_ICONS.headphones : SETTINGS_ICONS.headphonesOff, run: toggleDeafen }];
   const leaveItems = (): MenuItem[] => [{ id: "stage-leave", label: text(direct ? "hang_up" : "leave"), icon: SETTINGS_ICONS.hangup, danger: true, run: leaveCall }];
@@ -98,19 +174,37 @@
 
 <div class="stage-slot" class:open class:staged={staged && open} inert={!open}>
   <section class="stage col" class:direct aria-label={text("in_voice").replace("{count}", String(tiles.length))} use:menu={stageItems}>
-    <div class="tiles" bind:clientWidth={width} bind:clientHeight={height} style:--cols={columns} style:--rows={rows}>
-      {#each tiles as tile, index (tile.userId)}
-        {@const profile = summary?.members[tile.userId]}
+    <div class="tiles" bind:clientWidth={width} bind:clientHeight={height}>
+      {#each tiles as tile (tile.id)}
+        {@const profile = summary?.members[tile.userId]?.avatarUrl ? summary?.members[tile.userId] : { ...summary?.members[tile.userId], ...fetched[tile.userId] }}
         {@const name = profile?.displayName || tile.userId.slice(1).split(":")[0]}
         {@const self = tile.userId === $session?.userId}
-        {@const talking = here && tile.identities.some((identity) => $speaking.has(identity))}
-        {@const spot = place(index)}
-        <div class="tile-cell" out:leaveTile style:--x="{spot.x}%" style:--y="{spot.y}%">
-          <div class="tile col align-centre justify-centre gap-sm" class:talking class:pending={tile.pending} use:menu={() => userMenuItems(tile.userId, roomId)}>
+        {@const talking = here && !tile.screen && (tile.identities.some((identity) => $speaking.has(identity)) || [...$speaking].some((identity) => userOfIdentity(identity) === tile.userId))}
+        {@const spot = place(tile)}
+        <div class="tile-cell" out:leaveTile style:--x="{spot.x}%" style:--y="{spot.y}%" style:--w="{spot.w}%" style:--h="{spot.h}%">
+          <div
+            class="tile col align-centre justify-centre gap-md"
+            class:talking
+            class:pending={tile.pending}
+            class:video={!!tile.video}
+            class:spot={tile.id === focused}
+            role="button"
+            tabindex="0"
+            aria-label={tile.screen ? text("screen_of").replace("{name}", name) : name}
+            aria-pressed={tile.id === focused}
+            onclick={() => toggleSpot(tile.id)}
+            ondblclick={() => focusTile(tile.id)}
+            onkeydown={(event) => event.key === "Enter" && toggleSpot(tile.id)}
+            use:menu={() => tileItems(tile)}
+          >
+            {#if tile.video}
+              <video class="feed" class:contain={tile.screen} class:mirror={tile.video.local && !tile.screen} use:attach={tile.video?.track} transition:feed muted playsinline></video>
+            {/if}
             <span class="ring"><Avatar {name} url={profile?.avatarUrl} size="var(--avatar)" radius="50%" /></span>
             <span class="tile-name row-nw align-centre sm bold">
-              <span class="truncate"><EmojiText text={name} /></span>
-              <span class="flag" class:shown={tile.pending || (self && here && ($muted || $deafened))} class:calling={tile.pending}><Icon name={tile.pending ? "call" : $deafened ? "headphonesOff" : "micOff"} size={14} /></span>
+              <span class="truncate"><EmojiText text={tile.screen ? text("screen_of").replace("{name}", name) : name} /></span>
+              <span class="bars" class:shown={talking} aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="flag" class:shown={tile.pending || (!tile.screen && self && here && ($muted || $deafened))} class:calling={tile.pending}><Icon name={tile.pending ? "call" : $deafened ? "headphonesOff" : "micOff"} size={14} /></span>
             </span>
             <span class="ringing-label xs muted" class:shown={tile.pending}>{text("ringing")}</span>
           </div>
@@ -122,12 +216,12 @@
       </p>
     </div>
 
-    <div class="bar row-nw align-centre gap-sm">
-      <span class="lock xs muted row-nw align-centre gap-xs">
-        <Icon name={summary?.encryption ? "privacy" : "shield"} size={12} />
-        <span class="truncate">{text(summary?.encryption ? "encrypted" : "not_encrypted")}</span>
-      </span>
-      <div class="controls row-nw align-centre">
+    <div class="bar">
+      <div class="side start row-nw align-centre">
+        <span class="lock xs muted row-nw align-centre gap-xs">
+          <Icon name={summary?.encryption ? "privacy" : "shield"} size={12} />
+          <span class="truncate">{text(summary?.encryption ? "encrypted" : "not_encrypted")}</span>
+        </span>
         <div class="slide" class:open={waiting && !calling}>
           <button type="button" class="ghost pill ring-again press sm bold row-nw align-centre gap-xs" inert={!waiting || calling} onclick={() => ringAgain(roomId)} use:menu={ringItems}>
             <Icon name="call" size={16} />
@@ -140,7 +234,6 @@
             {text("stop_ringing")}
           </button>
         </div>
-        <div class="slide" class:open={!here} aria-hidden="true"><span class="balance"></span></div>
         <div class="slide" class:open={here}>
           <div class="row-nw align-centre gap-sm" inert={!here}>
             <button type="button" class="ghost round control press" class:off={$muted || $deafened} aria-pressed={$muted} aria-label={text($muted ? "unmute" : "mute")} use:tooltip={text($muted ? "unmute" : "mute")} onclick={toggleMute} use:menu={muteItems}>
@@ -149,8 +242,16 @@
             <button type="button" class="ghost round control press" class:off={$deafened} aria-pressed={$deafened} aria-label={text($deafened ? "undeafen" : "deafen")} use:tooltip={text($deafened ? "undeafen" : "deafen")} onclick={toggleDeafen} use:menu={deafenItems}>
               <Icon name={$deafened ? "headphonesOff" : "headphones"} size={20} />
             </button>
+
           </div>
         </div>
+        <div class="slide" class:open={here && !legacy}>
+          <button type="button" class="ghost round control press" class:on={$cameraOn} inert={!here || legacy} aria-pressed={$cameraOn} aria-label={text($cameraOn ? "camera_off" : "camera_on")} use:tooltip={text($cameraOn ? "camera_off" : "camera_on")} onclick={toggleCamera} use:menu={cameraItems}>
+              <Icon name={$cameraOn ? "camera" : "cameraOff"} size={20} />
+            </button>
+        </div>
+      </div>
+      <div class="centre row-nw align-centre">
         <div class="slide" class:open={!here}>
           <button type="button" class="ghost pill join press sm bold row-nw align-centre gap-xs" inert={here} onclick={join} use:menu={joinItems}>
             <Icon name={direct ? "call" : "headphones"} size={16} />
@@ -160,6 +261,13 @@
         <div class="slide" class:open={here}>
           <button type="button" class="ghost round control leave press" inert={!here} aria-label={text(direct ? "hang_up" : "leave")} use:tooltip={text(direct ? "hang_up" : "leave")} onclick={leaveCall} use:menu={leaveItems}>
             <Icon name="hangup" size={22} />
+          </button>
+        </div>
+      </div>
+      <div class="side end row-nw align-centre">
+        <div class="slide" class:open={here && !legacy && screenSupported}>
+          <button type="button" class="ghost round control press" class:on={$screenOn} inert={!here || legacy || !screenSupported} aria-pressed={$screenOn} aria-label={text($screenOn ? "screen_stop" : "screen_start")} use:tooltip={text($screenOn ? "screen_stop" : "screen_start")} onclick={toggleScreen} use:menu={screenItems}>
+            <Icon name={$screenOn ? "screenOff" : "screen"} size={20} />
           </button>
         </div>
         <div class="slide phone-chat" class:open={staged}>
@@ -176,7 +284,6 @@
           </button>
         </div>
       </div>
-      <span class="lock-spacer"></span>
     </div>
   </section>
 </div>
@@ -247,8 +354,8 @@
     position: absolute;
     left: var(--x);
     top: var(--y);
-    width: calc(100% / var(--cols));
-    height: calc(100% / var(--rows));
+    width: var(--w);
+    height: var(--h);
     padding: 4px;
     box-sizing: border-box;
     animation: tile-in 420ms var(--ease) both;
@@ -260,42 +367,158 @@
   }
 
   .tile {
+    position: relative;
+    overflow: hidden;
     container-type: size;
     height: 100%;
+    cursor: pointer;
     padding: var(--azure-spacing-sm);
     box-sizing: border-box;
     border-radius: 16px;
-    background: color-mix(in oklab, white 4%, transparent);
-    box-shadow: inset 0 0 0 2px transparent;
+    background: color-mix(in oklab, white 4%, color-mix(in oklab, var(--colours-foreground) 60%, black));
     min-width: 0;
-    transition:
-      box-shadow 240ms var(--ease),
-      background-color 320ms var(--ease);
+    transition: background-color 320ms var(--ease);
+  }
+
+  .tile::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    border: 2px solid transparent;
+    pointer-events: none;
+    transition: border-color 240ms var(--ease);
+  }
+
+  .tile-cell:has(.spot) {
+    z-index: 1;
   }
 
   .direct .tile {
-    background: transparent;
+    background: color-mix(in oklab, var(--colours-foreground) 60%, black);
   }
 
-  .tile.talking {
-    box-shadow: inset 0 0 0 2px var(--colours-success);
+  .direct .tile.video,
+  .tile.video {
+    background: black;
   }
 
-  .direct .tile.talking {
-    box-shadow: inset 0 0 0 2px transparent;
+  .feed {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border-radius: inherit;
+  }
+
+  .feed.contain {
+    object-fit: contain;
+  }
+
+  .feed.mirror {
+    scale: -1 1;
+  }
+
+  .tile > :not(.feed) {
+    position: relative;
+  }
+
+  .tile .ring {
+    transition:
+      opacity 420ms var(--ease),
+      scale 420ms var(--ease);
+  }
+
+  .tile.video .ring {
+    opacity: 0;
+    scale: 0.8;
+  }
+
+  .tile.video .tile-name {
+    position: absolute;
+    left: 8px;
+    bottom: 8px;
+    max-width: calc(100% - 16px);
+    padding: 3px 8px;
+    border-radius: 8px;
+    background: rgb(0 0 0 / 0.55);
+  }
+
+  .tile .tile-name {
+    transition:
+      background-color 420ms var(--ease),
+      padding 420ms var(--ease);
+  }
+
+
+  .tile.spot::after {
+    border-color: color-mix(in oklab, white 14%, transparent);
+  }
+
+  .tile.talking::after {
+    border-color: var(--colours-success);
+  }
+
+  .bars {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    width: 0;
+    height: 12px;
+    margin-inline-start: 0;
+    overflow: hidden;
+    opacity: 0;
+    scale: 0.6;
+    transition:
+      width 320ms var(--ease),
+      margin-inline-start 320ms var(--ease),
+      opacity 240ms var(--ease),
+      scale 240ms var(--ease);
+  }
+
+  .bars.shown {
+    width: 12px;
+    margin-inline-start: 6px;
+    opacity: 1;
+    scale: 1;
+  }
+
+  .bars i {
+    flex: none;
+    width: 2.5px;
+    height: 100%;
+    border-radius: 2px;
+    background: var(--colours-success);
+    transform-origin: bottom;
+    animation: bar 900ms var(--ease) infinite alternate;
+  }
+
+  .bars i:nth-child(2) {
+    animation-delay: -300ms;
+  }
+
+  .bars i:nth-child(3) {
+    animation-delay: -600ms;
+  }
+
+  @keyframes bar {
+    from {
+      scale: 1 0.3;
+    }
+  }
+
+  .tile:focus-visible {
+    outline: none;
+  }
+
+  .direct .tile.talking::after {
+    border-color: transparent;
   }
 
   .ring {
     display: grid;
     border-radius: 50%;
-    box-shadow: 0 0 0 0 transparent;
-    transition:
-      box-shadow 240ms var(--ease),
-      opacity 420ms var(--ease);
-  }
-
-  .talking .ring {
-    box-shadow: 0 0 0 3px var(--colours-success);
   }
 
   .pending .ring {
@@ -390,26 +613,38 @@
 
   .bar {
     flex: none;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: center;
     min-width: 0;
   }
 
-  .lock,
-  .lock-spacer {
-    flex: 1 1 0;
+  .side {
     min-width: 0;
   }
 
-  .controls {
-    flex: none;
+  .side.start {
+    justify-content: flex-end;
   }
 
-  .controls > * {
+  .side.end {
+    justify-content: flex-start;
+  }
+
+  .side > *,
+  .centre > * {
     margin-inline: 4px;
   }
 
-  .controls > .slide {
+  .side > .slide,
+  .centre > .slide {
     margin-inline: 0;
     overflow: hidden;
+  }
+
+  .lock {
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   @media (min-width: 768px) {
@@ -422,12 +657,6 @@
     .desk-only {
       display: none;
     }
-  }
-
-  .balance {
-    display: block;
-    width: 44px;
-    height: 44px;
   }
 
   .slide > * {
@@ -475,6 +704,11 @@
     background: color-mix(in oklab, white 15%, transparent);
   }
 
+  .control.on {
+    background: color-mix(in oklab, white 88%, transparent);
+    color: black;
+  }
+
   .control.off {
     background: color-mix(in oklab, var(--colours-danger) 22%, transparent);
     color: var(--colours-danger);
@@ -514,16 +748,23 @@
 
 
   @media (max-width: 767px) {
-    .lock-spacer {
-      display: none;
-    }
-
     .lock {
       display: none;
     }
 
-    .bar {
-      justify-content: center;
+    .control {
+      width: 40px;
+      height: 40px;
+    }
+
+    .control.leave {
+      width: 52px;
+    }
+
+    .side > *,
+    .centre > *,
+    .slide > * {
+      margin-inline: 3px;
     }
   }
 

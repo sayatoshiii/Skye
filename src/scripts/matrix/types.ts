@@ -86,6 +86,7 @@ export type Timeline = {
 
 export type JoinedRoomSync = {
   state?: { events: StateEvent[] };
+  msc4354_sticky?: { events: MatrixEvent[] };
   timeline?: Timeline;
   ephemeral?: { events: MatrixEvent[] };
   account_data?: { events: MatrixEvent[] };

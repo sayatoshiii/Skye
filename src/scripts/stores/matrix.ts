@@ -105,6 +105,12 @@ export const registerLiveSyncHook = (hook: LiveSyncHook) => {
   liveSyncHooks.add(hook);
 };
 
+const syncHooks = new Set<LiveSyncHook>();
+
+export const registerSyncHook = (hook: LiveSyncHook) => {
+  syncHooks.add(hook);
+};
+
 type ToDeviceHook = (event: MatrixEvent) => void;
 
 const toDeviceHooks = new Set<ToDeviceHook>();
@@ -644,6 +650,7 @@ export const startMatrix = (
     };
     safely(() => roomStore?.applySync(response));
     if (!live) Object.keys(get(unreadMarkers)).forEach(refreshLocalUnread);
+    syncHooks.forEach((hook) => safely(() => hook(response)));
     if (live) liveSyncHooks.forEach((hook) => safely(() => hook(response)));
     Object.keys(response.rooms?.leave ?? {}).forEach((id) => safely(() => dropRoomCache(id)));
     safely(() => applyPresence(response.presence?.events ?? []));
@@ -1033,3 +1040,43 @@ export const discardMessage = (txnId: string) =>
   getTimeline(requireRoom()).discard(txnId);
 
 if (import.meta.hot) import.meta.hot.dispose(() => stopMatrix());
+
+export const exportRoomKeys = async () => {
+  const machine = await cryptoHandle?.getMachine();
+  return machine ? ((await machine.exportRoomKeys(() => true)) as string) : null;
+};
+
+if (import.meta.env.DEV) {
+  (window as unknown as { skyeExportKeys: () => Promise<number> }).skyeExportKeys = async () => {
+    const json = await exportRoomKeys();
+    if (!json) throw new Error("crypto not ready");
+    const count = JSON.parse(json).length;
+    const a = Object.assign(document.createElement("a"), {
+      href: URL.createObjectURL(new Blob([json], { type: "application/json" })),
+      download: "skye-keys.json",
+    });
+    a.click();
+    return count;
+  };
+}
+
+export const importRoomKeys = async (json: string) => {
+  const machine = await cryptoHandle?.getMachine();
+  if (!machine) throw new Error("crypto not ready");
+  const result = await machine.importExportedRoomKeys(json, () => undefined);
+  retryDecryption(Object.keys(get(rooms)) as RoomId[]);
+  return { imported: result.importedCount, total: result.totalCount, backedUp: await machine.isBackupEnabled() };
+};
+
+if (import.meta.env.DEV) {
+  (window as unknown as { skyeImportKeys: () => Promise<unknown> }).skyeImportKeys = () =>
+    new Promise((resolve, reject) => {
+      const input = Object.assign(document.createElement("input"), { type: "file", accept: ".json" });
+      input.style.cssText = "position:fixed;top:16px;left:16px;z-index:99999;padding:12px;background:#fff;color:#000";
+      input.onchange = () => {
+        input.remove();
+        input.files?.[0]?.text().then(importRoomKeys).then(resolve, reject);
+      };
+      document.body.append(input);
+    });
+}

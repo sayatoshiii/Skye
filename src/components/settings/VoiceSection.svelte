@@ -14,12 +14,15 @@
 
   const text = (...path: string[]) => getLocalisedText(undefined, "settings", "voice", ...path) as string;
 
-  type Kind = "audioinput" | "audiooutput";
+  type Kind = "audioinput" | "audiooutput" | "videoinput";
+  const PREF = { audioinput: "input", audiooutput: "output", videoinput: "camera" } as const;
 
-  let prefs = $state.raw<VoicePrefs>({ input: "default", output: "default", pushToTalk: false, pttKey: "KeyV", pttLabel: "V" });
+  let prefs = $state.raw<VoicePrefs>({ input: "default", output: "default", camera: "default", pushToTalk: false, pttKey: "KeyV", pttLabel: "V" });
   let inputs = $state.raw<MediaDeviceInfo[]>([]);
   let outputs = $state.raw<MediaDeviceInfo[]>([]);
+  let cameras = $state.raw<MediaDeviceInfo[]>([]);
   let labelled = $state(true);
+  let camerasLabelled = $state(true);
   let recording = $state(false);
   let level = $state(0);
   let testing: (() => void) | null = $state(null);
@@ -31,7 +34,9 @@
   const refresh = async () => {
     inputs = await listDevices("audioinput");
     outputs = await listDevices("audiooutput");
+    cameras = await listDevices("videoinput");
     labelled = inputs.some((device) => device.label);
+    camerasLabelled = !cameras.length || cameras.some((device) => device.label);
   };
 
   onMount(() => {
@@ -46,12 +51,18 @@
       .then((stream) => (stream.getTracks().forEach((track) => track.stop()), refresh()))
       .catch(() => undefined);
 
+  const allowCamera = () =>
+    navigator.mediaDevices
+      .getUserMedia({ video: true })
+      .then((stream) => (stream.getTracks().forEach((track) => track.stop()), refresh()))
+      .catch(() => undefined);
+
   const nameOf = (device: MediaDeviceInfo, index: number) => (device.deviceId === "default" ? text("default") : device.label || text("unnamed").replace("{n}", String(index + 1)));
 
   const options = (list: MediaDeviceInfo[]) => [{ deviceId: "default", label: text("default") } as MediaDeviceInfo, ...list.filter((device) => device.deviceId !== "default")];
 
   const deviceItems = (kind: Kind, device: MediaDeviceInfo, index: number): MenuItem[] => [
-    { id: "device-pick", label: text("pick"), icon: MENU_ICONS.read, selected: prefs[kind === "audioinput" ? "input" : "output"] === device.deviceId, run: () => switchDevice(kind, device.deviceId) },
+    { id: "device-pick", label: text("pick"), icon: MENU_ICONS.read, selected: prefs[PREF[kind]] === device.deviceId, run: () => switchDevice(kind, device.deviceId) },
     { id: "device-copy", label: text("copy_name"), icon: MENU_ICONS.copy, run: () => copied(nameOf(device, index)) },
   ];
 
@@ -131,6 +142,21 @@
   {#if sinkSupported}
     {@render picker("audiooutput", outputs, prefs.output, text("output"))}
   {/if}
+</section>
+
+<section class="set-section" data-part="camera">
+  <h3 class="set-heading">{text("heading_camera")}</h3>
+  <div class="col gap-xs">
+    <span class="set-title">{text("camera")}</span>
+    <p class="set-hint">{text("camera_hint")}</p>
+  </div>
+  <div class="allow" class:open={!camerasLabelled}>
+    <div class="set-row min-0">
+      <p class="set-hint">{text("allow_camera_hint")}</p>
+      <button type="button" class="set-button primary ghost press" onclick={allowCamera} use:menu={() => [{ id: "camera-allow", label: text("allow_camera"), icon: MENU_ICONS.read, run: allowCamera }]}>{text("allow_camera")}</button>
+    </div>
+  </div>
+  {@render picker("videoinput", cameras, prefs.camera, text("camera"))}
 </section>
 
 <section class="set-section" data-part="talk">

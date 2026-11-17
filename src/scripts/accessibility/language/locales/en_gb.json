@@ -534,6 +534,7 @@
         "theme": "Theme",
         "input": "Microphone",
         "output": "Speaker",
+        "camera": "Camera",
         "talk": "Push to talk"
       },
       "voice": {
@@ -557,7 +558,12 @@
         "record": "Press a key",
         "change_key": "Change key",
         "pick": "Use this device",
-        "copy_name": "Copy device name"
+        "copy_name": "Copy device name",
+        "heading_camera": "Camera",
+        "camera": "Camera device",
+        "camera_hint": "The camera Skye uses when you turn video on in a call.",
+        "allow_camera": "Allow camera",
+        "allow_camera_hint": "Your browser hides camera names until you allow the camera once."
       }
     },
     "login": {
@@ -1370,7 +1376,9 @@
         "no_focus": "Your homeserver doesn't advertise a MatrixRTC server, so group voice isn't available here.",
         "sfu_failed": "The MatrixRTC server didn't let Skye in.",
         "join_failed": "Skye couldn't connect to voice.",
-        "mic": "Skye couldn't use your microphone."
+        "mic": "Skye couldn't use your microphone.",
+        "camera": "Skye couldn't use your camera.",
+        "screen": "Skye couldn't share your screen."
       },
       "view_profile": "View profile",
       "copy_id": "Copy user ID",
@@ -1384,7 +1392,18 @@
       "leave": "Leave call",
       "hang_up": "Hang up",
       "events_show": "Show call activity",
-      "events_hide": "Hide call activity"
+      "events_hide": "Hide call activity",
+      "camera_on": "Turn on camera",
+      "camera_off": "Turn off camera",
+      "screen_start": "Share your screen",
+      "screen_stop": "Stop sharing",
+      "volume": "User volume",
+      "mute_local": "Mute for me",
+      "unmute_local": "Unmute for me",
+      "spotlight": "Spotlight",
+      "unspotlight": "Back to grid",
+      "focus": "Focus",
+      "screen_of": "{name}'s screen"
     }
   }
 }

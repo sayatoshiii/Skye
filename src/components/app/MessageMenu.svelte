@@ -9,6 +9,7 @@
     filled?: boolean;
     selected?: boolean;
     colour?: string;
+    slider?: { value: number; min: number; max: number; step: number; format: (value: number) => string; input: (value: number) => void };
     run: (event: MouseEvent | KeyboardEvent) => void;
   };
 </script>
@@ -18,6 +19,7 @@
   import { portal } from "../../scripts/misc/portal";
   import { tick } from "svelte";
   import EmojiText from "../ui/EmojiText.svelte";
+  import MenuSlider from "./MenuSlider.svelte";
 
   let {
     items,
@@ -116,10 +118,14 @@
       </div>
     {/if}
     {#each items as item (item.id)}
+      {#if item.slider}
+        <MenuSlider label={item.label} icon={item.icon} separated={item.separated} slider={item.slider} />
+      {:else}
       <button type="button" role="menuitem" class="entry row-nw align-centre gap-md ghost press sm" class:danger={item.danger} class:separated={item.separated} class:selected={item.selected} aria-current={item.selected || undefined} disabled={item.disabled} onclick={(event) => choose(item, event)}>
         <span class="flex-max truncate">{item.label}</span>
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill={item.colour ?? "currentColor"} fill-rule="evenodd" d={item.icon} /></svg>
       </button>
+      {/if}
     {/each}
   </div>
 </div>
