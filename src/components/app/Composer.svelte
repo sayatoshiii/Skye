@@ -13,7 +13,7 @@
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { formatBytes, sanitiseFilename } from "../../scripts/matrix/utilities/attachments";
   import type { Pill } from "../../scripts/misc/mentions";
-  import { entityText, menu } from "../../scripts/misc/entitymenu.svelte";
+  import { entityText, menu, openEntityMenu } from "../../scripts/misc/entitymenu.svelte";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { copied } from "../../scripts/stores/toast";
 
@@ -32,6 +32,8 @@
     onremove: (id: number) => void;
     oneditlast: () => boolean;
     onmetadata: (keep: boolean) => void;
+    onpoll?: () => void;
+    onlocation?: () => void;
   };
 
   let {
@@ -49,6 +51,8 @@
     onremove,
     oneditlast,
     onmetadata,
+    onpoll,
+    onlocation,
   }: Props = $props();
 
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
@@ -86,6 +90,17 @@
       event.preventDefault();
       oncancelreply();
     }
+  };
+
+  const plusItems = () => [
+    { id: "plus-files", label: text("media", "attach_files"), icon: MENU_ICONS.attach, run: () => picker?.click() },
+    ...(onpoll ? [{ id: "plus-poll", label: text("media", "create_poll"), icon: MENU_ICONS.poll, run: onpoll }] : []),
+    ...(onlocation ? [{ id: "plus-location", label: text("location", "send"), icon: MENU_ICONS.location, run: onlocation }] : []),
+  ];
+
+  const openPlus = (event: MouseEvent) => {
+    const box = (event.currentTarget as HTMLElement).getBoundingClientRect();
+    openEntityMenu(plusItems(), box.left, box.top);
   };
 
   const onpick = () => {
@@ -141,9 +156,9 @@
       {/if}
     {/if}
     <div class="field row-nw align-centre gap-sm">
-      <button type="button" class="icon attach ghost press" aria-label={text("media", "attach_files")} use:tooltip={text("media", "attach_files")} onclick={() => picker?.click()}>
+      <button type="button" class="icon attach ghost press" aria-label={text("media", "more")} aria-haspopup="menu" use:tooltip={text("media", "more")} use:menu={plusItems} onclick={openPlus}>
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-          <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 5v14M5 12h14" />
+          <path fill="currentColor" d={MENU_ICONS.add} />
         </svg>
       </button>
       <input class="sr-only" type="file" multiple tabindex="-1" aria-hidden="true" bind:this={picker} onchange={onpick} />

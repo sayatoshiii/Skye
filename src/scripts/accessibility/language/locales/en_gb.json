@@ -708,18 +708,14 @@
       "live_shared": "Live location shared",
       "live_ended": "Live location ended",
       "waiting": "Waiting for location",
-      "open_osm": "Open in OpenStreetMap",
-      "load_map": "Show map",
-      "map_note": "Showing the map loads content from OpenStreetMap.",
-      "attribution": "© OpenStreetMap contributors",
+      "open_osm": "Open in maps",
       "accuracy": "within {metres} m",
       "send": "Share my location",
       "my_location": "My location",
       "locating": "Finding your location…",
       "denied": "Location access was not allowed.",
       "unavailable": "Your location could not be found.",
-      "copy_geo": "Copy geo URI",
-      "map": "Map of {place}"
+      "copy_geo": "Copy geo URI"
     },
     "poll": {
       "votes": "{count} votes",

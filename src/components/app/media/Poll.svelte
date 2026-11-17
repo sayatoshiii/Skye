@@ -3,6 +3,9 @@
   import type { TimelineEvent } from "../../../scripts/matrix/types";
   import { POLL_RESPONSE, getPoll, pollResponseContent, tallyPoll } from "../../../scripts/matrix/utilities/content";
   import { fetchRelations, sendRoomEvent } from "../../../scripts/stores/matrix";
+  import { entityText, menu } from "../../../scripts/misc/entitymenu.svelte";
+  import { MENU_ICONS } from "../../../scripts/misc/icons";
+  import { copied, toast } from "../../../scripts/stores/toast";
 
   let {
     event,
@@ -37,24 +40,47 @@
   const tally = $derived(poll ? tallyPoll(poll, event, merged, ownUserId, mayEnd) : null);
   const reveal = $derived(!!tally && (poll?.disclosed || tally.ended));
 
-  const vote = (id: string) => {
-    if (!poll || !tally || tally.ended || event.event_id.startsWith("~")) return;
+  const open = $derived(!!poll && !!tally && !tally.ended && !event.event_id.startsWith("~"));
+
+  const respond = (next: string[]) => {
+    if (!poll || !tally || !open) return;
     const current = tally.mine;
-    const next = poll.maxSelections === 1
-      ? current.includes(id) ? current : [id]
-      : current.includes(id) ? current.filter((pick) => pick !== id) : [...current, id].slice(-poll.maxSelections);
     if (next.length === current.length && next.every((pick, index) => pick === current[index])) return;
-    sendRoomEvent(POLL_RESPONSE[poll.unstable ? 1 : 0], pollResponseContent(event, next)).catch(() => undefined);
+    sendRoomEvent(POLL_RESPONSE[poll.unstable ? 1 : 0], pollResponseContent(event, next)).catch(() => toast(text("poll", "vote_failed"), { tone: "danger" }));
   };
+
+  const vote = (id: string) => {
+    if (!poll || !tally) return;
+    const current = tally.mine;
+    respond(poll.maxSelections === 1
+      ? current.includes(id) ? current : [id]
+      : current.includes(id) ? current.filter((pick) => pick !== id) : [...current, id].slice(-poll.maxSelections));
+  };
+
+  const results = () =>
+    poll && tally ? [poll.question, ...poll.answers.map((answer) => text("poll", "results_line").replace("{option}", answer.text).replace("{count}", votes(tally.counts[answer.id])))].join("\n") : "";
+
+  const pollItems = () => [
+    { id: "poll-copy-question", label: entityText("copy_question"), icon: MENU_ICONS.copy, run: () => copied(poll?.question ?? "") },
+    ...(reveal ? [{ id: "poll-copy-results", label: text("poll", "copy_results"), icon: MENU_ICONS.poll, run: () => copied(results()) }] : []),
+    ...(open && tally?.mine.length ? [{ id: "poll-retract", label: text("poll", "remove_vote"), icon: MENU_ICONS.close, danger: true, separated: true, run: () => respond([]) }] : []),
+  ];
+
+  const answerItems = (id: string, label: string) => [
+    ...(open && !tally?.mine.includes(id) ? [{ id: "poll-vote", label: text("poll", "vote_for"), icon: MENU_ICONS.read, run: () => vote(id) }] : []),
+    ...(open && tally?.mine.includes(id) ? [{ id: "poll-unvote", label: text("poll", "remove_vote"), icon: MENU_ICONS.close, run: () => respond(tally!.mine.filter((pick) => pick !== id)) }] : []),
+    { id: "poll-copy-option", label: text("poll", "copy_option"), icon: MENU_ICONS.copy, separated: open, run: () => copied(label) },
+    ...pollItems().slice(0, 1),
+  ];
 
   const share = (id: string) => (tally && tally.total ? Math.round((tally.counts[id] / tally.total) * 100) : 0);
   const votes = (count: number) => (count === 1 ? text("poll", "vote") : text("poll", "votes").replace("{count}", String(count)));
 </script>
 
 {#if poll && tally}
-  <div class="poll col" class:ended={tally.ended}>
-    <p class="question md bold selectable">{poll.question}</p>
-    <p class="hint xs faint">{tally.ended ? text("poll", "ended") : poll.maxSelections > 1 ? text("poll", "pick").replace("{count}", String(poll.maxSelections)) : text("poll", "pick_one")}</p>
+  <div class="poll set-surface set-panel col" class:ended={tally.ended}>
+    <p class="question set-title selectable" use:menu={pollItems}>{poll.question}</p>
+    <p class="hint set-hint">{tally.ended ? text("poll", "ended") : poll.maxSelections > 1 ? text("poll", "pick").replace("{count}", String(poll.maxSelections)) : text("poll", "pick_one")}</p>
     <ul class="answers col" role={poll.maxSelections > 1 ? "group" : "radiogroup"} aria-label={poll.question}>
       {#each poll.answers as answer (answer.id)}
         {@const chosen = tally.mine.includes(answer.id)}
@@ -62,23 +88,24 @@
         <li>
           <button
             type="button"
-            class="answer ghost row-nw align-centre gap-sm"
+            class="answer ghost press row-nw align-centre gap-md"
             class:chosen
             class:winner
             role={poll.maxSelections > 1 ? "checkbox" : "radio"}
             aria-checked={chosen}
             disabled={tally.ended}
             onclick={() => vote(answer.id)}
+            use:menu={() => answerItems(answer.id, answer.text)}
             style:--share={reveal ? `${share(answer.id)}%` : "0%"}
           >
             <span class="tick" class:square={poll.maxSelections > 1} aria-hidden="true"></span>
-            <span class="label md flex-max min-0">{answer.text}</span>
-            {#if reveal}<span class="count sm faint">{votes(tally.counts[answer.id])} · {share(answer.id)}%</span>{/if}
+            <span class="label flex-max min-0">{answer.text}</span>
+            {#if reveal}<span class="count">{votes(tally.counts[answer.id])} · {share(answer.id)}%</span>{/if}
           </button>
         </li>
       {/each}
     </ul>
-    <p class="footer xs faint">
+    <p class="footer set-hint" use:menu={pollItems}>
       {#if tally.ended}{text("poll", "final").replace("{count}", votes(tally.total))}
       {:else if !poll.disclosed}{text("poll", "hidden")}
       {:else}{tally.total ? votes(tally.total) : text("poll", "no_votes")}{/if}
@@ -93,26 +120,16 @@
   .poll {
     width: min(100%, 420px);
     margin-top: var(--azure-spacing-sm);
-    padding: var(--azure-spacing-md);
     gap: var(--azure-spacing-xs);
-    border-radius: var(--azure-radius-md);
-    border: 1px solid var(--colours-outline-hairline);
-    background-color: var(--colours-surface);
   }
 
-  .question {
-    margin: 0;
-    color: var(--colours-text-strong);
-  }
-
-  .hint,
-  .footer {
-    margin: 0;
+  .hint {
+    font-size: var(--text-xs);
   }
 
   .answers {
     gap: var(--azure-spacing-sm);
-    margin: var(--azure-spacing-xs) 0;
+    margin: var(--azure-spacing-md) 0;
     padding: 0;
     list-style: none;
   }
@@ -120,15 +137,20 @@
   .answer {
     position: relative;
     width: 100%;
-    min-height: 44px;
-    padding: var(--azure-spacing-md) var(--azure-spacing-lg);
-    font-size: var(--text-md);
+    min-height: 40px;
+    padding: var(--azure-spacing-sm) 12px;
     overflow: hidden;
-    border-radius: var(--azure-radius-sm);
-    border: 1px solid var(--colours-outline-hairline);
+    border-radius: 8px;
+    border: 1px solid var(--line);
+    font-size: var(--text-md);
+    font-weight: 500;
+    color: var(--colours-text-strong);
+    background-color: var(--fill);
     text-align: start;
     isolation: isolate;
-    transition: border-color var(--azure-duration-fast) var(--azure-ease-out);
+    transition:
+      border-color 320ms cubic-bezier(0.32, 0.72, 0, 1),
+      background-color 320ms cubic-bezier(0.32, 0.72, 0, 1);
   }
 
   .answer::before {
@@ -137,26 +159,23 @@
     inset: 0 auto 0 0;
     z-index: -1;
     width: var(--share);
-    background-color: var(--colours-surface-hover);
-    transition: width var(--azure-duration-md) var(--azure-ease-out);
+    background-color: color-mix(in oklab, white 6%, transparent);
+    transition:
+      width 480ms cubic-bezier(0.32, 0.72, 0, 1),
+      background-color 320ms cubic-bezier(0.32, 0.72, 0, 1);
   }
 
   .answer:not(:disabled):hover {
-    border-color: var(--colours-outline-light);
+    background-color: color-mix(in oklab, white 10%, var(--card));
   }
 
   .answer.chosen {
-    border-color: var(--colours-accent);
+    border-color: color-mix(in oklab, var(--colours-accent) 60%, transparent);
   }
 
   .answer.chosen::before,
   .answer.winner::before {
     background-color: var(--colours-accent-faint);
-  }
-
-  .answer.winner .label {
-    font-weight: 700;
-    color: var(--colours-text-strong);
   }
 
   .answer:disabled {
@@ -165,29 +184,49 @@
 
   .tick {
     flex: none;
-    width: 16px;
-    height: 16px;
+    width: 18px;
+    height: 18px;
     border-radius: 50%;
-    border: 2px solid var(--colours-outline-light);
-    transition: background-color var(--azure-duration-fast) var(--azure-ease-out);
+    background-color: var(--line);
+    box-shadow: inset 0 0 0 9px var(--line);
+    transition:
+      background-color 320ms cubic-bezier(0.32, 0.72, 0, 1),
+      box-shadow 320ms cubic-bezier(0.32, 0.72, 0, 1);
   }
 
   .tick.square {
-    border-radius: 4px;
+    border-radius: 5px;
   }
 
   .chosen .tick {
-    border-color: var(--colours-accent);
-    background-color: var(--colours-accent);
-    box-shadow: inset 0 0 0 2px var(--colours-surface);
+    background-color: var(--colours-on-accent);
+    box-shadow: inset 0 0 0 5px var(--colours-accent);
+  }
+
+  .chosen .tick.square {
+    box-shadow: inset 0 0 0 4px var(--colours-accent);
   }
 
   .label {
     overflow-wrap: anywhere;
   }
 
+  .winner .label {
+    font-weight: 700;
+  }
+
   .count {
     flex: none;
+    font-size: var(--text-sm);
+    font-weight: 500;
+    color: var(--colours-text-muted);
+    animation: count-in 320ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  @keyframes count-in {
+    from {
+      opacity: 0;
+    }
   }
 
   @media (max-width: 767px) {
