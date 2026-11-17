@@ -1398,6 +1398,7 @@
       "screen_start": "Share your screen",
       "screen_stop": "Stop sharing",
       "volume": "User volume",
+      "stream_volume": "Stream volume",
       "mute_local": "Mute for me",
       "unmute_local": "Unmute for me",
       "spotlight": "Spotlight",

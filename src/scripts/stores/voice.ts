@@ -156,7 +156,7 @@ export const identityOwners = derived(memberIdentities, ($identities) =>
 export const userOfIdentity = (identity: string) => (get(identityOwners)[identity] ?? identity).replace(/:[^:]*$/, "");
 export const selfSpeaking = derived([speaking, session], ([$speaking, $session]) => [...$speaking].some((identity) => userOfIdentity(identity) === $session?.userId));
 
-export type UserVolume = { volume: number; muted: boolean };
+export type UserVolume = { volume: number; muted: boolean; stream?: number };
 
 const VOLUME_KEY = "skye:volumes";
 
@@ -178,6 +178,7 @@ userVolumes.subscribe((volumes) => {
 
 export const volumeOf = (userId: UserId): UserVolume => get(userVolumes)[userId] ?? { volume: 1, muted: false };
 export const setUserVolume = (userId: UserId, volume: number) => userVolumes.update((all) => ({ ...all, [userId]: { ...volumeOf(userId), volume } }));
+export const setStreamVolume = (userId: UserId, stream: number) => userVolumes.update((all) => ({ ...all, [userId]: { ...volumeOf(userId), stream } }));
 export const toggleUserMute = (userId: UserId) => userVolumes.update((all) => ({ ...all, [userId]: { ...volumeOf(userId), muted: !volumeOf(userId).muted } }));
 
 export type CallMedia = { id: string; identity: string; source: "camera" | "screen"; track: Track; local: boolean };
@@ -364,7 +365,7 @@ const applyVolumes = () => {
       const level = volumeOf(userOfIdentity(participant.identity));
       const volume = get(deafened) || level.muted || chosen[userOfIdentity(participant.identity)]?.participant !== participant ? 0 : level.volume;
       participant.setVolume(volume);
-      participant.setVolume(volume, "screen_share_audio" as Parameters<typeof participant.setVolume>[1]);
+      participant.setVolume(get(deafened) || level.muted ? 0 : (level.stream ?? 1), "screen_share_audio" as Parameters<typeof participant.setVolume>[1]);
     }),
   );
 };
