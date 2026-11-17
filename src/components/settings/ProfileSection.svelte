@@ -114,6 +114,14 @@
     stage(part, { blob, link: URL.createObjectURL(blob) });
   };
 
+  const editors: [string, () => unknown][] = [
+    [".banner", () => fields && pick("banner")],
+    [".avatar", () => pick("avatar")],
+    [".name", () => document.getElementById("settings-name")?.focus()],
+    [".status", () => (editingStatus = true)],
+  ];
+  const editFrom = (event: MouseEvent) => editors.find(([selector]) => (event.target as Element).closest(selector))?.[1]();
+
   const saved: Record<Part, () => boolean> = { avatar: () => !!profile?.avatarUrl, banner: () => !!banner };
   const remove = (part: Part) => stage(part, saved[part]() ? "removed" : null);
 
@@ -175,9 +183,9 @@
     <section class="set-section" data-part="avatar" use:menu={imageItems("avatar")}>
       <h3 class="set-heading">{account("avatar")}</h3>
       <div class="row gap-sm">
-        <button type="button" class="set-button primary ghost press" onclick={() => pick("avatar")}>{account("change_avatar")}</button>
+        <button type="button" class="set-button ghost press" onclick={() => pick("avatar")}>{account("change_avatar")}</button>
         {#if has.avatar}
-          <button type="button" class="set-button ghost press" onclick={() => remove("avatar")}>{account("remove_avatar")}</button>
+          <button type="button" class="set-button outline-danger ghost press remove-link" onclick={() => remove("avatar")}>{account("remove_avatar")}</button>
         {/if}
       </div>
     </section>
@@ -186,9 +194,9 @@
       <h3 class="set-heading">{account("banner")}</h3>
       {#if fields}
         <div class="row gap-sm">
-          <button type="button" class="set-button primary ghost press" onclick={() => pick("banner")}>{account("change_banner")}</button>
+          <button type="button" class="set-button ghost press" onclick={() => pick("banner")}>{account("change_banner")}</button>
           {#if has.banner}
-            <button type="button" class="set-button ghost press" onclick={() => remove("banner")}>{account("remove_banner")}</button>
+            <button type="button" class="set-button outline-danger ghost press remove-link" onclick={() => remove("banner")}>{account("remove_banner")}</button>
           {/if}
         </div>
       {:else}
@@ -207,7 +215,8 @@
 
   <aside class="preview col gap-sm">
     <h3 class="set-label">{account("preview")}</h3>
-    <div class="card">
+    <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+    <div class="card editable" onclick={editFrom}>
       <ProfileIdentity {userId} displayName={shownName} avatar={shownAvatar} banner={shownBanner} status={message ?? undefined} size="sm" surface="var(--colours-foreground)" />
     </div>
   </aside>
@@ -232,6 +241,15 @@
 {/if}
 
 <style>
+  .editable :global(:is(.banner, .avatar, .name, .status)) {
+    cursor: pointer;
+    transition: filter 200ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .editable :global(:is(.banner, .avatar, .name, .status):hover) {
+    filter: brightness(1.15);
+  }
+
   .layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 300px;
@@ -297,6 +315,10 @@
   }
 
   .unsaved-reset,
+  .set-button.remove-link {
+    border-color: transparent;
+  }
+
   .unsaved-save {
     flex: none;
     min-height: 30px;
@@ -307,6 +329,7 @@
   }
 
   .unsaved-reset {
+    margin: 0 10px 0 20px;
     color: var(--colours-text-muted);
   }
 
@@ -332,6 +355,7 @@
 
   .unsaved:global(.nudged) {
     animation:
+      unsaved-in 460ms cubic-bezier(0.34, 1.56, 0.64, 1) both,
       unsaved-shake 500ms linear,
       unsaved-flash 600ms var(--azure-ease-out);
   }
