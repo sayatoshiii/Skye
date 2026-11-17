@@ -189,8 +189,10 @@
     height: 0;
     overflow: hidden;
     opacity: 0;
+    max-height: calc(100% - var(--header-space, 57px));
     transition:
       height 520ms var(--ease),
+      max-height 520ms var(--ease),
       opacity 420ms var(--ease);
   }
 
@@ -200,7 +202,7 @@
   }
 
   .stage-slot.open:not(.staged) {
-    max-height: calc(100% - var(--header-space, 57px) - var(--composer-space, 95px) - env(safe-area-inset-bottom));
+    max-height: min(max(45%, 220px), calc(100% - var(--header-space, 57px) - var(--composer-space, 95px) - env(safe-area-inset-bottom)));
   }
 
   .stage-slot.staged {
