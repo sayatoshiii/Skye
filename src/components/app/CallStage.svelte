@@ -156,7 +156,9 @@
     { id: "stage-events", label: text($mediaSettings.showCallEvents ? "events_hide" : "events_show"), icon: $mediaSettings.showCallEvents ? MENU_ICONS.hide : MENU_ICONS.show, separated: true, run: toggleEvents },
   ];
   const joinItems = (): MenuItem[] => [{ id: "stage-join", label, icon: direct ? SETTINGS_ICONS.call : SETTINGS_ICONS.headphones, run: join }, ...stageItems()];
+  const fullscreen = (id: string) => void document.querySelector<HTMLElement>(`[data-tile="${CSS.escape(id)}"] video`)?.requestFullscreen().catch(() => undefined);
   const tileItems = (tile: Tile): MenuItem[] => [
+    ...(tile.screen ? [{ id: "tile-fullscreen", label: text("fullscreen"), icon: MENU_ICONS.fullscreen, run: () => fullscreen(tile.id) }] : []),
     { id: "tile-spot", label: text(focused === tile.id ? "unspotlight" : "spotlight"), icon: focused === tile.id ? SETTINGS_ICONS.collapse : SETTINGS_ICONS.expand, run: () => toggleSpot(tile.id) },
     ...(tile.screen ? volumeItems(tile.userId).filter((item) => item.id === "voice-stream-volume").map((item) => ({ ...item, separated: true })) : [...userMenuItems(tile.userId, roomId).map((item, index) => (index ? item : { ...item, separated: true })), ...volumeItems(tile.userId)]),
   ];
@@ -188,12 +190,13 @@
             class:pending={tile.pending}
             class:video={!!tile.video}
             class:spot={tile.id === focused}
+            data-tile={tile.id}
             role="button"
             tabindex="0"
             aria-label={tile.screen ? text("screen_of").replace("{name}", name) : name}
             aria-pressed={tile.id === focused}
             onclick={() => toggleSpot(tile.id)}
-            ondblclick={() => focusTile(tile.id)}
+            ondblclick={() => (tile.screen ? fullscreen(tile.id) : focusTile(tile.id))}
             onkeydown={(event) => event.key === "Enter" && toggleSpot(tile.id)}
             use:menu={() => tileItems(tile)}
           >
@@ -207,6 +210,11 @@
               <span class="flag" class:shown={tile.pending || (!tile.screen && self && here && ($muted || $deafened))} class:calling={tile.pending}><Icon name={tile.pending ? "call" : $deafened ? "headphonesOff" : "micOff"} size={14} /></span>
             </span>
             <span class="ringing-label xs muted" class:shown={tile.pending}>{text("ringing")}</span>
+            {#if tile.screen}
+              <button type="button" class="ghost round full-button press" aria-label={text("fullscreen")} use:tooltip={text("fullscreen")} onclick={(event) => (event.stopPropagation(), fullscreen(tile.id))} ondblclick={(event) => event.stopPropagation()} use:menu={() => tileItems(tile)}>
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.fullscreen} /></svg>
+              </button>
+            {/if}
           </div>
         </div>
       {/each}
@@ -289,6 +297,40 @@
 </div>
 
 <style>
+  .full-button {
+    position: absolute;
+    bottom: 10px;
+    right: 10px;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border-radius: 50%;
+    background: rgb(0 0 0 / 0.55);
+    color: white;
+    opacity: 0;
+    scale: 0.85;
+    transition:
+      opacity 280ms cubic-bezier(0.32, 0.72, 0, 1),
+      scale 280ms cubic-bezier(0.32, 0.72, 0, 1),
+      background-color 280ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .full-button svg {
+    display: block;
+  }
+
+  .tile:hover .full-button {
+    opacity: 1;
+    scale: 1;
+  }
+
+  .full-button:hover {
+    background: rgb(0 0 0 / 0.75);
+  }
+
   .stage-slot {
     --ease: cubic-bezier(0.32, 0.72, 0, 1);
     interpolate-size: allow-keywords;
@@ -420,7 +462,7 @@
     scale: -1 1;
   }
 
-  .tile > :not(.feed) {
+  .tile > :not(.feed, .full-button) {
     position: relative;
   }
 
