@@ -154,3 +154,19 @@ export const acquireMediaLink = (source: MediaSource, mimetype: string) => {
     },
   };
 };
+
+export type MxcProbe = { mimetype: string; size: number; name: string };
+
+const probeCache: Record<string, Promise<MxcProbe | null>> = {};
+
+const fileName = (disposition: string | null) => decodeURIComponent(disposition?.match(/filename\*=(?:UTF-8'')?([^;]+)/i)?.[1] ?? disposition?.match(/filename="?([^";]+)"?/i)?.[1] ?? "");
+
+export const probeMxc = (url: string, session: Session | null = loadSession()) =>
+  (probeCache[url] ??= queueMedia(async () => {
+    const [serverName, mediaId] = url.slice(6).split("/");
+    const response = await API({ base: baseURL.CUSTOM(session!.homeserver, true), endpoint: `_matrix/client/v1/media/download/${serverName}/${mediaId}`, method: "GET", headers: {}, accessToken: session!.accessToken });
+    response.body?.cancel().catch(() => undefined);
+    return response.ok
+      ? { mimetype: (response.headers.get("content-type") ?? "application/octet-stream").split(";")[0].trim().toLowerCase(), size: Number(response.headers.get("content-length")) || 0, name: fileName(response.headers.get("content-disposition")) || mediaId }
+      : null;
+  }).catch(() => null));

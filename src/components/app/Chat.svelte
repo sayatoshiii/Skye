@@ -72,6 +72,7 @@
   import { quickEmoji, useEmoji } from "../../scripts/settings/emoji";
   import Avatar from "../ui/Avatar.svelte";
   import LinkPreview from "./media/LinkPreview.svelte";
+  import MxcEmbed from "./media/MxcEmbed.svelte";
   import MessageBody from "./media/MessageBody.svelte";
   import MessageMedia from "./media/MessageMedia.svelte";
   import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
@@ -1686,7 +1687,11 @@
               <p class="body selectable {message.kind}"><EmojiText text={message.body} /></p>
             {/if}
             {#each message.links as link (link)}
-              <LinkPreview url={link} ts={message.ts} previews={previewsOn} />
+              {#if isMxc(link)}
+                <MxcEmbed url={link} sender={message.sender} ts={message.ts} />
+              {:else}
+                <LinkPreview url={link} ts={message.ts} previews={previewsOn} />
+              {/if}
             {/each}
             {#if message.status === "failed"}
               <p class="failure xs row-nw align-centre gap-sm">
