@@ -15,6 +15,7 @@
   import Composer, { type Pending } from "./Composer.svelte";
   import { tick, untrack } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
+  import { roleIcon, roleIndex, roleOf } from "../../scripts/matrix/utilities/power";
   import { canPin, canRedact, getPowerLevel, getPredecessor, getTombstone } from "../../scripts/matrix/rooms";
   import { joinRoom } from "../../scripts/matrix/utilities/hierarchy";
   import { serverNameFromUserId } from "../../scripts/matrix/discovery";
@@ -258,6 +259,8 @@
     });
   });
 
+  const roles = $derived(roleIndex($currentRoom));
+
   const getSender = (userId: string) => {
     const member = $currentRoom?.members[userId] ?? $joinedMembers[$currentRoom?.roomId ?? ""]?.[userId];
 
@@ -265,6 +268,7 @@
       name: member?.displayName ?? userId,
       avatar: member?.avatarUrl,
       powerLevel: $currentRoom ? getPowerLevel($currentRoom, userId) : 0,
+      role: roleOf($currentRoom, userId, roles),
     };
   };
 
@@ -1566,7 +1570,8 @@
               <span class="connector" aria-hidden="true"></span>
               {#if original && author}
                 <Avatar name={author.name} url={author.avatar} size="16px" radius="50%" />
-                <span class="reply-name bold"><EmojiText text={author.name} /></span>
+                <span class="reply-name bold" style:color={roleOf($currentRoom, original.sender, roles)?.color}><EmojiText text={author.name} /></span>
+                {#if roleIcon(roleOf($currentRoom, original.sender, roles))}<span class="role-icon"><Avatar name={roleOf($currentRoom, original.sender, roles)?.name ?? ""} url={roleIcon(roleOf($currentRoom, original.sender, roles))} size="14px" radius="3px" /></span>{/if}
                 <span class="reply-text truncate muted">{original.redacted ? text("chat", "redacted") : toPreviewLine(original.content) || text("chat", "encrypted")}</span>
               {:else}
                 <span class="reply-text truncate faint">{text("chat", "reply_unavailable")}</span>
@@ -1585,7 +1590,8 @@
           <div class="content col min-0">
             {#if !message.grouped || message.replyTo}
               <div class="meta row-nw align-centre gap-sm">
-                <button type="button" class="sender md bold ghost" class:admin={sender.powerLevel >= 100} data-profile-trigger use:usermenu={{ userId: message.sender, roomId: $currentRoom?.roomId }} onclick={(event) => openProfile(message.sender, event.currentTarget)}><EmojiText text={sender.name} /></button>
+                <button type="button" class="sender md bold ghost" class:admin={sender.powerLevel >= 100 && !$currentRoom?.isDirect} style:color={sender.role?.color} data-profile-trigger use:usermenu={{ userId: message.sender, roomId: $currentRoom?.roomId }} onclick={(event) => openProfile(message.sender, event.currentTarget)}><EmojiText text={sender.name} /></button>
+                {#if roleIcon(sender.role)}<span class="role-icon" use:tooltip={sender.role?.name}><Avatar name={sender.role?.name ?? ""} url={roleIcon(sender.role)} size="16px" radius="4px" /></span>{/if}
                 <time class="xs faint" datetime={new Date(message.ts).toISOString()}>{formatTime(message.ts)}</time>
                 {#if message.kind === "notice"}<span class="bot-tag xs bold">{text("chat", "bot")}</span>{/if}
                 {#if message.kind === "server"}<span class="bot-tag server-tag xs bold">{text("chat", "server_notice")}</span>{/if}
@@ -2493,6 +2499,11 @@
 
   .sender {
     color: var(--colours-text-strong);
+  }
+
+  .role-icon {
+    display: inline-flex;
+    flex: none;
   }
 
   .sender.admin {

@@ -118,6 +118,7 @@
           presence={data.status?.presence}
           status={data.status?.statusMessage}
           role={data.room && !data.room.isDirect ? (data.role ?? "member") : undefined}
+          namedRole={data.namedRole}
           size="lg"
           surface="var(--colours-surface-raised)"
         >

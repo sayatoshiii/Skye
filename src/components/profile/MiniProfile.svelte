@@ -122,6 +122,7 @@
           presence={data.status?.presence}
           status={data.status?.statusMessage}
           role={data.role}
+          namedRole={data.namedRole}
           size="sm"
           surface="var(--colours-surface-raised)"
           onopen={viewFull}
