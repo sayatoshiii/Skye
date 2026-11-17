@@ -2,7 +2,7 @@ import { get } from "svelte/store";
 import type { MenuItem } from "../../components/app/MessageMenu.svelte";
 import { getLocalisedText } from "../accessibility/language/translation";
 import { session } from "../stores/matrix";
-import { setUserVolume, toggleUserMute, volumeOf } from "../stores/voice";
+import { setStreamVolume, setUserVolume, toggleUserMute, volumeOf } from "../stores/voice";
 import { MENU_ICONS } from "./icons";
 
 const text = (...path: string[]) => getLocalisedText(undefined, "voice", ...path) as string;
@@ -17,6 +17,13 @@ export const volumeItems = (userId: string): MenuItem[] =>
         icon: MENU_ICONS.volume,
         separated: true,
         slider: { value: Math.round(volumeOf(id).volume * 100), min: 0, max: 200, step: 5, format: (value: number) => `${value}%`, input: (value: number) => setUserVolume(id, value / 100) },
+        run: () => undefined,
+      },
+      {
+        id: "voice-stream-volume",
+        label: text("stream_volume"),
+        icon: MENU_ICONS.volume,
+        slider: { value: Math.round((volumeOf(id).stream ?? 1) * 100), min: 0, max: 200, step: 5, format: (value: number) => `${value}%`, input: (value: number) => setStreamVolume(id, value / 100) },
         run: () => undefined,
       },
       {
