@@ -1407,7 +1407,7 @@
     {#if room}
       {#if room.isDirect && room.directUserId}
         <h2 class="name md bold truncate">
-          <button type="button" class="name-button ghost truncate" aria-label={text("user_profile", "open").replace("{name}", room.name)} onclick={() => room.directUserId && openFullProfile(room.directUserId, room.id)} oncontextmenu={(event) => { event.preventDefault(); openRoomMenu(room.id, event.clientX, event.clientY); }}><span class="faint">@</span><EmojiText text={room.name} /></button>
+          <button type="button" class="name-button ghost truncate" aria-label={text("user_profile", "open").replace("{name}", room.name)} onclick={() => room.directUserId && openFullProfile(room.directUserId, room.id)} oncontextmenu={(event) => { event.preventDefault(); openRoomMenu(room.id, event.clientX, event.clientY); }}><span class="faint">@</span><EmojiText text={room.name} fade={false} /></button>
         </h2>
       {:else}
         {@const roomId = room.id}
@@ -1424,7 +1424,7 @@
               event.preventDefault();
               openRoomMenu(roomId, event.clientX, event.clientY);
             }}
-          >{#if room.isDirect}<span class="faint">@</span>{:else}<svg class="room-hash" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16" /></svg>{/if}<EmojiText text={room.name} /></button>
+          >{#if room.isDirect}<span class="faint">@</span>{:else}<svg class="room-hash" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16" /></svg>{/if}<EmojiText text={room.name} fade={false} /></button>
         </h2>
       {/if}
       {#if room.topic}
@@ -1790,7 +1790,7 @@
     <div class="typing row-nw align-centre gap-sm xs" class:shown={!!typingLabel} aria-live="polite" use:entityMenu={typingIds.length ? typingItems : undefined}>
       {#if typingLabel}
         <span class="typing-dots row-nw align-centre" aria-hidden="true"><span></span><span></span><span></span></span>
-        <span class="typing-text truncate muted"><EmojiText text={typingLabel} /></span>
+        <span class="typing-text truncate muted"><EmojiText text={typingLabel} fade={false} /></span>
       {/if}
     </div>
 
