@@ -77,6 +77,16 @@ export const pickFocus = (memberships: CallMembership[], fallback: LiveKitFocus[
 
 export const identityOf = (userId: UserId, deviceId: string) => `${userId}:${deviceId}`;
 
+export const toDeviceKeyContent = (session: Session, roomId: RoomId, index: number, key: string) => ({
+  room_id: roomId,
+  member_id: identityOf(session.userId, session.deviceId),
+  media_key: { index, key },
+  keys: { index, key },
+  member: { id: identityOf(session.userId, session.deviceId), claimed_device_id: session.deviceId },
+  session: { application: "m.call", call_id: "", scope: "m.room" },
+  sent_ts: Date.now(),
+});
+
 export const stateKeyOf = (session: Session) => `_${session.userId}_${session.deviceId}`;
 
 export const membershipContent = (session: Session, focus: LiveKitFocus, roomId: RoomId) => ({
@@ -85,7 +95,7 @@ export const membershipContent = (session: Session, focus: LiveKitFocus, roomId:
   scope: "m.room",
   device_id: session.deviceId,
   expires: MEMBERSHIP_LIFETIME,
-  focus_active: { type: "livekit", focus_selection: "oldest_membership" },
+  focus_active: { type: "livekit", focus_selection: "multi_sfu" },
   foci_preferred: [{ type: "livekit", livekit_service_url: focus.livekit_service_url, livekit_alias: focus.livekit_alias ?? roomId }],
   "m.call.intent": "audio",
 });
