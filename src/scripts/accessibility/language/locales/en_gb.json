@@ -147,6 +147,17 @@
       "mod_mac": "⌘"
     },
     "chat": {
+      "upgraded": "This room has been upgraded",
+      "upgraded_hint": "The conversation continues in a new room.",
+      "open_replacement": "Open new room",
+      "join_replacement": "Join new room",
+      "joining_replacement": "Joining…",
+      "replacement_failed": "Could not join the new room.",
+      "copy_replacement": "Copy new room ID",
+      "predecessor": "This room continues from an older room",
+      "open_predecessor": "Open older room",
+      "copy_predecessor": "Copy older room ID",
+      "room_settings": "Room settings",
       "view_reactions": "View reactions",
       "reactions_title": "Reactions",
       "seen_by_menu": "Seen by",
@@ -717,6 +728,172 @@
       "unavailable": "Your location could not be found.",
       "copy_geo": "Copy geo URI"
     },
+    "room_settings": {
+      "title": "Roles",
+      "close": "Close",
+      "back": "Back",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "reset_changes": "Reset",
+      "unsaved": "Careful, you have unsaved changes!",
+      "failed": "Could not save. Try again.",
+      "read_only": "You can look around, but your power level is too low to change roles here.",
+      "intro": "Use roles to group people in this room and decide what they can do. Each role is a Matrix power level.",
+      "everyone": "Default permissions",
+      "everyone_hint": "@everyone · applies to all members",
+      "everyone_role": "@everyone",
+      "search_roles": "Search roles",
+      "create": "Create role",
+      "new_role": "new role",
+      "col_roles": "Roles · {count}",
+      "col_members": "Members",
+      "empty_title": "Organise your members",
+      "empty_body": "Roles give people names, colours and powers. Create one to get started.",
+      "no_match": "No roles match that search.",
+      "edit_role": "Edit role",
+      "more": "More options",
+      "copy_level": "Copy power level",
+      "copy_name": "Copy role name",
+      "copy_colour": "Copy colour",
+      "copy_user": "Copy user ID",
+      "delete_role": "Delete role",
+      "delete_title": "Delete {name}?",
+      "delete_body": "Everyone with this role goes back to the default power level. You can still undo this before saving.",
+      "delete_confirm": "Delete",
+      "edit_title": "Edit role · {name}",
+      "tabs": {
+        "display": "Display",
+        "permissions": "Permissions",
+        "members": "Manage members",
+        "members_count": "Manage members ({count})"
+      },
+      "name": "Role name",
+      "level": "Power level",
+      "level_hint": "Higher levels sit above lower ones. Pick a number between {min} and {max}.",
+      "level_taken": "That power level is already taken or out of reach.",
+      "level_name": "Level {level}",
+      "admin": "Admin",
+      "moderator": "Moderator",
+      "default": "Default",
+      "colour": "Role colour",
+      "colour_hint": "Members show up in this colour.",
+      "colour_default": "Default colour",
+      "colour_custom": "Pick a custom colour",
+      "icon": "Role icon",
+      "icon_hint": "Shown next to names. Square images look best.",
+      "icon_upload": "Upload image",
+      "icon_remove": "Remove",
+      "icon_uploading": "Uploading…",
+      "preview_text": "Looking good in my new role!",
+      "preview_label": "Preview",
+      "search_permissions": "Search permissions",
+      "clear_permissions": "Clear permissions",
+      "no_permissions": "No permissions match that search.",
+      "groups": {
+        "general": "Room",
+        "members": "Membership",
+        "messages": "Messages",
+        "advanced": "Advanced"
+      },
+      "perm": {
+        "name": {
+          "label": "Change room name",
+          "hint": "Rename the room."
+        },
+        "topic": {
+          "label": "Change topic",
+          "hint": "Edit the topic shown at the top of the room."
+        },
+        "avatar": {
+          "label": "Change room icon",
+          "hint": "Upload or remove the room icon."
+        },
+        "alias": {
+          "label": "Change address",
+          "hint": "Set the main address people use to find this room."
+        },
+        "pinned": {
+          "label": "Pin messages",
+          "hint": "Pin and unpin messages for everyone."
+        },
+        "state": {
+          "label": "Change other settings",
+          "hint": "Any room setting that does not have its own rule here."
+        },
+        "invite": {
+          "label": "Invite people",
+          "hint": "Invite new people into the room."
+        },
+        "kick": {
+          "label": "Remove people",
+          "hint": "Remove people from the room. They can join again if allowed."
+        },
+        "ban": {
+          "label": "Ban people",
+          "hint": "Ban people so they cannot come back."
+        },
+        "join_rules": {
+          "label": "Change who can join",
+          "hint": "Make the room public, invite only, or open to a space."
+        },
+        "history": {
+          "label": "Change history visibility",
+          "hint": "Decide who can read messages from before they joined."
+        },
+        "send": {
+          "label": "Send messages",
+          "hint": "Send messages and most other events."
+        },
+        "react": {
+          "label": "Add reactions",
+          "hint": "React to messages with emoji."
+        },
+        "sticker": {
+          "label": "Send stickers",
+          "hint": "Send stickers in the room."
+        },
+        "redact": {
+          "label": "Delete messages from others",
+          "hint": "Remove messages sent by other people. Anyone can delete their own."
+        },
+        "notify": {
+          "label": "Notify everyone with @room",
+          "hint": "Ping every member at once."
+        },
+        "permissions": {
+          "label": "Manage roles",
+          "hint": "Change power levels and edit roles. People can only manage roles below their own."
+        },
+        "encryption": {
+          "label": "Turn on encryption",
+          "hint": "Enable end to end encryption. This cannot be turned off again."
+        },
+        "server_acl": {
+          "label": "Manage server access",
+          "hint": "Block or allow whole homeservers."
+        },
+        "upgrade": {
+          "label": "Upgrade the room",
+          "hint": "Move the room to a newer room version."
+        }
+      },
+      "search_members": "Search members",
+      "add_members": "Add members",
+      "add": "Add",
+      "no_role_members": "Nobody has this role yet.",
+      "no_member_match": "No members match that search.",
+      "remove_member": "Remove from role",
+      "no_candidates": "Everyone you can add already has this role.",
+      "add_title": "Add members to {name}",
+      "discard_title": "Discard your changes?",
+      "discard_body": "Your unsaved changes to roles will be lost.",
+      "discard_confirm": "Discard",
+      "demote_title": "Lower your own power level?",
+      "demote_body": "You will not be able to undo this yourself. Someone with a higher power level would have to raise it again.",
+      "demote_confirm": "Lower it",
+      "cancel": "Cancel",
+      "saved": "Roles saved"
+    },
     "poll": {
       "votes": "{count} votes",
       "vote": "1 vote",
@@ -959,6 +1136,7 @@
       "pinned": "Message pinned",
       "unpinned": "Message unpinned",
       "deleted": "Message deleted",
+      "power_saved": "Permissions updated",
       "marked_read": "Marked as read",
       "hidden": "Room hidden",
       "shown": "Room shown",
@@ -1008,6 +1186,7 @@
     },
     "room_menu": {
       "actions": "Room actions",
+      "settings": "Room settings",
       "notify_all": "All messages",
       "notify_mentions": "Mentions and keywords",
       "notify_mute": "Mute",

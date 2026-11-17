@@ -129,6 +129,22 @@ export const canSendEvent = (
       ? (room.powerLevels?.state_default ?? 50)
       : (room.powerLevels?.events_default ?? 0)));
 
+export const getTombstone = (room: RoomSummary) => {
+  const event = room.state["m.room.tombstone"]?.[""];
+  const replacement = event?.content?.replacement_room;
+  return typeof replacement === "string"
+    ? { replacement, sender: event!.sender ?? "", body: typeof event!.content.body === "string" ? event!.content.body : "" }
+    : undefined;
+};
+
+export const getPredecessor = (room: RoomSummary) => {
+  const predecessor = getState<{ predecessor?: { room_id?: unknown } }>(room, "m.room.create")?.predecessor?.room_id;
+  return typeof predecessor === "string" ? predecessor : undefined;
+};
+
+export const isSuperseded = (room: RoomSummary, rooms: Record<RoomId, RoomSummary>) =>
+  rooms[getTombstone(room)?.replacement ?? ""]?.membership === "join";
+
 export type RoomStoreEvents = {
   change: Record<RoomId, RoomSummary>;
 };
@@ -341,12 +357,12 @@ export const buildSpaceTree = (
     .filter((child) => child.isSpace)
     .map((subspace) => ({
       space: subspace,
-      rooms: collectRooms(subspace, new Set([space.roomId, subspace.roomId])),
+      rooms: collectRooms(subspace, new Set([space.roomId, subspace.roomId])).filter((child) => !isSuperseded(child, rooms)),
     }));
 
   return {
     space,
-    rooms: children.filter((child) => !child.isSpace),
+    rooms: children.filter((child) => !child.isSpace && !isSuperseded(child, rooms)),
     categories,
   };
 };
@@ -356,7 +372,7 @@ export const getSpaceTrees = (rooms: Record<RoomId, RoomSummary>) =>
 
 export const getDirectMessages = (rooms: Record<RoomId, RoomSummary>) =>
   Object.values(rooms)
-    .filter((room) => room.isDirect)
+    .filter((room) => room.isDirect && !isSuperseded(room, rooms))
     .sort(byActivity);
 
 export const getOrphanRooms = (rooms: Record<RoomId, RoomSummary>) => {
@@ -368,7 +384,7 @@ export const getOrphanRooms = (rooms: Record<RoomId, RoomSummary>) => {
 
   return Object.values(rooms)
     .filter(
-      (room) => !room.isSpace && !room.isDirect && !inSpace.has(room.roomId),
+      (room) => !room.isSpace && !room.isDirect && !inSpace.has(room.roomId) && !isSuperseded(room, rooms),
     )
     .sort(byActivity);
 };

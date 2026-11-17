@@ -15,7 +15,10 @@
   import Composer, { type Pending } from "./Composer.svelte";
   import { tick, untrack } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
-  import { canPin, canRedact, getPowerLevel } from "../../scripts/matrix/rooms";
+  import { canPin, canRedact, getPowerLevel, getPredecessor, getTombstone } from "../../scripts/matrix/rooms";
+  import { joinRoom } from "../../scripts/matrix/utilities/hierarchy";
+  import { serverNameFromUserId } from "../../scripts/matrix/discovery";
+  import RoomSettings from "./RoomSettings.svelte";
   import type { TimelineEvent } from "../../scripts/matrix/types";
   import { formatBytes, getUploadLimit, isInline, prepareAttachment, sanitiseFilename, uploadAttachment } from "../../scripts/matrix/utilities/attachments";
   import { downloadMedia } from "../../scripts/matrix/utilities/download";
@@ -55,6 +58,7 @@
     sendRoomEvent,
     rooms,
     session,
+    waitForRoom,
     undecryptable,
     readReceipts,
     sendReaction,
@@ -84,7 +88,7 @@
   import PollDialog from "./PollDialog.svelte";
   import { BEACON, BEACON_INFO, LOCATION_KEYS, POLL_END, POLL_START, formatCoordinates, getLocation, getPoll, locationContent, osmLink, pollEndContent, pollStartContent, relatedTo, type GeoLocation } from "../../scripts/matrix/utilities/content";
   import { SYSTEM_ICONS, SYSTEM_TYPES, describeSystem, type MemberVerb, type SystemLine } from "../../scripts/matrix/utilities/system";
-  import { navigation, openRoom, openRoomMenu, openUserMenu } from "../../scripts/stores/navigation.svelte";
+  import { navigation, openJoined, openRoom, openRoomMenu, openRoomSettings, openUserMenu, roomSettings } from "../../scripts/stores/navigation.svelte";
   import { openFullProfile, openMiniProfile } from "../../scripts/stores/profile";
   import { getScrollAnchor, persistScrollAnchors, setScrollAnchor, type ScrollAnchor } from "../../scripts/stores/scroll";
 
@@ -204,6 +208,33 @@
   $effect(() => () => pending.forEach((item) => item.preview && URL.revokeObjectURL(item.preview)));
 
   const room = $derived($currentRoom && toEntity($currentRoom, $session?.userId));
+  const tombstone = $derived($currentRoom ? getTombstone($currentRoom) : undefined);
+  const predecessor = $derived($currentRoom ? getPredecessor($currentRoom) : undefined);
+  const replacementJoined = $derived($rooms[tombstone?.replacement ?? ""]?.membership === "join");
+  const predecessorJoined = $derived($rooms[predecessor ?? ""]?.membership === "join");
+  let upgrading = $state(false);
+  let upgradeFailed = $state(false);
+
+  const openReplacement = (target: { replacement: string; sender: string }) => {
+    if (replacementJoined) return openJoined(target.replacement);
+    if (!$session || upgrading) return;
+    upgrading = true;
+    upgradeFailed = false;
+    joinRoom($session, target.replacement, [serverNameFromUserId(target.sender)].filter(Boolean))
+      .then(({ room_id }) => waitForRoom(room_id).then(() => openJoined(room_id)))
+      .catch(() => (upgradeFailed = true))
+      .finally(() => (upgrading = false));
+  };
+
+  const replacementItems = (target: { replacement: string; sender: string }) => () => [
+    { id: "replacement-open", label: text("chat", replacementJoined ? "open_replacement" : "join_replacement"), icon: MENU_ICONS.open, disabled: upgrading, run: () => openReplacement(target) },
+    { id: "replacement-copy", label: text("chat", "copy_replacement"), icon: MENU_ICONS.id, separated: true, run: () => copied(target.replacement) },
+  ];
+
+  const predecessorItems = (target: string) => () => [
+    ...(predecessorJoined ? [{ id: "predecessor-open", label: text("chat", "open_predecessor"), icon: MENU_ICONS.open, run: () => openJoined(target) }] : []),
+    { id: "predecessor-copy", label: text("chat", "copy_predecessor"), icon: MENU_ICONS.id, separated: predecessorJoined, run: () => copied(target) },
+  ];
   const ownUserId = $derived($session?.userId);
   const encrypted = $derived(!!$currentRoom?.encryption);
   const pinnedIds = $derived($currentRoom?.pinned ?? []);
@@ -619,6 +650,7 @@
   };
 
   const pollEnded = (message: Message) =>
+    (getPoll(message.event)?.endsAt ?? Infinity) <= Date.now() ||
     (relations.get(message.eventId) ?? []).some((event) => POLL_END.includes(event.type) && (event.sender === message.sender || mayModerate(event.sender)));
 
   const findReply = (eventId: string) => $visibleTimeline.find((event) => event.event_id === eventId);
@@ -929,8 +961,8 @@
 
   let pollOpen = $state(false);
 
-  const createPoll = (question: string, answers: string[], disclosed: boolean, multiple: boolean) =>
-    sendRoomEvent(POLL_START[1], pollStartContent(question, answers, multiple ? answers.length : 1, disclosed)).then(() => (stuck = true));
+  const createPoll = (question: string, answers: string[], disclosed: boolean, multiple: boolean, duration: number) =>
+    sendRoomEvent(POLL_START[1], pollStartContent(question, answers, multiple ? answers.length : 1, disclosed, duration ? Date.now() + duration : undefined)).then(() => (stuck = true));
 
   const shareLocation = () => {
     const roomId = room?.id;
@@ -1406,6 +1438,19 @@
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.thread} /></svg>
       </button>
     {/if}
+    {#if room}
+      {@const settingsId = room.id}
+      <button
+        class="icon ghost press"
+        aria-label={text("chat", "room_settings")}
+        aria-haspopup="dialog"
+        use:tooltip={text("chat", "room_settings")}
+        onclick={() => openRoomSettings(settingsId)}
+        use:entityMenu={() => [{ id: "room-settings", label: text("chat", "room_settings"), icon: MENU_ICONS.settings, run: () => openRoomSettings(settingsId) }]}
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.settings} /></svg>
+      </button>
+    {/if}
     <button class="icon ghost press" aria-label={text("navigation", "open_members")} use:tooltip={text("navigation", "open_members")} onclick={onmembers}>
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
         <path fill="currentColor" d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 19c0-3.3 3.1-6 7-6s7 2.7 7 6v1H2v-1Zm15.5 1H22v-1c0-2.6-2.2-4.6-5-5 1.2 1.3 1.9 3 2 4.9V20h-1.5Z" />
@@ -1445,6 +1490,13 @@
           <span class="hero row centre glow"><Avatar name={room.name} url={room.avatar} size="56px" radius="30%" /></span>
           <p class="lg bold">{text("chat", "beginning").replace("{room}", roomLabel)}</p>
           {#if room.topic}<p class="sm muted">{room.topic}</p>{/if}
+          {#if predecessor}
+            {@const target = predecessor}
+            <p class="sm"><button type="button" class="predecessor ghost press row-nw align-centre gap-sm" disabled={!predecessorJoined} onclick={() => openJoined(target)} use:entityMenu={predecessorItems(target)}>
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M12 4 5 11h4v9h6v-9h4l-7-7Z" transform="rotate(180 12 12)" /></svg>
+              {text("chat", "predecessor")}
+            </button></p>
+          {/if}
           {#if !timelineMessages.length}<p class="sm faint">{text("chat", "no_messages")}</p>{/if}
         </li>
       {/if}
@@ -1701,6 +1753,17 @@
       {/if}
     </div>
 
+    {#if tombstone}
+      {@const target = tombstone}
+      <div class="upgrade-banner row-nw align-centre gap-md" role="status" use:entityMenu={replacementItems(target)}>
+        <span class="upgrade-icon row centre" aria-hidden="true"><svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 3 4 11h5v10h6V11h5l-8-8Z" /></svg></span>
+        <span class="col min-0 flex-max">
+          <span class="sm bold">{text("chat", "upgraded")}</span>
+          <span class="xs muted upgrade-hint"><span class="upgrade-line" class:shown={!upgradeFailed}>{target.body || text("chat", "upgraded_hint")}</span><span class="upgrade-line error" class:shown={upgradeFailed}>{text("chat", "replacement_failed")}</span></span>
+        </span>
+        <button type="button" class="upgrade-button press sm bold" disabled={upgrading} onclick={() => openReplacement(target)}>{text("chat", upgrading ? "joining_replacement" : replacementJoined ? "open_replacement" : "join_replacement")}</button>
+      </div>
+    {:else}
     <Composer
       bind:draft
       bind:field={composer}
@@ -1719,6 +1782,7 @@
       onpoll={() => (pollOpen = true)}
       onlocation={shareLocation}
     />
+    {/if}
 
     {#if dragDepth > 0}
       <div class="dropzone col centre gap-sm" aria-hidden="true">
@@ -1790,6 +1854,12 @@
       onremove={() => target.selected && toggleReaction(target.message.eventId, target.selected)}
       onclose={() => (people = null)}
     />
+  {/if}
+
+  {#if roomSettings.roomId}
+    {#key roomSettings.roomId}
+      <RoomSettings roomId={roomSettings.roomId} onclose={() => (roomSettings.roomId = null)} />
+    {/key}
   {/if}
 
   {#if pollOpen}
@@ -2297,6 +2367,86 @@
 
   .beginning p {
     margin: var(--azure-spacing-sm) 0 0;
+  }
+
+  .predecessor {
+    padding: 4px 8px;
+    margin-left: -8px;
+    border-radius: 6px;
+    color: var(--colours-accent);
+    transition: background-color 320ms cubic-bezier(0.32, 0.72, 0, 1), opacity 320ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .predecessor:hover:not(:disabled) {
+    background-color: var(--colours-surface-hover);
+  }
+
+  .predecessor:disabled {
+    opacity: 0.6;
+  }
+
+  .upgrade-banner {
+    margin: 0 var(--azure-spacing-lg) var(--azure-spacing-lg);
+    padding: var(--azure-spacing-md) var(--azure-spacing-lg);
+    border-radius: var(--azure-radius-md);
+    background-color: var(--colours-surface-raised);
+    box-shadow: inset 0 0 0 1px var(--colours-outline-hairline);
+    animation: upgrade-in 520ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+
+  .upgrade-icon {
+    flex: none;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    color: var(--colours-accent);
+    background-color: color-mix(in oklab, var(--colours-accent) 16%, transparent);
+  }
+
+  .upgrade-hint {
+    display: grid;
+  }
+
+  .upgrade-line {
+    grid-area: 1 / 1;
+    opacity: 0;
+    filter: blur(2px);
+    transition: opacity 420ms cubic-bezier(0.32, 0.72, 0, 1), filter 420ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .upgrade-line.shown {
+    opacity: 1;
+    filter: none;
+  }
+
+  .upgrade-line.error {
+    color: var(--colours-danger);
+  }
+
+  .upgrade-button {
+    flex: none;
+    min-height: 32px;
+    padding: 0 var(--azure-spacing-md);
+    border-radius: 8px;
+    color: white;
+    background-color: var(--colours-accent);
+    transition: opacity 320ms cubic-bezier(0.32, 0.72, 0, 1), filter 320ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .upgrade-button:hover:not(:disabled) {
+    filter: brightness(1.1);
+  }
+
+  .upgrade-button:disabled {
+    opacity: 0.6;
+  }
+
+  @keyframes upgrade-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.98);
+      filter: blur(4px);
+    }
   }
 
   .beginning .lg {
