@@ -463,14 +463,19 @@ export const watchInput = () => (listeners.update((count) => count + 1), () => l
 export const userLevels = writable<Record<string, [number, number, number]>>({});
 const VISIBLE_DB = [-62, -18];
 const loudness = (db: number) => Math.max(0, Math.min(1, (db - VISIBLE_DB[0]) / (VISIBLE_DB[1] - VISIBLE_DB[0])));
-const pushLevels = (levels: Record<string, number>) =>
-  userLevels.update((all) => ({ ...all, ...Object.fromEntries(Object.entries(levels).map(([user, level]) => [user, [all[user]?.[1] ?? 0, level, all[user]?.[0] ?? 0] as [number, number, number]])) }));
+const LEVEL_STEP = 0.04;
+const quiet = (bars: [number, number, number] | undefined) => !bars || Math.max(...bars) < LEVEL_STEP;
+const pushLevels = (levels: Record<string, number>) => {
+  const all = get(userLevels);
+  const moved = Object.entries(levels).filter(([user, level]) => !(quiet(all[user]) && level < LEVEL_STEP) && Math.abs((all[user]?.[1] ?? 0) - level) + (all[user]?.[0] ?? 0) + (all[user]?.[2] ?? 0) >= LEVEL_STEP);
+  moved.length && userLevels.set({ ...all, ...Object.fromEntries(moved.map(([user, level]) => [user, [all[user]?.[1] ?? 0, level, all[user]?.[0] ?? 0] as [number, number, number]])) });
+};
 const byUser = (levels: Record<string, number>) =>
   Object.entries(levels).reduce<Record<string, number>>((all, [identity, level]) => ({ ...all, [userOfIdentity(identity)]: Math.max(all[userOfIdentity(identity)] ?? 0, level) }), {});
 
 const showLevel = (db: number, open: boolean) => (
-  inputLevel.set((db - DB_FLOOR) / -DB_FLOOR),
-  transmitting.set(open),
+  Math.abs(get(inputLevel) - (db - DB_FLOOR) / -DB_FLOOR) >= 0.01 && inputLevel.set((db - DB_FLOOR) / -DB_FLOOR),
+  get(transmitting) !== open && transmitting.set(open),
   nativeVoice && live && get(session) && pushLevels({ [get(session)!.userId]: open && micOpen() ? loudness(db) : 0 })
 );
 
