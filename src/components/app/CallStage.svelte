@@ -162,10 +162,15 @@
             <Icon name="hangup" size={22} />
           </button>
         </div>
+        <div class="slide phone-chat" class:open={staged}>
+          <button type="button" class="ghost round control press" inert={!staged} aria-label={text("chat_show")} use:tooltip={text("chat_show")} onclick={() => (staged = false)} use:menu={() => [{ id: "stage-chat", label: text("chat_show"), icon: MENU_ICONS.thread, run: () => (staged = false) }]}>
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.thread} /></svg>
+          </button>
+        </div>
         <button type="button" class="ghost round control press" aria-label={text(staged ? "collapse" : "expand")} use:tooltip={text(staged ? "collapse" : "expand")} onclick={toggleStage} use:menu={stageItems}>
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d={staged ? SETTINGS_ICONS.collapse : SETTINGS_ICONS.expand} /></svg>
         </button>
-        <div class="slide" class:open={here}>
+        <div class="slide desk-only" class:open={here}>
           <button type="button" class="ghost round control press" inert={!here} aria-label={text("settings")} use:tooltip={text("settings")} onclick={openVoiceSettings} use:menu={() => [{ id: "stage-settings", label: text("settings"), icon: MENU_ICONS.settings, run: openVoiceSettings }]}>
             <Icon name="gear" size={20} />
           </button>
@@ -192,6 +197,10 @@
   .stage-slot.open {
     height: auto;
     opacity: 1;
+  }
+
+  .stage-slot.open:not(.staged) {
+    max-height: calc(100% - var(--header-space, 57px) - var(--composer-space, 95px) - env(safe-area-inset-bottom));
   }
 
   .stage-slot.staged {
@@ -399,6 +408,18 @@
   .controls > .slide {
     margin-inline: 0;
     overflow: hidden;
+  }
+
+  @media (min-width: 768px) {
+    .phone-chat {
+      display: none;
+    }
+  }
+
+  @media (max-width: 767px) {
+    .desk-only {
+      display: none;
+    }
   }
 
   .balance {
