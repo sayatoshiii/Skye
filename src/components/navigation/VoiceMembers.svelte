@@ -7,7 +7,7 @@
   import { userMenuItems } from "../../scripts/misc/usermenu";
   import { openMiniProfile } from "../../scripts/stores/profile";
   import { rooms, session } from "../../scripts/stores/matrix";
-  import { callMembers, deafened, memberIdentities, muted, speaking, userOfIdentity, voice } from "../../scripts/stores/voice";
+  import { callMembers, deafened, memberIdentities, muted, speaking, talkingUsers, userOfIdentity, voice } from "../../scripts/stores/voice";
   import { reveal } from "../auth/motion";
   import Icon from "../settings/Icon.svelte";
   import Avatar from "../ui/Avatar.svelte";
@@ -29,7 +29,7 @@
         userId: member.userId,
         name: profile?.displayName || member.userId.slice(1).split(":")[0],
         avatar: profile?.avatarUrl,
-        talking: $voice?.roomId === roomId && (devices.some((identity) => $speaking.has(identity)) || [...$speaking].some((identity) => userOfIdentity(identity) === member.userId)),
+        talking: $voice?.roomId === roomId && ($talkingUsers.has(member.userId) || devices.some((identity) => $speaking.has(identity)) || [...$speaking].some((identity) => userOfIdentity(identity) === member.userId)),
         self: member.userId === $session?.userId,
       };
     }),

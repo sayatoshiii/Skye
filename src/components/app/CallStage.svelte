@@ -27,6 +27,8 @@
     screenOn,
     screenSupported,
     speaking,
+    talkingUsers,
+    userLevels,
     userOfIdentity,
     userVolumes,
     setStreamVolume,
@@ -194,7 +196,7 @@
         {@const profile = summary?.members[tile.userId]?.avatarUrl ? summary?.members[tile.userId] : { ...summary?.members[tile.userId], ...fetched[tile.userId] }}
         {@const name = profile?.displayName || tile.userId.slice(1).split(":")[0]}
         {@const self = tile.userId === $session?.userId}
-        {@const talking = here && !tile.screen && (tile.identities.some((identity) => $speaking.has(identity)) || [...$speaking].some((identity) => userOfIdentity(identity) === tile.userId))}
+        {@const talking = here && !tile.screen && ($talkingUsers.has(tile.userId) || tile.identities.some((identity) => $speaking.has(identity)) || [...$speaking].some((identity) => userOfIdentity(identity) === tile.userId))}
         {@const spot = place(tile)}
         <div class="tile-cell" out:leaveTile style:--x="{spot.x}%" style:--y="{spot.y}%" style:--w="{spot.w}%" style:--h="{spot.h}%">
           <div
@@ -221,7 +223,7 @@
             <span class="ring"><Avatar {name} url={profile?.avatarUrl} size="var(--avatar)" radius="50%" /></span>
             <span class="tile-name row-nw align-centre sm bold">
               <span class="truncate"><EmojiText text={tile.screen ? text("screen_of").replace("{name}", name) : name} /></span>
-              <span class="bars" class:shown={talking} aria-hidden="true"><i></i><i></i><i></i></span>
+              <span class="bars" class:shown={talking} aria-hidden="true">{#each $userLevels[tile.userId] ?? [0, 0, 0] as level, index (index)}<i style:--level={Math.max(0.25, level)}></i>{/each}</span>
               <span class="flag" class:shown={tile.pending || (!tile.screen && self && here && ($muted || $deafened))} class:calling={tile.pending}><Icon name={tile.pending ? "call" : $deafened ? "headphonesOff" : "micOff"} size={14} /></span>
             </span>
             <span class="ringing-label xs muted" class:shown={tile.pending}>{text("ringing")}</span>
@@ -674,7 +676,7 @@
 
   .bars {
     display: flex;
-    align-items: flex-end;
+    align-items: center;
     gap: 2px;
     width: 0;
     height: 12px;
@@ -702,22 +704,8 @@
     height: 100%;
     border-radius: 2px;
     background: var(--colours-success);
-    transform-origin: bottom;
-    animation: bar 900ms var(--ease) infinite alternate;
-  }
-
-  .bars i:nth-child(2) {
-    animation-delay: -300ms;
-  }
-
-  .bars i:nth-child(3) {
-    animation-delay: -600ms;
-  }
-
-  @keyframes bar {
-    from {
-      scale: 1 0.3;
-    }
+    scale: 1 var(--level);
+    transition: scale 110ms cubic-bezier(0.32, 0.72, 0, 1);
   }
 
   .tile:focus-visible {
