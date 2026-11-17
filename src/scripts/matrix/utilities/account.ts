@@ -1,8 +1,10 @@
-import { isMatrixError } from "../../api/client";
 import { fieldBase } from "../../stores/presence";
 import { sessionRequest } from "../session";
 import type { Session } from "../types";
 import { uploadBytes } from "./attachments";
+import { withAuth, type PasswordPrompt } from "./auth";
+
+export { withAuth, type PasswordPrompt };
 
 export const BANNER_FIELD = "chat.skye.banner";
 
@@ -13,7 +15,6 @@ export type Device = {
   last_seen_ts?: number;
 };
 
-export type PasswordPrompt = () => Promise<string | null>;
 
 const profilePath = (session: Session, field: string) =>
   `profile/${encodeURIComponent(session.userId)}/${field}`;
@@ -43,28 +44,9 @@ export const listDevices = (session: Session) =>
 export const renameDevice = (session: Session, deviceId: string, display_name: string) =>
   sessionRequest(session, { endpoint: `devices/${encodeURIComponent(deviceId)}`, method: "PUT", body: { display_name } });
 
-type Request = { endpoint: string; method: "POST" | "DELETE"; body: Record<string, unknown> };
-
 export type ThreePid = { medium: "email" | "msisdn" | string; address: string; added_at?: number };
 
-const passwordAuth = (session: Session, password: string, flow?: string) => ({
-  type: "m.login.password",
-  identifier: { type: "m.id.user", user: session.userId },
-  password,
-  session: flow,
-});
 
-export const withAuth = async (session: Session, request: Request, askPassword: PasswordPrompt) => {
-  try {
-    return await sessionRequest(session, request);
-  } catch (error) {
-    if (!isMatrixError(error) || error.status !== 401 || !Array.isArray(error.body.flows)) throw error;
-    const password = await askPassword();
-    return password === null
-      ? null
-      : sessionRequest(session, { ...request, body: { ...request.body, auth: passwordAuth(session, password, error.body.session as string | undefined) } });
-  }
-};
 
 export const deleteDevice = (session: Session, deviceId: string, askPassword: PasswordPrompt) =>
   withAuth(session, { endpoint: `devices/${encodeURIComponent(deviceId)}`, method: "DELETE", body: {} }, askPassword);

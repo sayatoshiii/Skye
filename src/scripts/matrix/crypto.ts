@@ -15,7 +15,7 @@ import {
   UserId as WasmUserId,
 } from "@matrix-org/matrix-sdk-crypto-wasm";
 import { sessionRequest } from "./session";
-import { withAuth, type PasswordPrompt } from "./utilities/account";
+import { withAuth, type PasswordPrompt } from "./utilities/auth";
 import type {
   CryptoHooks,
   CryptoSyncData,

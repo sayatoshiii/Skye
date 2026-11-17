@@ -1,4 +1,4 @@
-import type { PasswordPrompt } from "../matrix/utilities/account";
+import type { PasswordPrompt } from "../matrix/utilities/auth";
 import { markdownToContent } from "../misc/formatting";
 import { mentionsOf, pillMarkdown, type Pill } from "../misc/mentions";
 import { derived, get, writable } from "svelte/store";
