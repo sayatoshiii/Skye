@@ -497,7 +497,7 @@ const promptVerification = async (activeSession: Session) => {
   const device = await machine
     .getDevice(userId, new WasmDeviceId(activeSession.deviceId))
     .catch(() => undefined);
-  const trusted = !!device && (device.isCrossSigningTrusted() || device.isLocallyTrusted());
+  const trusted = !!device && device.isCrossSigningTrusted();
   if (trusted || cryptoHandle !== handle || get(historyRestored)) return;
 
   try {
@@ -516,7 +516,7 @@ export const getEncryptionStatus = async () => {
   const device = await machine.getDevice(userId, new WasmDeviceId(active.deviceId)).catch(() => undefined);
   return {
     crossSigning: !!identity,
-    verified: !!device && (device.isCrossSigningTrusted() || device.isLocallyTrusted()),
+    verified: !!device && device.isCrossSigningTrusted(),
     backup: await handle.hasBackup().catch(() => false),
   };
 };

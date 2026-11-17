@@ -50,7 +50,7 @@
             </span>
             <span class="set-value tight"><span class="pill" class:good={status[row.key]} class:bad={!status[row.key]}>{text(status[row.key] ? row.on : row.off)}</span></span>
             {#if action}
-              <button type="button" class="set-button ghost press" class:primary={action === "verify"} onclick={openRestore}>{text(action)}</button>
+              <button type="button" class="set-button ghost press" onclick={openRestore}>{text(action)}</button>
             {/if}
           </div>
         {/each}
