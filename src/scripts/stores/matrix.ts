@@ -602,6 +602,8 @@ export const waitForRoom = (roomId: RoomId, signal?: AbortSignal) =>
     }, { once: true });
   });
 
+export const addLocalMention = (roomId: RoomId, eventId: string) => roomStore?.addLocalMention(roomId, eventId);
+
 export const getDirectRoomMap = () => roomStore?.getDirectRooms() ?? {};
 
 export const getTimeline = (roomId: RoomId) => {

@@ -5,7 +5,7 @@ import { isUnread, unreadCountOf } from "../matrix/rooms";
 import type { MatrixEvent, RoomId, RoomSummary, SyncResponse } from "../matrix/types";
 import { stripReplyFallback } from "../misc/formatting";
 import { mentionsUser } from "../misc/mentions";
-import { currentRoomId, decryptPreview, directMessages, registerLiveSyncHook, rooms, session, spaces } from "./matrix";
+import { addLocalMention, currentRoomId, decryptPreview, directMessages, registerLiveSyncHook, rooms, session, spaces } from "./matrix";
 import { HOME, getSpaceRoomIds, openRoom } from "./navigation.svelte";
 import { notifyPrefs } from "./settings";
 
@@ -125,6 +125,24 @@ const show = (room: RoomSummary, title: string, body: string) => {
   } catch {}
 };
 
+const MESSAGE_TYPES = ["m.room.message", "m.room.encrypted", "m.sticker"];
+
+const trackMentions = (response: SyncResponse) => {
+  const active = get(session);
+  const roomMap = get(rooms);
+  active &&
+    Object.entries(response.rooms?.join ?? {}).forEach(([roomId, sync]) =>
+      (sync.timeline?.events ?? [])
+        .filter((event) => !!event.event_id && event.sender !== active.userId && event.state_key === undefined && MESSAGE_TYPES.includes(event.type) && event.content?.["m.relates_to"]?.rel_type !== "m.replace")
+        .forEach((event) =>
+          decryptPreview(event, roomId).then(
+            (clear) => roomMap[roomId] && !(roomId === get(currentRoomId) && document.hasFocus()) && mentionsMe(clear, roomMap[roomId], active.userId) && addLocalMention(roomId, event.event_id!),
+            () => undefined,
+          ),
+        ),
+    );
+};
+
 const handleLive = async (response: SyncResponse) => {
   const active = get(session);
   const roomMap = get(rooms);
@@ -161,4 +179,4 @@ const handleLive = async (response: SyncResponse) => {
   }
 };
 
-registerLiveSyncHook((response) => void handleLive(response));
+registerLiveSyncHook((response) => (trackMentions(response), void handleLive(response)));
