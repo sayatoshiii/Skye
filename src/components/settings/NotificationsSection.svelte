@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { native } from "../../scripts/misc/native";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { notifyPrefs, saveNotifyPrefs, type NotifyPrefs } from "../../scripts/stores/settings";
   import { toastKey } from "../../scripts/stores/toast";
@@ -21,7 +22,7 @@
 
   const readPermission = () => (permission = "Notification" in window ? Notification.permission : "unsupported");
 
-  onMount(readPermission);
+  onMount(() => (native ? enable() : readPermission()));
 
   const enable = async () => {
     asking = true;
