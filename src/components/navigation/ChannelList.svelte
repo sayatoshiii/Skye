@@ -16,6 +16,8 @@
   import { joinRoom } from "../../scripts/matrix/utilities/hierarchy";
   import { addDirectRoom, describeMembershipError, forgetRoom, leaveRoom, type MembershipError } from "../../scripts/matrix/utilities/membership";
   import { MENU_ICONS } from "../../scripts/misc/icons";
+  import { SETTINGS_ICONS } from "../settings/icons";
+  import { pushRules, roomLevel, setRoomLevel } from "../../scripts/stores/pushrules";
   import { longpress } from "../../scripts/misc/longpress";
   import { entityText, menu as entityMenu } from "../../scripts/misc/entitymenu.svelte";
   import { userMenuItems } from "../../scripts/misc/usermenu";
@@ -224,6 +226,8 @@
     confirming = { room, forget: false };
   };
 
+  const NOTIFY_ICONS = { all: SETTINGS_ICONS.notifications, mentions: MENU_ICONS.mention, mute: MENU_ICONS.mute };
+
   const menuItems = (room: RoomEntity): MenuItem[] => {
     const via = $session ? [serverNameFromUserId($session.userId)] : [];
     const inSpace = navigation.spaceId !== HOME;
@@ -234,7 +238,8 @@
       ...user,
       { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, separated: user.length > 0, run: () => (markAsRead(room.id), toastKey("marked_read", { icon: "check", tone: "success" })) },
       { id: "unread", label: text("room_menu", "mark_unread"), icon: MENU_ICONS.unread, run: () => markUnread(room.id) && toastKey("marked_unread", { icon: "unread", tone: "accent" }) },
-      { id: "link", label: text("room_menu", "copy_link"), icon: MENU_ICONS.link, run: () => copy(toMatrixTo(room.alias ?? room.id, via), "link_copied", "link") },
+      ...(["all", "mentions", "mute"] as const).map((level, index) => ({ id: `notify-${level}`, label: text("room_menu", `notify_${level}`), icon: NOTIFY_ICONS[level], selected: roomLevel($pushRules, room.id) === level, separated: index === 0, run: () => setRoomLevel(room.id, level) })),
+      { id: "link", label: text("room_menu", "copy_link"), separated: true, icon: MENU_ICONS.link, run: () => copy(toMatrixTo(room.alias ?? room.id, via), "link_copied", "link") },
       { id: "id", label: text("room_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(room.id, "id_copied", "id") },
       ...(inSpace
         ? [{ id: "hide", label: text("room_menu", "hide"), icon: MENU_ICONS.hide, run: () => (setRoomsHidden(navigation.spaceId, [room.id], true), toastKey("hidden", { icon: "hide", tone: "danger" })) }]
@@ -343,8 +348,8 @@
           <ul class="col">
             {#each category.rooms as room (room.id)}
               {@const active = navigation.roomId === room.id}
-              {@const lit = room.hasUnread && !room.muted}
-              {@const count = room.isDirect ? Math.max(room.unread, room.mentions) : room.mentions}
+              {@const lit = room.hasUnread && !room.quiet}
+              {@const count = room.isDirect && !room.quiet ? Math.max(room.unread, room.mentions) : room.mentions}
               {@const hidden = isCollapsed && !active && !lit && !room.mentions}
                 <li class="room-slot" class:hidden inert={hidden}>
                   <span class="unread-pill" class:lit={lit && !active} aria-hidden="true"></span>
@@ -378,7 +383,8 @@
                       <span class="hash faint" aria-hidden="true">#</span>
                       <span class="truncate flex-max"><EmojiText text={room.name} /></span>
                     {/if}
-                    {#if count > 0 && (!room.muted || room.mentions)}
+                    <svg class="mute-icon faint" class:shown={room.muted} viewBox="0 0 24 24" width="14" height="14" aria-label={text("room_menu", "muted")} aria-hidden={!room.muted}><path fill="currentColor" d={MENU_ICONS.mute} /></svg>
+                    {#if count > 0 && (!room.quiet || room.mentions)}
                       <span class="count-badge xs bold" aria-label={text("navigation", "unread_count").replace("{count}", String(count))}>{formatCount(count)}</span>
                     {/if}
                   </button>
@@ -640,6 +646,20 @@
 
   .browse {
     margin-bottom: var(--azure-spacing-xs);
+  }
+
+  .mute-icon {
+    flex-shrink: 0;
+    width: 0;
+    opacity: 0;
+    transform: scale(0.6);
+    transition: width var(--azure-duration-slow) cubic-bezier(0.32, 0.72, 0, 1), opacity var(--azure-duration-slow) cubic-bezier(0.32, 0.72, 0, 1), transform var(--azure-duration-slow) cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .mute-icon.shown {
+    width: 14px;
+    opacity: 1;
+    transform: scale(1);
   }
 
   .browse-icon {

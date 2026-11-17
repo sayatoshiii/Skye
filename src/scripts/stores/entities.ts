@@ -15,6 +15,7 @@ export type RoomEntity = {
   mentions: number;
   hasUnread: boolean;
   muted: boolean;
+  quiet: boolean;
 };
 
 export const toEntity = (room: RoomSummary, ownUserId?: UserId): RoomEntity => {
@@ -34,5 +35,6 @@ export const toEntity = (room: RoomSummary, ownUserId?: UserId): RoomEntity => {
     mentions: room.highlightCount,
     hasUnread: isUnread(room) || room.highlightCount > 0,
     muted: room.muted,
+    quiet: room.muted || room.mentionsOnly,
   };
 };

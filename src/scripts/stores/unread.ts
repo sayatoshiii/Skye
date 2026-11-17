@@ -10,12 +10,12 @@ import { notifyPrefs } from "./settings";
 
 export type SpaceUnread = { unread: boolean; mentions: number };
 
-const roomUnread = (room: RoomSummary) => !room.muted && isUnread(room);
+const roomUnread = (room: RoomSummary) => !room.muted && !room.mentionsOnly && isUnread(room);
 
 export const unreadDirects = derived(directMessages, ($dms) =>
   $dms
-    .filter((room) => room.membership === "join" && !room.muted && (isUnread(room) || room.highlightCount > 0))
-    .map((room) => ({ room, count: Math.max(unreadCountOf(room), room.highlightCount) })),
+    .filter((room) => room.membership === "join" && !room.muted && ((!room.mentionsOnly && isUnread(room)) || room.highlightCount > 0))
+    .map((room) => ({ room, count: Math.max(room.mentionsOnly ? 0 : unreadCountOf(room), room.highlightCount) })),
 );
 
 export const directTotal = derived(unreadDirects, ($list) => $list.reduce((sum, item) => sum + item.count, 0));
@@ -149,7 +149,7 @@ const handleLive = async (response: SyncResponse) => {
     const clear = await decryptPreview(event, roomId);
     const highlighted = room.highlightCount > (before[roomId] ?? 0) || mentionsMe(clear, room, active.userId);
     const prefs = get(notifyPrefs);
-    if (room.isDirect ? !prefs.directs : prefs.mentionsOnly && !highlighted) continue;
+    if (room.isDirect ? !prefs.directs || (room.mentionsOnly && !highlighted) : (prefs.mentionsOnly || room.mentionsOnly) && !highlighted) continue;
 
     lastNotified[roomId] = Date.now();
     const sender = room.members[event.sender]?.displayName ?? event.sender.slice(1).split(":")[0];

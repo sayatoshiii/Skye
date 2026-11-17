@@ -228,6 +228,7 @@ export type RoomSummary = {
   readEventId?: EventId;
   fullyRead?: EventId;
   muted: boolean;
+  mentionsOnly: boolean;
   localUnread?: number;
   lastActivity: number;
   pinned: EventId[];
