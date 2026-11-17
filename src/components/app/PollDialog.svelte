@@ -384,6 +384,11 @@
 
     .preview {
       position: static;
+      margin-bottom: var(--azure-spacing-lg);
+    }
+
+    .preview :global(.poll) {
+      width: 100%;
     }
 
   }
