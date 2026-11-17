@@ -64,6 +64,8 @@ const saved = (work: Promise<unknown>) =>
     () => (refresh(), toastKey("settings_failed", { tone: "danger" })),
   );
 
+session.subscribe((active) => void (active && refresh()));
+
 const drop = (kind: PushKind, ruleId: string) => call(path(kind, ruleId), "DELETE").catch(() => undefined);
 
 export const setRoomLevel = (roomId: RoomId, level: RoomLevel) => {
@@ -74,7 +76,7 @@ export const setRoomLevel = (roomId: RoomId, level: RoomLevel) => {
     mentions: () => call(path("room", roomId), "PUT", { actions: ["dont_notify"] }),
     mute: () => call(path("override", roomId), "PUT", { actions: [], conditions: [{ kind: "event_match", key: "room_id", pattern: roomId }] }),
   };
-  const clearMute = level !== "mute" && muted ? drop("override", muted.rule_id) : Promise.resolve();
+  const clearMute = level === "mute" ? Promise.resolve() : Promise.all([drop("override", roomId), muted && muted.rule_id !== roomId ? drop("override", muted.rule_id) : undefined]);
   return saved(clearMute.then(steps[level]));
 };
 
