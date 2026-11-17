@@ -151,6 +151,7 @@ export type RoomStoreEvents = {
 
 export const createRoomStore = (ownUserId: UserId) => {
   const emitter = createEmitter<RoomStoreEvents>();
+  const localMentions: Record<RoomId, Set<string>> = {};
   const rooms: Record<RoomId, RoomSummary> = {};
   let directRooms: Record<UserId, RoomId[]> = {};
 
@@ -190,6 +191,8 @@ export const createRoomStore = (ownUserId: UserId) => {
         sync.unread_notifications.notification_count ?? 0;
       room.highlightCount = sync.unread_notifications.highlight_count ?? 0;
     }
+    isUnread(room) || delete localMentions[room.roomId];
+    room.highlightCount = Math.max(room.highlightCount, localMentions[room.roomId]?.size ?? 0);
 
     const unreadCount =
       sync["org.matrix.msc2654.unread_count"] ??
@@ -276,11 +279,21 @@ export const createRoomStore = (ownUserId: UserId) => {
 
     room.notificationCount = 0;
     room.highlightCount = 0;
+    delete localMentions[roomId];
     room.unreadCount = room.unreadCount === undefined ? undefined : 0;
     if (room.latestForeign && room.latestForeign.ts >= room.readTs) {
       room.readTs = room.latestForeign.ts;
       room.readEventId = room.latestForeign.eventId;
     }
+    emitter.emit("change", { ...rooms });
+  };
+
+  const addLocalMention = (roomId: RoomId, eventId: string) => {
+    const room = rooms[roomId];
+    const seen = (localMentions[roomId] ??= new Set());
+    if (!room || seen.has(eventId)) return;
+    seen.add(eventId);
+    room.highlightCount = Math.max(room.highlightCount, seen.size);
     emitter.emit("change", { ...rooms });
   };
 
@@ -310,6 +323,7 @@ export const createRoomStore = (ownUserId: UserId) => {
     setPinned,
     on: emitter.on,
     setLocalUnread,
+    addLocalMention,
     getRoom: (roomId: RoomId) => rooms[roomId],
     getRooms: () => ({ ...rooms }),
     getDirectRooms: () => ({ ...directRooms }),
