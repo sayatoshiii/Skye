@@ -197,6 +197,9 @@ const stateEndpoint = (session: Session, roomId: RoomId) =>
 export const putMembership = (session: Session, roomId: RoomId, content: Record<string, unknown>) =>
   sessionRequest(session, { endpoint: stateEndpoint(session, roomId), method: "PUT", body: content });
 
+export const clearMembership = (session: Session, roomId: RoomId, stateKey: string) =>
+  sessionRequest(session, { endpoint: `rooms/${encodeURIComponent(roomId)}/state/${encodeURIComponent(MEMBER_TYPE)}/${encodeURIComponent(stateKey)}`, method: "PUT", body: {} });
+
 export const scheduleLeave = (session: Session, roomId: RoomId) =>
   sessionRequest<{ delay_id: string }>(session, {
     endpoint: stateEndpoint(session, roomId),
