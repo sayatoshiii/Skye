@@ -27,6 +27,8 @@ import {
   NOTIFY_TYPES,
   pickFocus,
   putMembership,
+  clearMembership,
+  stateKeyOf,
   requestSfu,
   scheduleLeave,
   supportsDelayedEvents,
@@ -123,11 +125,17 @@ registerSyncHook((response: SyncResponse) =>
   ),
 );
 
-export const callMembers = derived([rooms, stickyMembers, tick], ([$rooms, $sticky]) =>
+const ownCopy = (list: CallMembership[], userId: UserId | undefined, deviceId: string | undefined) => {
+  const mine = list.filter((member) => member.userId === userId);
+  const keep = mine.find((member) => member.deviceId === deviceId) ?? mine.reduce<CallMembership | undefined>((newest, member) => (member.createdTs > (newest?.createdTs ?? -1) ? member : newest), undefined);
+  return list.filter((member) => member.userId !== userId || member === keep);
+};
+
+export const callMembers = derived([rooms, stickyMembers, tick, session], ([$rooms, $sticky, , $session]) =>
   Object.fromEntries(
     Object.values($rooms)
       .filter((room) => room.membership === "join")
-      .map((room) => [room.roomId, callMemberships(room, Object.values($sticky[room.roomId] ?? {}))] as const)
+      .map((room) => [room.roomId, ownCopy(callMemberships(room, Object.values($sticky[room.roomId] ?? {})), $session?.userId, $session?.deviceId)] as const)
       .filter(([, list]) => list.length),
   ) as Record<RoomId, CallMembership[]>,
 );
@@ -748,6 +756,7 @@ export const joinVoice = async (roomId: RoomId) => {
     await link.room.localParticipant.setMicrophoneEnabled(micOpen()).catch((error) => (console.warn("Skye could not open the microphone", error), blockMic()));
     live === current && patch({ status: "connected" });
     current.stop.push(watchMembers(current));
+    clearStaleSelf(current.roomId);
     await keepMembership(current, focus);
     sendKey(current);
   } catch (error) {
@@ -755,6 +764,19 @@ export const joinVoice = async (roomId: RoomId) => {
     live === current && voiceError.set((error as Error)?.message === "sfu_failed" ? "sfu_failed" : "join_failed");
     live === current && (await disconnect());
   }
+};
+
+native &&
+  import("@tauri-apps/api/event").then(({ listen }) =>
+    listen("skye:quit", () => disconnect().finally(() => import("@tauri-apps/api/core").then(({ invoke }) => invoke("leave")))),
+  );
+
+const clearStaleSelf = (roomId: RoomId) => {
+  const active = get(session);
+  const own = active && stateKeyOf(active);
+  callMemberships(get(rooms)[roomId], Object.values(get(stickyMembers)[roomId] ?? {}))
+    .filter((member) => active && member.userId === active.userId && member.kind === "session" && member.stateKey !== own && member.stateKey.startsWith(`_${active.userId}_`))
+    .forEach((member) => clearMembership(active!, roomId, member.stateKey).catch(() => undefined));
 };
 
 export const disconnect = async () => {
