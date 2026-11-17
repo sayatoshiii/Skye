@@ -29,6 +29,7 @@ const createRoom = (roomId: RoomId, membership: Membership): RoomSummary => ({
   highlightCount: 0,
   readTs: 0,
   muted: false,
+  mentionsOnly: false,
   lastActivity: 0,
   pinned: [],
   state: {},
@@ -138,6 +139,7 @@ export const createRoomStore = (ownUserId: UserId) => {
   let directRooms: Record<UserId, RoomId[]> = {};
 
   let mutedRooms = new Set<RoomId>();
+  let mentionRooms = new Set<RoomId>();
 
   const ensureRoom = (roomId: RoomId, membership: Membership) =>
     (rooms[roomId] ??= createRoom(roomId, membership));
@@ -235,7 +237,7 @@ export const createRoomStore = (ownUserId: UserId) => {
     const pushRules = response.account_data?.events.find(
       (event) => event.type === "m.push_rules",
     );
-    if (pushRules) mutedRooms = getMutedRooms(pushRules.content);
+    if (pushRules) [mutedRooms, mentionRooms] = getQuietRooms(pushRules.content);
 
     Object.entries(response.rooms?.join ?? {}).forEach(([id, sync]) =>
       applyJoined(id, sync),
@@ -248,7 +250,7 @@ export const createRoomStore = (ownUserId: UserId) => {
     );
 
     applyDirect();
-    Object.values(rooms).forEach((room) => (room.muted = mutedRooms.has(room.roomId)));
+    Object.values(rooms).forEach((room) => ((room.muted = mutedRooms.has(room.roomId)), (room.mentionsOnly = mentionRooms.has(room.roomId))));
     emitter.emit("change", { ...rooms });
   };
 
@@ -379,14 +381,15 @@ export const isVisible = (event: MatrixEvent) =>
   !event.unsigned?.redacted_because &&
   event.content?.["m.relates_to"]?.rel_type !== "m.replace";
 
-const getMutedRooms = (content: Record<string, any> = {}) => {
+const getQuietRooms = (content: Record<string, any> = {}): [Set<RoomId>, Set<RoomId>] => {
   const muted = new Set<RoomId>();
+  const mentions = new Set<RoomId>();
   const silent = (actions: unknown) =>
     Array.isArray(actions) && (actions.length === 0 || actions.includes("dont_notify")) && !actions.includes("notify");
   const global = content.global ?? {};
 
   for (const rule of global.room ?? [])
-    if (rule?.enabled !== false && silent(rule.actions)) muted.add(rule.rule_id);
+    if (rule?.enabled !== false && silent(rule.actions)) mentions.add(rule.rule_id);
 
   for (const rule of global.override ?? []) {
     if (rule?.enabled === false || !silent(rule.actions)) continue;
@@ -395,7 +398,7 @@ const getMutedRooms = (content: Record<string, any> = {}) => {
     if (roomCondition && conditions.length === 1) muted.add(roomCondition.pattern);
   }
 
-  return muted;
+  return [muted, mentions];
 };
 
 export const isUnread = (room: RoomSummary) => {
