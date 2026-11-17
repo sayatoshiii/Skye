@@ -54,7 +54,7 @@ const passwordAuth = (session: Session, password: string, flow?: string) => ({
   session: flow,
 });
 
-const withAuth = async (session: Session, request: Request, askPassword: PasswordPrompt) => {
+export const withAuth = async (session: Session, request: Request, askPassword: PasswordPrompt) => {
   try {
     return await sessionRequest(session, request);
   } catch (error) {

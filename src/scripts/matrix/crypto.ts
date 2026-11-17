@@ -15,6 +15,7 @@ import {
   UserId as WasmUserId,
 } from "@matrix-org/matrix-sdk-crypto-wasm";
 import { sessionRequest } from "./session";
+import { withAuth, type PasswordPrompt } from "./utilities/account";
 import type {
   CryptoHooks,
   CryptoSyncData,
@@ -26,8 +27,14 @@ import type {
 } from "./types";
 import {
   assertBackupKey,
+  BACKUP_SECRET_NAME,
   backupError,
+  createSecretStorage,
+  crossSigningSecrets,
   fetchBackedUpKeys,
+  hasSecretStorage,
+  MEGOLM_BACKUP_ALGORITHM,
+  openSecretStorage,
   getBackupInfo,
   resolveBackupKey,
   type BackupInfo,
@@ -529,6 +536,55 @@ export const createCrypto = (context: CryptoContext) => {
 
   const hasBackup = async () => (await getBackupInfo(session)) !== null;
 
+  const hasRecovery = () => hasSecretStorage(session);
+
+  const ensureCrossSigning = async (machine: OlmMachine, askPassword: PasswordPrompt) => {
+    const status = await machine.crossSigningStatus();
+    if (status.hasMaster && status.hasSelfSigning && status.hasUserSigning) return true;
+    const bootstrap = await machine.bootstrapCrossSigning(true);
+    bootstrap.uploadKeysRequest && (await sendAndMark(machine, bootstrap.uploadKeysRequest));
+    const uploaded = await withAuth(session, { endpoint: "keys/device_signing/upload", method: "POST", body: JSON.parse(bootstrap.uploadSigningKeysRequest.body) }, askPassword);
+    if (uploaded === null) return false;
+    await sendAndMark(machine, bootstrap.uploadSignaturesRequest);
+    return true;
+  };
+
+  const ensureBackup = async (machine: OlmMachine) => {
+    const known = await machine.getBackupKeys();
+    const server = await getBackupInfo(session);
+    if (known.decryptionKey && server && known.backupVersion === server.version) return known.decryptionKey;
+    const key = BackupDecryptionKey.createRandomKey();
+    const auth_data = { public_key: key.megolmV1PublicKey.publicKeyBase64 };
+    const signatures = JSON.parse((await machine.sign(JSON.stringify(auth_data))).asJSON());
+    const body = { algorithm: MEGOLM_BACKUP_ALGORITHM, auth_data: { ...auth_data, signatures } };
+    const { version } = await request<{ version: string }>({ endpoint: "room_keys/version", method: "POST", body });
+    await enableBackup(machine, key, { ...body, version });
+    return key;
+  };
+
+  const setupRecovery = async (askPassword: PasswordPrompt) => {
+    const machine = await ready;
+    if (!machine || closed) throw new Error("Encryption is unavailable.");
+    if (!(await ensureCrossSigning(machine, askPassword))) return null;
+    const backup = await ensureBackup(machine);
+    const keys = await machine.exportCrossSigningKeys();
+    return createSecretStorage(session, {
+      ...crossSigningSecrets({ master: keys?.masterKey, selfSigning: keys?.self_signing_key, userSigning: keys?.userSigningKey }),
+      [BACKUP_SECRET_NAME]: backup.toBase64(),
+    });
+  };
+
+  const unlockRecovery = async (secret: string, onProgress?: (progress: RestoreProgress) => void) => {
+    const machine = await ready;
+    if (!machine || closed) throw new Error("Encryption is unavailable.");
+    const keys = await openSecretStorage(session, secret);
+    await machine.importCrossSigningKeys(keys.master, keys.selfSigning, keys.userSigning);
+    const device = await machine.getDevice(new WasmUserId(session.userId), new WasmDeviceId(session.deviceId));
+    device && keys.selfSigning && (await sendAndMark(machine, await device.verify()));
+    processOutgoing();
+    return (await hasBackup()) ? restoreFromBackup(secret, false, onProgress) : null;
+  };
+
   const close = async () => {
     closed = true;
     const machine = await ready;
@@ -546,6 +602,9 @@ export const createCrypto = (context: CryptoContext) => {
     restoreWithKey,
     verification,
     hasBackup,
+    hasRecovery,
+    setupRecovery,
+    unlockRecovery,
     close,
   };
 };
