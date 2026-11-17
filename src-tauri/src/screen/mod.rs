@@ -125,7 +125,7 @@ fn remote(key: String, track: RemoteVideoTrack) {
 
 fn spawn<F: FnOnce(pw::channel::Receiver<()>) -> Result<(), pw::Error> + Send + 'static>(work: F) -> pw::channel::Sender<()> {
   let (stop, wait) = pw::channel::channel();
-  std::thread::spawn(move || (pw::init(), work(wait).map_err(|error| log::warn!("screen: {error}"))));
+  std::thread::spawn(move || work(wait).map_err(|error| log::warn!("screen: {error}")));
   stop
 }
 
@@ -160,16 +160,19 @@ async fn halt(room: &Room, running: Running) {
 
 #[tauri::command]
 pub async fn screen_start(screen: State<'_, Screen>) -> Answer<Started> {
+  log::warn!("screen: start");
   let room = publisher().ok_or("not_in_call")?;
   let mut slot = screen.share.lock().await;
   let previous = slot.take();
   match previous { Some(share) => stop(share).await, None => () };
-  let picked = video::pick().await?;
+  let picked = video::pick().await.map_err(|error| (log::warn!("screen: pick failed {error}"), error).1)?;
+  log::warn!("screen: picked node {} window {}", picked.node, picked.window);
   let window = picked.window;
   let source = NativeVideoSource::new(VideoResolution { width: 1920, height: 1080 }, true);
   let track = LocalVideoTrack::create_video_track("screen", RtcVideoSource::Native(source.clone()));
   let options = TrackPublishOptions { source: TrackSource::Screenshare, video_encoding: Some(VideoEncoding { max_bitrate: 6_000_000, max_framerate: 30.0 }), simulcast: false, ..Default::default() };
   let publication = room.local_participant().publish_track(LocalTrack::Video(track), options).await.map_err(fail)?;
+  log::warn!("screen: published");
   let video = Running { stop: spawn(move |wait| video::run(picked, source, wait)), publication };
   let sound = match window { true => None, false => audio(&room, vec!["*".into()]).await.ok() };
   let apps = sound.as_ref().map(|sound| sound.apps.clone()).unwrap_or_default();
@@ -206,7 +209,7 @@ pub async fn screen_audio(screen: State<'_, Screen>, apps: Vec<String>) -> Answe
 
 #[tauri::command]
 pub async fn screen_apps() -> Answer<Vec<String>> {
-  tauri::async_runtime::spawn_blocking(|| (pw::init(), sound::apps()).1).await.map_err(fail)
+  tauri::async_runtime::spawn_blocking(sound::apps).await.map_err(fail)
 }
 
 #[tauri::command]

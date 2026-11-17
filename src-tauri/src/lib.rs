@@ -6,6 +6,9 @@ mod voice;
 #[cfg(target_os = "linux")]
 mod screen;
 
+#[cfg(windows)]
+mod screen_win;
+
 #[cfg(target_os = "linux")]
 fn unlock(window: &tauri::WebviewWindow) {
   let _ = window.with_webview(|webview| {
@@ -77,7 +80,12 @@ fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
   builder.manage(voice::Voice::default()).manage(screen::Screen::default()).invoke_handler(tauri::generate_handler![screen::screen_start, screen::screen_stop, screen::screen_audio, screen::screen_apps, screen::screen_sharing, screen::screen_watch, screen::screen_unwatch, voice::voice_connect, voice::voice_disconnect, voice::voice_key, voice::voice_mic, voice::voice_volume, voice::voice_tuning, voice::voice_devices, voice::voice_device, leave])
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+  builder.invoke_handler(tauri::generate_handler![screen_win::screen_apps, screen_win::screen_audio_capture, screen_win::screen_audio_release, leave])
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
 fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
   builder.invoke_handler(tauri::generate_handler![leave])
 }

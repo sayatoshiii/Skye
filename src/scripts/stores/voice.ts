@@ -197,7 +197,7 @@ export type CallMedia = { id: string; identity: string; source: "camera" | "scre
 export const callMedia = writable<CallMedia[]>([]);
 export const cameraOn = writable(false);
 export const screenOn = writable(false);
-export const screenSupported = typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia;
+export const screenSupported = nativeVoice || (typeof navigator !== "undefined" && !!navigator.mediaDevices?.getDisplayMedia);
 
 export const joinable = derived(rooms, ($rooms) => new Set(Object.values($rooms).filter(isCallRoom).map((room) => room.roomId)));
 
@@ -360,6 +360,7 @@ deafened.subscribe(syncAudio);
 voicePrefs.subscribe(syncAudio);
 
 const publishLink = () => [...(live?.links.values() ?? [])].find((link) => link.publish);
+bridgePublisher(() => publishLink()?.room.localParticipant as never);
 
 const voiceOf = () => {
   const entries = [...(live?.links.values() ?? [])].flatMap((link) => [...link.room.remoteParticipants.values()].map((participant) => ({ participant, rank: link.speakers.has(participant.identity) ? 2 : participant.isMicrophoneEnabled ? 1 : 0 })));
@@ -697,7 +698,8 @@ export const toggleScreen = () => {
   const link = publishLink();
   link &&
     link.room.localParticipant
-      .setScreenShareEnabled(!get(screenOn), { audio: true, selfBrowserSurface: "exclude", surfaceSwitching: "include" })
+      .setScreenShareEnabled(!get(screenOn), { audio: { restrictOwnAudio: true }, systemAudio: "include", selfBrowserSurface: "exclude", surfaceSwitching: "include" })
+      .then((publication) => screenShared(publication?.track?.mediaStreamTrack))
       .catch((error) => !MEDIA_ERRORS.includes((error as Error)?.name) && voiceError.set("screen"))
       .finally(() => live && refreshMedia(live));
 };
