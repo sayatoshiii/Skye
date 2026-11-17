@@ -103,7 +103,9 @@
     const height = card.offsetHeight;
     position = {
       x: Math.min(Math.max(rect.right - width, MARGIN), innerWidth - width - MARGIN),
-      y: Math.max(rect.top - 8 - height, MARGIN),
+      y: rect.top - 8 - height >= MARGIN || rect.top > innerHeight - rect.bottom
+        ? Math.max(rect.top - 8 - height, MARGIN)
+        : Math.min(rect.bottom + 8, innerHeight - height - MARGIN),
     };
   };
 

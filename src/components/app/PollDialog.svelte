@@ -8,6 +8,8 @@
   import { entityText, menu } from "../../scripts/misc/entitymenu.svelte";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { useEmoji } from "../../scripts/settings/emoji";
+  import { getEmojiURL } from "../../scripts/misc/emoji";
+  import { twemojiFile } from "../../scripts/misc/emoji-data";
   import { copied } from "../../scripts/stores/toast";
   import { pollStartContent } from "../../scripts/matrix/utilities/content";
   import type { TimelineEvent } from "../../scripts/matrix/types";
@@ -36,6 +38,9 @@
   let busy = $state(false);
   let picking: { anchor: HTMLElement; field: HTMLInputElement; set: (value: string) => void } | null = $state(null);
   let next = 3;
+  const FACES = ["😀", "😄", "😁", "😆", "😊", "😉", "😎", "🤩", "🥳", "😺", "🙂", "🤗"];
+  let face = $state(FACES[0]);
+  const shuffle = () => (face = FACES[Math.floor(Math.random() * FACES.length)]);
 
   const filled = $derived(options.map((option) => option.value.trim()).filter(Boolean));
   const ready = $derived(!!question.trim() && filled.length >= 2 && !busy);
@@ -56,8 +61,8 @@
 
   const pick = (event: MouseEvent, set: (value: string) => void) => {
     const anchor = event.currentTarget as HTMLElement;
-    const field = anchor.parentElement?.querySelector("input");
-    picking = field ? { anchor, field, set } : null;
+    const field = anchor.closest(".field-row")?.querySelector("input");
+    picking = field && picking?.anchor !== anchor ? { anchor, field, set } : null;
   };
 
   const insert = async (unicode: string) => {
@@ -98,8 +103,8 @@
 </script>
 
 {#snippet emojiButton(set: (value: string) => void)}
-  <button type="button" class="emoji ghost press" aria-label={text("add_emoji")} onclick={(event) => pick(event, set)} use:emojiMenu={set}>
-    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d={SMILE} /></svg>
+  <button type="button" class="emoji ghost press" class:open={!!picking} aria-label={text("add_emoji")} aria-haspopup="dialog" onmouseenter={shuffle} onclick={(event) => pick(event, set)} use:emojiMenu={set}>
+    <img src={getEmojiURL(twemojiFile(face))} alt="" width="20" height="20" draggable="false" />
   </button>
 {/snippet}
 
@@ -108,10 +113,13 @@
   <form class="poll-form set-surface col" onsubmit={(event) => (event.preventDefault(), create())}>
     <div class="col gap-sm">
       <span class="set-label">{text("question")}</span>
-      <span class="set-input" use:menu={() => [{ id: "poll-question-copy", label: entityText("copy_question"), icon: MENU_ICONS.copy, disabled: !question.trim(), run: () => copied(question) }]}>
+      <span class="field-row row-nw align-centre gap-xs">
+      <span class="set-input flex-max min-0" use:menu={() => [{ id: "poll-question-copy", label: entityText("copy_question"), icon: MENU_ICONS.copy, disabled: !question.trim(), run: () => copied(question) }]}>
         <!-- svelte-ignore a11y_autofocus -->
         <input type="text" maxlength="300" autofocus aria-label={text("question")} placeholder={text("question_hint")} bind:value={question} />
         {@render emojiButton((value) => (question = value))}
+      </span>
+      <span class="spacer" aria-hidden="true"></span>
       </span>
     </div>
     <div class="col gap-sm">
@@ -120,9 +128,11 @@
         {#each options as option, index (option.id)}
           <li class="option" transition:grow use:menu={() => optionItems(option.id, option.value)}>
             <div class="clip">
-              <span class="set-input min-0">
+              <span class="field-row row-nw align-centre gap-xs">
+              <span class="set-input flex-max min-0">
                 <input type="text" maxlength="200" placeholder={text("option_hint").replace("{number}", String(index + 1))} aria-label={text("option_hint").replace("{number}", String(index + 1))} bind:value={option.value} />
                 {@render emojiButton((value) => (option.value = value))}
+              </span>
                 <button type="button" class="remove ghost press" class:hidden={options.length <= 2} aria-label={text("remove_option")} disabled={options.length <= 2} onclick={() => remove(option.id)}>
                   <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.close} /></svg>
                 </button>
@@ -153,7 +163,7 @@
       </div>
       <div class="col gap-sm" use:menu={durationItems}>
         <span class="set-title">{text("duration")}</span>
-        <div class="set-choice row-nw" role="radiogroup" aria-label={text("duration")} style:--index={durationIndex} style:--count={DURATIONS.length}>
+        <div class="set-choice durations row-nw" role="radiogroup" aria-label={text("duration")} style:--index={durationIndex} style:--count={DURATIONS.length}>
           <span class="set-thumb" aria-hidden="true"></span>
           {#each DURATIONS as item (item.key)}
             <button type="button" class="set-choice-option ghost press sm bold" role="radio" aria-checked={item.ms === duration} onclick={() => (duration = item.ms)}>{text(`duration_${item.key}`)}</button>
@@ -173,12 +183,14 @@
   </div>
   </div>
   {#snippet actions()}
-    <button type="button" class="dialog-button create ghost press sm bold" disabled={!ready} onclick={create} use:menu={() => [{ id: "poll-create", label: text("create_action"), icon: MENU_ICONS.poll, disabled: !ready, run: create }]}>{text(busy ? "creating" : "create_action")}</button>
+    <button type="button" class="dialog-button ghost press sm bold primary" disabled={!ready} onclick={create} use:menu={() => [{ id: "poll-create", label: text("create_action"), icon: MENU_ICONS.poll, disabled: !ready, run: create }]}>{text(busy ? "creating" : "create_action")}</button>
   {/snippet}
 </ConfirmDialog>
 
 {#if picking}
-  <EmojiPicker anchor={picking.anchor} oninsert={insert} onclose={() => (picking = null)} />
+  {#key picking.anchor}
+    <EmojiPicker anchor={picking.anchor} oninsert={insert} onclose={() => (picking = null)} />
+  {/key}
 {/if}
 
 <style>
@@ -223,7 +235,7 @@
     overflow: hidden;
   }
 
-  .clip > .set-input {
+  .clip > .field-row {
     margin-bottom: var(--azure-spacing-sm);
   }
 
@@ -245,14 +257,43 @@
     filter: none;
   }
 
-  .emoji,
-  .remove {
+  .emoji {
     flex: none;
-    width: 28px;
-    height: 28px;
     display: grid;
     place-items: center;
-    border-radius: 6px;
+    width: 28px;
+    height: 28px;
+    margin-right: -6px;
+  }
+
+  .emoji img {
+    width: 20px;
+    height: 20px;
+    filter: grayscale(1) brightness(1.6);
+    opacity: 0.45;
+    transition:
+      filter var(--azure-duration-fast) var(--azure-ease-out),
+      opacity var(--azure-duration-fast) var(--azure-ease-out),
+      transform var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .emoji:is(:hover, .open) img {
+    filter: none;
+    opacity: 1;
+    transform: scale(1.14);
+  }
+
+  .remove,
+  .spacer {
+    flex: none;
+    width: 32px;
+    height: 32px;
+  }
+
+  .remove {
+    display: grid;
+    place-items: center;
+    border-radius: 8px;
     color: var(--colours-text-faint);
     transition:
       opacity 320ms cubic-bezier(0.32, 0.72, 0, 1),
@@ -260,11 +301,6 @@
       background-color 320ms cubic-bezier(0.32, 0.72, 0, 1);
   }
 
-  .remove {
-    margin-right: -6px;
-  }
-
-  .emoji:hover,
   .remove:hover {
     color: var(--colours-text-strong);
     background-color: var(--colours-surface-hover);
@@ -325,26 +361,17 @@
     color: var(--tone);
   }
 
-  .create {
-    min-width: 112px;
-    color: var(--colours-on-accent);
-    background-color: color-mix(in oklab, var(--colours-accent) 85%, black);
-    transition:
-      background-color 320ms cubic-bezier(0.32, 0.72, 0, 1),
-      opacity 320ms cubic-bezier(0.32, 0.72, 0, 1),
-      transform 320ms cubic-bezier(0.32, 0.72, 0, 1);
+  .durations .set-thumb {
+    background-color: color-mix(in oklab, var(--colours-accent) 16%, transparent);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--colours-accent) 45%, transparent);
   }
 
-  .create:hover:not(:disabled) {
-    background-color: var(--colours-accent);
+  .durations .set-choice-option {
+    transition: color var(--azure-duration-slow) cubic-bezier(0.32, 0.72, 0, 1);
   }
 
-  .create:active:not(:disabled) {
-    transform: scale(0.97);
-  }
-
-  .create:disabled {
-    opacity: 0.45;
+  .durations .set-choice-option[aria-checked="true"] {
+    color: var(--colours-accent);
   }
 
   @media (max-width: 767px) {
