@@ -880,15 +880,40 @@ const textContent = (body: string, pills: Pill[], extra: string[] = []) => ({
   "m.mentions": mentionsOf(pills, extra),
 });
 
-export const sendMessage = (body: string, reply?: ReplyTarget, pills: Pill[] = []) =>
-  getTimeline(requireRoom()).sendEvent("m.room.message", withReply(textContent(body, pills), reply));
+export type ThreadTarget = { rootId: EventId; latestId: EventId };
+
+const withThread = (content: Record<string, any>, reply?: ReplyTarget, thread?: ThreadTarget) =>
+  thread
+    ? {
+        ...withReply(content, reply),
+        "m.relates_to": {
+          rel_type: "m.thread",
+          event_id: thread.rootId,
+          is_falling_back: !reply,
+          "m.in_reply_to": { event_id: reply?.eventId ?? thread.latestId },
+        },
+      }
+    : withReply(content, reply);
+
+export const sendMessage = (body: string, reply?: ReplyTarget, pills: Pill[] = [], thread?: ThreadTarget) =>
+  getTimeline(requireRoom()).sendEvent("m.room.message", withThread(textContent(body, pills), reply, thread));
 
 export const sendRoomMessage = (
   content: Record<string, any>,
   reply?: ReplyTarget,
   roomId: RoomId = requireRoom(),
+  thread?: ThreadTarget,
 ) =>
-  getTimeline(roomId).sendEvent("m.room.message", withReply(content, reply));
+  getTimeline(roomId).sendEvent("m.room.message", withThread(content, reply, thread));
+
+export const fetchThread = (rootId: EventId, list: TimelineEvent[], from?: string | null, roomId: RoomId = requireRoom()) =>
+  getTimeline(roomId).fetchThread(rootId, list, from);
+
+export const isRedacted = (eventId: EventId, roomId: RoomId = requireRoom()) =>
+  getTimeline(roomId).isRedacted(eventId);
+
+export const fetchThreads = (from?: string | null, roomId: RoomId = requireRoom()) =>
+  getTimeline(roomId).fetchThreads(from);
 
 export const editRoomMessage = (eventId: EventId, body: string, pills: Pill[] = [], extra: string[] = [], previous: string[] = []) => {
   const content = textContent(body, pills, extra) as Record<string, any>;

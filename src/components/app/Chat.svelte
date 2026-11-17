@@ -23,7 +23,7 @@
   import { findLinks, stripReplyFallback, toPreviewLine } from "../../scripts/misc/formatting";
   import { mentionsUser, recoverPills, trimPills, type Pill } from "../../scripts/misc/mentions";
   import { MEDIA } from "../../scripts/settings/config";
-  import { linkPreviewsEnabled, mediaSettings, setKeepImageMetadata, type MediaSettings } from "../../scripts/settings/media";
+  import { linkPreviewsEnabled, mediaSettings, setHideRedacted, setKeepImageMetadata, type MediaSettings } from "../../scripts/settings/media";
   import { toEntity } from "../../scripts/stores/entities";
   import { lightbox } from "../../scripts/stores/lightbox";
   import {
@@ -71,6 +71,9 @@
   import MessageMedia from "./media/MessageMedia.svelte";
   import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
   import PinnedMessages from "./PinnedMessages.svelte";
+  import ThreadPanel from "./ThreadPanel.svelte";
+  import ThreadSummary from "./ThreadSummary.svelte";
+  import { bundledThread, threadRootOf, type ThreadSummary as Summary } from "../../scripts/matrix/timeline";
   import ConfirmDialog from "../ui/ConfirmDialog.svelte";
   import { formatAgo } from "../../scripts/misc/time";
   import PeopleDialog, { type PeopleRow } from "./PeopleDialog.svelte";
@@ -169,6 +172,8 @@
   let swipe: { id: string; dx: number } | null = $state(null);
   let swiped: { id: string; size: number } | null = $state.raw(null);
   let pinsOpen = $state(false);
+  let threadView: { rootId: string | null } | null = $state(null);
+  let threadClosing = $state(false);
   let pinsButton: HTMLButtonElement | undefined = $state();
   let note: string | null = $state(null);
   let isDetached = $state(false);
@@ -214,6 +219,7 @@
       editing = null;
       menu = null;
       pinsOpen = false;
+      threadView = null;
       reacting = null;
       unseenAfter = null;
       farFromBottom = false;
@@ -250,6 +256,36 @@
     }
     return map;
   });
+
+  const threads = $derived.by(() => {
+    const map = new Map<string, Summary>();
+    $currentTimeline.forEach((event) => {
+      const bundled = bundledThread(event);
+      if (bundled) map.set(event.event_id, bundled);
+    });
+    $currentTimeline.forEach((event) => {
+      const root = threadRootOf(event);
+      const current = root ? (map.get(root) ?? { count: 0 }) : undefined;
+      if (!root || !current || event.redacted || (current.latest && event.origin_server_ts <= current.latest.origin_server_ts)) return;
+      map.set(root, { count: current.count + 1, latest: event, participated: current.participated || event.sender === ownUserId });
+    });
+    return map;
+  });
+
+  const openThread = (rootId: string | null) => {
+    pinsOpen = false;
+    threadView = { rootId };
+  };
+
+  const threadItems = (rootId: string): MenuItem[] => [
+    { id: "thread-open", label: text("chat", "open_thread"), icon: MENU_ICONS.thread, run: () => openThread(rootId) },
+    { id: "thread-all", label: text("chat", "all_threads"), icon: MENU_ICONS.thread, run: () => openThread(null) },
+    { id: "thread-link", label: text("chat", "copy_link"), icon: MENU_ICONS.link, run: () => copy(messageLink(rootId), "link_copied", "link") },
+  ];
+
+  const threadsButtonItems = (): MenuItem[] => [
+    { id: "threads-open", label: text("chat", threadView ? "close" : "threads"), icon: threadView ? MENU_ICONS.close : MENU_ICONS.thread, run: () => (threadView = threadView ? null : { rootId: null }) },
+  ];
 
   const callStart = (callId: string) =>
     $currentTimeline.find((event) => event.type === "m.call.invite" && event.content.call_id === callId);
@@ -304,11 +340,12 @@
 
   const baseMessages = $derived(
     $currentTimeline
-      .filter((event) => VISIBLE_TYPES.includes(event.type))
+      .filter((event) => VISIBLE_TYPES.includes(event.type) && !(settings?.hideRedacted && event.redacted))
       .flatMap((event) => {
         const described = describe(event);
         if (!described) return [];
-        const replyTo = event.redacted ? undefined : (event.content["m.relates_to"]?.["m.in_reply_to"]?.event_id as string | undefined);
+        const thread = threadRootOf(event);
+        const replyTo = event.redacted || thread ? undefined : (event.content["m.relates_to"]?.["m.in_reply_to"]?.event_id as string | undefined);
         const plain = described.kind === "text" || described.kind === "notice" || described.kind === "emote" || described.kind === "server";
 
         return {
@@ -325,6 +362,7 @@
           mentionsMe: !event.redacted && mentions(event.content, ownUserId),
           links: described.kind === "text" ? findLinks(replyTo ? stripReplyFallback(described.body) : described.body).slice(0, MEDIA.maxPreviewLinks) : [],
           plain,
+          thread,
           event,
           ...described,
           members: undefined as BaseMessage[] | undefined,
@@ -354,7 +392,7 @@
   };
 
   const timelineMessages = $derived(
-    foldMembers(baseMessages)
+    foldMembers(baseMessages.filter((message: BaseMessage) => !message.thread))
       .map((message, index, all) => ({
         ...message,
         grouped: isChained(all[index - 1], message),
@@ -1006,7 +1044,9 @@
     if (canReact(message) && reactions.get(message.eventId)?.length) add("reactions", text("chat", "view_reactions"), MENU_ICONS.reactions, () => (people = { kind: "reactions", message, selected: reactions.get(message.eventId)?.[0]?.key }));
     if (!message.local && seenFrom(message).length) add("seen", text("chat", "seen_by_menu"), MENU_ICONS.seen, () => (people = { kind: "seen", message }));
     if (!message.local && message.kind !== "redacted") add("reply", text("chat", "reply"), MENU_ICONS.reply, () => startReply(message));
+    if (message.kind === "redacted") add("hide-redacted", text("chat", "hide_redacted"), MENU_ICONS.hide, () => setHideRedacted(true));
     if (canEdit(message)) add("edit", text("chat", "edit"), MENU_ICONS.edit, () => startEdit(message));
+    if (!message.local && message.kind !== "redacted" && !SYSTEM_KINDS.includes(message.kind)) add("thread", text("chat", threads.has(message.eventId) ? "view_thread" : "create_thread"), MENU_ICONS.thread, () => openThread(message.eventId));
 
     if (message.kind === "media") {
       const source = mediaSource(message.content);
@@ -1199,7 +1239,7 @@
     if (event.defaultPrevented || !room) return;
     const field = (event.target as HTMLElement).closest?.("input, textarea, [contenteditable]");
     const composerEmpty = event.target === composer && !draft;
-    const busy = !!(menu || pinsOpen || confirming || editing || replying);
+    const busy = !!(menu || pinsOpen || threadView || confirming || editing || replying);
 
     if (event.key === "End" && (!field || composerEmpty) && showPresent) {
       event.preventDefault();
@@ -1270,6 +1310,7 @@
 
 <section
   class="chat col min-0"
+  class:threaded={!!threadView && !threadClosing}
   style:--composer-space="{dockHeight + 35}px"
   {ondragenter}
   {ondragover}
@@ -1326,6 +1367,19 @@
       >
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d={ICONS.pin} /></svg>
         {#if pinnedIds.length}<span class="pin-count xs bold" aria-hidden="true">{pinnedIds.length > 99 ? "99+" : pinnedIds.length}</span>{/if}
+      </button>
+    {/if}
+    {#if room}
+      <button
+        class="icon ghost press"
+        class:active={!!threadView}
+        aria-label={text("chat", "threads")}
+        aria-expanded={!!threadView}
+        use:tooltip={text("chat", "threads")}
+        onclick={() => (threadView = threadView ? null : { rootId: null })}
+        use:entityMenu={threadsButtonItems}
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.thread} /></svg>
       </button>
     {/if}
     <button class="icon ghost press" aria-label={text("navigation", "open_members")} use:tooltip={text("navigation", "open_members")} onclick={onmembers}>
@@ -1526,6 +1580,10 @@
                 </button>
               </div>
             {/if}
+            {#if threads.get(message.eventId)?.count}
+              {@const summary = threads.get(message.eventId)!}
+              <ThreadSummary {summary} {getSender} items={() => threadItems(message.eventId)} onopen={() => openThread(message.eventId)} />
+            {/if}
           </div>
           {#if editing?.eventId !== message.eventId && !message.local}
             <div class="toolbar row-nw" role="toolbar" aria-label={text("chat", "actions")}>
@@ -1660,6 +1718,27 @@
       onunpin={(eventId, event) => ask("unpin", eventId, event)}
       onclose={() => (pinsOpen = false)}
     />
+  {/if}
+
+  {#if threadView && room}
+    {#key room.id}
+      <ThreadPanel
+        roomId={room.id}
+        rootId={threadView.rootId}
+        events={$currentTimeline}
+        {encrypted}
+        {ownUserId}
+        keepImageMetadata={settings?.keepImageMetadata}
+        {getSender}
+        mayRedact={(event) => !!$currentRoom && !!ownUserId && canRedact($currentRoom, ownUserId, event.sender)}
+        onopen={(rootId) => openThread(rootId)}
+        onlist={() => openThread(null)}
+        onjump={jumpToMessage}
+        onremove={(eventId, event) => ask("delete", eventId, event)}
+        onclose={() => (threadView = null)}
+        bind:closing={threadClosing}
+      />
+    {/key}
   {/if}
 
   {#if note}
@@ -2010,10 +2089,35 @@
 
   .chat {
     --composer-space: 95px;
+    --thread-width: min(420px, 45%);
 
     height: 100%;
     position: relative;
     background-color: var(--colours-background);
+  }
+
+  @media (min-width: 768px) {
+    .chat,
+    .chat > .present-wrap,
+    .chat > .unread-wrap,
+    .chat > .dropzone,
+    .chat > :global(.composer) {
+      transition-property: padding-right, right;
+      transition-duration: var(--azure-duration-glide);
+      transition-timing-function: cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    .chat.threaded {
+      padding-right: var(--thread-width);
+    }
+
+    .chat.threaded > .present-wrap,
+    .chat.threaded > .unread-wrap,
+    .chat.threaded > .typing,
+    .chat.threaded > .dropzone,
+    .chat.threaded > :global(.composer) {
+      right: var(--thread-width);
+    }
   }
 
   .decrypt-banner {
@@ -2509,6 +2613,8 @@
     30% {
       background-color: var(--colours-accent-soft);
       box-shadow: inset 2px 0 0 var(--colours-accent);
+      border-start-start-radius: 0;
+      border-end-start-radius: 0;
     }
   }
 
@@ -2932,7 +3038,8 @@
     translate: 0 4px;
     transition:
       opacity var(--azure-duration-md) var(--azure-ease-fluid),
-      translate var(--azure-duration-md) var(--azure-ease-fluid);
+      translate var(--azure-duration-md) var(--azure-ease-fluid),
+      right var(--azure-duration-glide) cubic-bezier(0.32, 0.72, 0, 1);
   }
 
   .typing.shown {

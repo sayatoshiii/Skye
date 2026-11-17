@@ -29,6 +29,26 @@ export const createTxnId = () =>
 const isReplacement = (event: MatrixEvent) =>
   event.content?.["m.relates_to"]?.rel_type === "m.replace";
 
+export const threadRootOf = (event: MatrixEvent) =>
+  event.content?.["m.relates_to"]?.rel_type === "m.thread"
+    ? (event.content["m.relates_to"].event_id as EventId | undefined)
+    : undefined;
+
+export type ThreadSummary = {
+  count: number;
+  latest?: TimelineEvent;
+  participated?: boolean;
+};
+
+export const bundledThread = (event: MatrixEvent): ThreadSummary | undefined => {
+  const bundled = event.unsigned?.["m.relations"]?.["m.thread"];
+  return bundled && {
+    count: Number(bundled.count ?? 0),
+    latest: bundled.latest_event,
+    participated: !!bundled.current_user_participated,
+  };
+};
+
 export const createTimeline = ({
   session,
   roomId,
@@ -41,6 +61,7 @@ export const createTimeline = ({
   let paginating: Promise<boolean> | null = null;
   const pendingEdits: Record<EventId, TimelineEvent> = {};
   const pendingRedactions = new Set<EventId>();
+  const redactedIds = new Set<EventId>();
 
   const request = <T>(
     options: Omit<Parameters<typeof matrixRequest>[0], "base">,
@@ -55,7 +76,7 @@ export const createTimeline = ({
 
   const notify = () => emitter.emit("change", [...events]);
 
-  const decrypt = async (event: MatrixEvent): Promise<TimelineEvent> => {
+  const decryptOne = async (event: MatrixEvent): Promise<TimelineEvent> => {
     const timelineEvent = event as TimelineEvent;
 
     if (event.type !== "m.room.encrypted" || !crypto.decryptEvent)
@@ -65,19 +86,35 @@ export const createTimeline = ({
       crypto.decryptEvent(event, roomId),
     ).catch(() => null);
 
+    const relation = clearEvent?.content?.["m.relates_to"] ?? event.content?.["m.relates_to"];
+
     return clearEvent
       ? {
           ...timelineEvent,
           type: clearEvent.type,
-          content: clearEvent.content,
+          content: relation ? { ...clearEvent.content, "m.relates_to": relation } : clearEvent.content,
           clearEvent,
         }
       : { ...timelineEvent, decryptionFailed: true };
   };
 
+  const decrypt = async (event: MatrixEvent): Promise<TimelineEvent> => {
+    const clear = await decryptOne(event);
+    const thread = clear.unsigned?.["m.relations"]?.["m.thread"];
+    if (!thread?.latest_event) return clear;
+
+    const latest = await decryptOne({ ...thread.latest_event, room_id: thread.latest_event.room_id ?? roomId });
+    return {
+      ...clear,
+      unsigned: { ...clear.unsigned, "m.relations": { ...clear.unsigned!["m.relations"], "m.thread": { ...thread, latest_event: latest } } },
+    };
+  };
+
   const redactLocal = (target: TimelineEvent) => {
+    const relation = target.content?.["m.relates_to"];
+    redactedIds.add(target.event_id);
     target.redacted = true;
-    target.content = {};
+    target.content = relation ? { "m.relates_to": relation } : {};
   };
 
   const applyEdit = (target: TimelineEvent, edit: TimelineEvent) => {
@@ -98,7 +135,7 @@ export const createTimeline = ({
       const target = targetId ? findEvent(targetId) : undefined;
       target
         ? redactLocal(target)
-        : targetId && pendingRedactions.add(targetId);
+        : targetId && pendingRedactions.add(targetId) && redactedIds.add(targetId);
       return true;
     }
 
@@ -300,6 +337,7 @@ export const createTimeline = ({
 
   const redact = async (eventId: EventId, reason?: string) => {
     const target = findEvent(eventId);
+    redactedIds.add(eventId);
     if (target) redactLocal(target);
     notify();
 
@@ -421,6 +459,36 @@ export const createTimeline = ({
     return await Promise.all(response.chunk.map((raw) => decrypt({ ...raw, room_id: raw.room_id ?? roomId })));
   };
 
+  const fetchThread = async (rootId: EventId, list: TimelineEvent[], from?: string | null, limit = pageSize) => {
+    const response = await matrixRequest<{ chunk: MatrixEvent[]; next_batch?: string }>({
+      base: baseURL.MATRIX_V1(session.homeserver),
+      accessToken: session.accessToken,
+      endpoint: `${roomPath}/relations/${encodeURIComponent(rootId)}/m.thread`,
+      method: "GET",
+      query: { dir: "b", limit, ...(from ? { from } : {}) },
+    });
+
+    return {
+      events: await foldInto(list, [...response.chunk].reverse(), true),
+      next: response.next_batch ?? null,
+    };
+  };
+
+  const fetchThreads = async (from?: string | null, limit = pageSize) => {
+    const response = await matrixRequest<{ chunk: MatrixEvent[]; next_batch?: string }>({
+      base: baseURL.MATRIX_V1(session.homeserver),
+      accessToken: session.accessToken,
+      endpoint: `${roomPath}/threads`,
+      method: "GET",
+      query: { limit, ...(from ? { from } : {}) },
+    });
+
+    return {
+      events: await Promise.all(response.chunk.map((raw) => decrypt({ ...raw, room_id: raw.room_id ?? roomId }).then(settle))),
+      next: response.next_batch ?? null,
+    };
+  };
+
   const setPinned = (pinned: EventId[]) =>
     request({
       endpoint: `${roomPath}/state/m.room.pinned_events`,
@@ -460,6 +528,9 @@ export const createTimeline = ({
     adoptOlder,
     hasEvent,
     fetchRelations,
+    fetchThread,
+    fetchThreads,
+    isRedacted: (eventId: EventId) => redactedIds.has(eventId),
     retryDecryption,
     on: emitter.on,
     getEvents: () => [...events],

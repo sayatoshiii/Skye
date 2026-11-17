@@ -5,12 +5,14 @@ export type MediaSettings = {
   linkPreviews: Record<string, boolean>;
   alwaysAllowEmbeds: Record<string, boolean>;
   keepImageMetadata: boolean;
+  hideRedacted: boolean;
 };
 
 const defaults = (): MediaSettings => ({
   linkPreviews: {},
   alwaysAllowEmbeds: {},
   keepImageMetadata: false,
+  hideRedacted: false,
 });
 
 const load = (): MediaSettings => {
@@ -53,5 +55,8 @@ export const setAlwaysAllowEmbed = (provider: string, allowed: boolean) =>
 
 export const setKeepImageMetadata = (keep: boolean) =>
   patch(() => ({ keepImageMetadata: keep }));
+
+export const setHideRedacted = (hide: boolean) =>
+  patch(() => ({ hideRedacted: hide }));
 
 export const getMediaSettings = () => get(mediaSettings);
