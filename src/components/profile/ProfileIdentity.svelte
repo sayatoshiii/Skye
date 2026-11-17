@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { swap } from "../../scripts/misc/swap";
   import { writeClipboard } from "../../scripts/stores/toast";
   import { tooltip } from "../../scripts/misc/tooltip";
   import type { Snippet } from "svelte";
@@ -92,7 +93,7 @@
 </script>
 
 <div class="identity-card col {size}" style:--hue={hueOf(userId)} style:--surface={surface} style:--profile-tint={tint.colour} style:--profile-glow={tint.glow} style:--profile-ink={tint.ink}>
-  <div class="banner" class:image={!!banner} style:background-image={banner ? `url("${banner}")` : undefined} use:menu={banner ? bannerItems : undefined}></div>
+  <div class="banner" use:swap={banner} class:image={!!banner} style:background-image={banner ? `url("${banner}")` : undefined} use:menu={banner ? bannerItems : undefined}></div>
 
   <div class="identity col gap-xs">
     <div class="top-row row-nw">

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { swap } from "../../scripts/misc/swap";
   import { getMediaLink, isMxc } from "../../scripts/matrix/utilities/media";
 
   let {
@@ -54,7 +55,7 @@
   });
 </script>
 
-<span class="avatar" bind:this={element} style:--size={size} style:--radius={radius}>
+<span class="avatar" use:swap={url} bind:this={element} style:--size={size} style:--radius={radius}>
   {#if resolved && !failed}
     <img src={resolved} alt="" loading="lazy" onerror={() => (failed = true)} />
   {:else}
