@@ -36,6 +36,10 @@
   const muteItems = (): MenuItem[] => [items()[1], items()[3]];
   const deafenItems = (): MenuItem[] => [items()[2], items()[3]];
   const leaveItems = (): MenuItem[] => [items()[4]];
+  const pttItems = (): MenuItem[] => [
+    { id: "ptt-off", label: text("ptt_off"), icon: SETTINGS_ICONS.mic, run: () => voicePrefs.update((prefs) => ({ ...prefs, pushToTalk: false })) },
+    { id: "ptt-key", label: text("ptt_key"), icon: MENU_ICONS.settings, run: settings },
+  ];
 </script>
 
 <div class="voice-slot" class:open={!!$voice} inert={!$voice}>
@@ -52,6 +56,15 @@
         <button type="button" class="round action ghost press danger" aria-label={text("disconnect")} use:tooltip={text("disconnect")} onclick={leaveCall} use:menu={leaveItems}>
           <Icon name="hangup" size={20} />
         </button>
+      </div>
+      <div class="ptt" class:open={$voicePrefs.pushToTalk} inert={!$voicePrefs.pushToTalk}>
+        <div class="ptt-inner">
+          <button type="button" class="ptt-strip ghost press row-nw align-centre gap-sm xs bold" class:held={$pttHeld} aria-label={text("ptt")} onclick={settings} use:menu={pttItems}>
+            <Icon name="keyboard" size={14} />
+            <span class="flex-max truncate">{$pttHeld ? text("ptt_live") : text("ptt_hint").replace("{key}", $voicePrefs.pttLabel)}</span>
+            <kbd class="key">{$voicePrefs.pttLabel}</kbd>
+          </button>
+        </div>
       </div>
       <div class="row-nw gap-xs">
         <button type="button" class="action wide ghost press" class:off={$muted || $deafened} class:held={$voicePrefs.pushToTalk && $pttHeld} aria-pressed={$muted} aria-label={text($muted ? "unmute" : "mute")} use:tooltip={text($muted ? "unmute" : "mute")} onclick={toggleMute} use:menu={muteItems}>
@@ -157,6 +170,49 @@
   .action.off {
     color: var(--colours-danger);
     background: color-mix(in oklab, var(--colours-danger) 14%, transparent);
+  }
+
+  .ptt {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition:
+      grid-template-rows 360ms cubic-bezier(0.32, 0.72, 0, 1),
+      opacity 360ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .ptt.open {
+    grid-template-rows: 1fr;
+    opacity: 1;
+  }
+
+  .ptt-inner {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .ptt-strip {
+    width: 100%;
+    padding: 6px 10px;
+    border-radius: 10px;
+    color: var(--colours-text-muted);
+    background: var(--fill);
+    text-align: start;
+    transition:
+      background-color 200ms cubic-bezier(0.32, 0.72, 0, 1),
+      color 200ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .ptt-strip.held {
+    color: white;
+    background: var(--colours-accent);
+  }
+
+  .key {
+    padding: 1px 7px;
+    border-radius: 6px;
+    font: inherit;
+    background: color-mix(in oklab, currentColor 16%, transparent);
   }
 
   .action.held {
