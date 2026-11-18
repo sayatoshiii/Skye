@@ -1,3 +1,4 @@
+import { getScrollAnchor } from "./scroll";
 import type { PasswordPrompt } from "../matrix/utilities/auth";
 import { markdownToContent } from "../misc/formatting";
 import { mentionsOf, pillMarkdown, type Pill } from "../misc/mentions";
@@ -186,6 +187,8 @@ let roomStore: RoomStore | null = null;
 let crypto: CryptoHooks = {};
 let cryptoHandle: CryptoHandle | null = null;
 const timelines: Record<RoomId, TimelineHandle> = {};
+const KEPT_TIMELINES = 8;
+const KEPT_EVENTS = 50;
 let unsubscribeTimeline: (() => void) | null = null;
 
 type ContextView = {
@@ -204,16 +207,56 @@ const showContext = (view: ContextView) => {
   canLoadNewer.set(true);
 };
 
+const WINDOW = 150;
+const STEP = 50;
+let anchor: EventId | null = null;
+
+const marksOf = (events: TimelineEvent[]) => events.flatMap((event, index) => (event.state_key === undefined ? [index] : []));
+
+const slotOf = (events: TimelineEvent[], marks: number[]) => {
+  const at = anchor ? events.findIndex((event) => event.event_id === anchor) : -1;
+  const slot = at === -1 ? -1 : marks.findIndex((mark) => mark >= at);
+  return slot === -1 ? Math.max(0, marks.length - WINDOW) : slot;
+};
+
+const topOf = (events: TimelineEvent[]) => {
+  const marks = marksOf(events);
+  const slot = slotOf(events, marks);
+  return slot ? marks[slot] : 0;
+};
+
+const showLive = (timeline: TimelineHandle) => {
+  const events = timeline.getEvents();
+  const marks = marksOf(events);
+  const slot = slotOf(events, marks);
+  const open = slot + WINDOW < marks.length;
+  anchor = open ? events[marks[slot]].event_id : null;
+  currentTimeline.set(events.slice(slot ? marks[slot] : 0, open ? marks[slot + WINDOW] : events.length));
+  canLoadOlder.set(slot > 0 || timeline.canPaginate());
+  detached.set(open);
+  canLoadNewer.set(open);
+};
+
+const moveWindow = (timeline: TimelineHandle, by: number) => {
+  const events = timeline.getEvents();
+  const marks = marksOf(events);
+  const next = Math.max(0, slotOf(events, marks) + by);
+  anchor = next < marks.length ? events[marks[next]].event_id : null;
+  showLive(timeline);
+};
+
+const reveal = (timeline: TimelineHandle, eventId: EventId) => {
+  const events = timeline.getEvents();
+  const at = events.findIndex((event) => event.event_id === eventId);
+  at !== -1 && at < topOf(events) && ((anchor = events[Math.max(0, at - 10)].event_id), showLive(timeline));
+};
+
 const leaveContext = () => {
-  const view = context;
   context = null;
-  detached.set(false);
-  canLoadNewer.set(false);
-  if (!view) return;
-  const timeline = timelines[view.roomId];
-  if (!timeline || view.roomId !== get(currentRoomId)) return;
-  currentTimeline.set(timeline.getEvents());
-  canLoadOlder.set(timeline.canPaginate());
+  anchor = null;
+  const roomId = get(currentRoomId);
+  const timeline = roomId ? timelines[roomId] : undefined;
+  timeline ? showLive(timeline) : (detached.set(false), canLoadNewer.set(false));
 };
 const receipts: Record<RoomId, EventId> = {};
 
@@ -712,6 +755,8 @@ export const selectRoom = async (roomId: RoomId | null) => {
   unsubscribeTimeline?.();
   unsubscribeTimeline = null;
   const previous = get(currentRoomId);
+  const saved = previous && previous !== roomId ? getScrollAnchor(previous) : undefined;
+  previous && previous !== roomId && timelines[previous]?.trim(KEPT_EVENTS, saved && !saved.bottom ? saved.eventId : undefined);
   const markers = get(unreadMarkers);
   if (previous && previous !== roomId && markers[previous] && !markers[previous].armed)
     setMarker(previous, { ...markers[previous], armed: true });
@@ -733,22 +778,19 @@ export const selectRoom = async (roomId: RoomId | null) => {
   if (!roomId) return currentTimeline.set([]);
 
   const timeline = getTimeline(roomId);
-  currentTimeline.set(timeline.getEvents());
-  canLoadOlder.set(timeline.canPaginate());
+  delete timelines[roomId];
+  timelines[roomId] = timeline;
+  Object.keys(timelines).slice(0, -KEPT_TIMELINES).forEach((id) => (delete timelines[id], delete pinnedCache[id]));
   context = null;
-  detached.set(false);
-  canLoadNewer.set(false);
-  unsubscribeTimeline = timeline.on("change", (events) => {
-    if (context) return;
-    currentTimeline.set(events);
-    canLoadOlder.set(timeline.canPaginate());
-  });
+  anchor = null;
+  showLive(timeline);
+  unsubscribeTimeline = timeline.on("change", () => context || showLive(timeline));
   loadMembers(roomId);
 
   if (timeline.getEvents().length === 0 && timeline.canPaginate())
     await timeline.paginateBackwards().catch(() => false);
 
-  canLoadOlder.set(timeline.canPaginate());
+  showLive(timeline);
   markRoomRead(roomId);
 };
 
@@ -828,20 +870,19 @@ const pageContext = (view: ContextView, dir: "b" | "f") => {
 const mergeContext = (view: ContextView, cut: number) => {
   const timeline = getTimeline(view.roomId);
   context = null;
+  anchor = null;
   timeline.adoptOlder(view.events.slice(0, cut), view.start);
-  detached.set(false);
-  canLoadNewer.set(false);
-  if (view.roomId !== get(currentRoomId)) return;
-  currentTimeline.set(timeline.getEvents());
-  canLoadOlder.set(timeline.canPaginate());
+  view.roomId === get(currentRoomId) ? showLive(timeline) : (detached.set(false), canLoadNewer.set(false));
 };
 
-export const loadNewerMessages = () =>
-  context ? pageContext(context, "f") : Promise.resolve(false);
+export const loadNewerMessages = () => {
+  const roomId = get(currentRoomId);
+  return context ? pageContext(context, "f") : Promise.resolve(!!roomId && !!anchor && (moveWindow(getTimeline(roomId), STEP), anchor !== null));
+};
 
 export const returnToPresent = () => leaveContext();
 
-export const isDetached = () => context !== null;
+export const isDetached = () => context !== null || anchor !== null;
 
 export const jumpToEvent = async (eventId: EventId) => {
   const roomId = requireRoom();
@@ -849,6 +890,7 @@ export const jumpToEvent = async (eventId: EventId) => {
   if (context?.events.some((event) => event.event_id === eventId)) return true;
   if (timeline.hasEvent(eventId)) {
     leaveContext();
+    reveal(timeline, eventId);
     return true;
   }
 
@@ -862,6 +904,7 @@ export const jumpToEvent = async (eventId: EventId) => {
     if (overlap !== -1) {
       context = view;
       mergeContext(view, overlap);
+      reveal(timeline, eventId);
       return true;
     }
 
@@ -881,10 +924,8 @@ export const loadOlderMessages = () => {
   if (context) return pageContext(context, "b");
 
   const timeline = getTimeline(roomId);
-  return timeline
-    .paginateBackwards()
-    .catch(() => false)
-    .finally(() => canLoadOlder.set(timeline.canPaginate()));
+  const ready = topOf(timeline.getEvents()) > 0 ? Promise.resolve(true) : timeline.paginateBackwards().catch(() => false);
+  return ready.then(() => (moveWindow(timeline, -STEP), topOf(timeline.getEvents()) > 0 || timeline.canPaginate()));
 };
 
 export type ReplyTarget = { eventId: EventId; sender: UserId };

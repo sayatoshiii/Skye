@@ -58,6 +58,7 @@ export const createTimeline = ({
   const emitter = createEmitter<TimelineEvents>();
   let events: TimelineEvent[] = [];
   let backToken: string | null | undefined;
+  const TRIMMED = "~trimmed";
   let paginating: Promise<boolean> | null = null;
   const pendingEdits: Record<EventId, TimelineEvent> = {};
   const pendingRedactions = new Set<EventId>();
@@ -206,8 +207,24 @@ export const createTimeline = ({
     return paginating;
   };
 
+  let trimmed = false;
+  const trim = (keep: number, around?: EventId) => {
+    const at = around ? events.findIndex((event) => event.event_id === around) : -1;
+    const from = Math.max(0, Math.min(events.length - keep, at === -1 ? events.length : at - 40));
+    if (!from || paginating) return;
+    events = events.slice(from);
+    trimmed = true;
+    backToken = TRIMMED;
+  };
+
   const fetchOlder = async (limit: number) => {
     try {
+      if (trimmed) {
+        const context = await request<{ start?: string }>({ endpoint: `${roomPath}/context/${encodeURIComponent(events[0].event_id)}`, method: "GET", query: { limit: 0 } });
+        trimmed = false;
+        backToken = context.start ?? null;
+        if (backToken === null) return false;
+      }
       const response = await request<MessagesResponse>({
         endpoint: `${roomPath}/messages`,
         method: "GET",
@@ -534,6 +551,7 @@ export const createTimeline = ({
     retryDecryption,
     on: emitter.on,
     getEvents: () => [...events],
+    trim,
     canPaginate: () => backToken !== null,
   };
 };
