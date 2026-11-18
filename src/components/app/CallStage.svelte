@@ -193,6 +193,7 @@
   const overflowItems = (): MenuItem[] => [
     ...(here && !legacy && screenSupported ? [{ id: "overflow-screen", label: text($screenOn ? "screen_stop" : "screen_start"), icon: MENU_ICONS.open, run: toggleScreen }] : []),
     { id: "overflow-stage", label: text(staged ? "collapse" : "expand"), icon: staged ? SETTINGS_ICONS.collapse : SETTINGS_ICONS.expand, run: toggleStage },
+    ...(staged ? [{ id: "overflow-chat", label: text("chat_show"), icon: MENU_ICONS.thread, run: () => (staged = false) }] : []),
     ...(here ? [{ id: "overflow-settings", label: text("settings"), icon: MENU_ICONS.settings, separated: true, run: openVoiceSettings }] : []),
   ];
   const openOverflow = (event: MouseEvent) => (event.preventDefault(), event.currentTarget?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: event.clientX, clientY: event.clientY })));
@@ -239,7 +240,7 @@
   const ringItems = (): MenuItem[] => [{ id: "stage-ring", label: text("ring_again"), icon: SETTINGS_ICONS.call, run: () => ringAgain(roomId) }, ...leaveItems()];
 </script>
 
-<div class="stage-slot" class:open class:staged={staged && open} class:media={!!focused || tiles.some((tile) => tile.video)} class:dragging bind:this={slot} style:height={custom && open && !staged ? `${custom}px` : null} inert={!open}>
+<div class="stage-slot" class:open class:staged={staged && open} class:media={!!focused || tiles.some((tile) => tile.video)} class:dragging class:sized={!!custom && !staged} bind:this={slot} style:height={custom && open && !staged ? `${custom}px` : null} inert={!open}>
   <section class="stage col" class:direct aria-label={text("in_voice").replace("{count}", String(tiles.length))} use:menu={stageItems}>
     <div class="tiles" bind:clientWidth={width} bind:clientHeight={height}>
       {#each tiles as tile (tile.id)}
@@ -344,7 +345,7 @@
 
           </div>
         </div>
-        <div class="slide" class:open={here && !legacy}>
+        <div class="slide cam-wide" class:open={here && !legacy}>
           <button type="button" class="ghost round control press" class:on={$cameraOn} inert={!here || legacy} aria-pressed={$cameraOn} aria-label={text($cameraOn ? "camera_off" : "camera_on")} use:tooltip={text($cameraOn ? "camera_off" : "camera_on")} onclick={toggleCamera} use:menu={cameraItems}>
               <Icon name={$cameraOn ? "camera" : "cameraOff"} size={20} />
             </button>
@@ -364,6 +365,11 @@
         </div>
       </div>
       <div class="side end row-nw align-centre">
+        <div class="slide cam-narrow" class:open={here && !legacy}>
+          <button type="button" class="ghost round control press" class:on={$cameraOn} inert={!here || legacy} aria-pressed={$cameraOn} aria-label={text($cameraOn ? "camera_off" : "camera_on")} use:tooltip={text($cameraOn ? "camera_off" : "camera_on")} onclick={toggleCamera} use:menu={cameraItems}>
+              <Icon name={$cameraOn ? "camera" : "cameraOff"} size={20} />
+            </button>
+        </div>
         <div class="slide" class:open={here && !legacy && screenSupported}>
           <button type="button" class="ghost round control press" class:on={$screenOn} inert={!here || legacy || !screenSupported} aria-pressed={$screenOn} aria-label={text($screenOn ? "screen_stop" : "screen_start")} use:tooltip={text($screenOn ? "screen_stop" : "screen_start")} onclick={toggleScreen} use:menu={screenItems}>
             <Icon name={$screenOn ? "screenOff" : "screen"} size={20} />
@@ -388,7 +394,7 @@
       </div>
     </div>
   </section>
-  <div class="resize" class:shown={open && !staged} role="separator" aria-orientation="horizontal" aria-label={text("resize")} tabindex={open && !staged ? 0 : -1} onpointerdown={grab} ondblclick={resetSize} onkeydown={nudge} use:menu={sizeItems}></div>
+  <div class="resize" class:shown={open && !staged} role="separator" aria-orientation="horizontal" aria-label={text("resize")} tabindex={open && !staged ? 0 : -1} onpointerdown={grab} ondblclick={resetSize} onkeydown={nudge} use:menu={sizeItems}><span></span></div>
 </div>
 
 <style>
@@ -547,10 +553,39 @@
     position: absolute;
     inset: auto 0 0;
     z-index: 3;
-    height: 10px;
+    display: grid;
+    place-items: center;
+    height: 14px;
     cursor: row-resize;
     touch-action: none;
     pointer-events: none;
+    opacity: 0;
+    transition: opacity 240ms var(--ease);
+  }
+
+  .stage-slot:hover .resize.shown,
+  .resize.shown:focus-visible,
+  .dragging .resize {
+    opacity: 1;
+  }
+
+  .resize span {
+    width: 40px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--colours-text-faint);
+    transition:
+      width 240ms var(--ease),
+      background-color 240ms var(--ease);
+  }
+
+  .resize:hover span {
+    width: 52px;
+  }
+
+  .dragging .resize span {
+    width: 52px;
+    background: white;
   }
 
   .resize.shown {
@@ -615,7 +650,8 @@
     transition: height 520ms var(--ease);
   }
 
-  .media .tiles {
+  .media .tiles,
+  .sized .tiles {
     flex: 1;
     height: auto;
   }
@@ -963,6 +999,7 @@
   }
 
   .slide.open {
+    flex-shrink: 0;
     grid-template-columns: minmax(0, 1fr);
     opacity: 1;
     scale: 1;
@@ -984,12 +1021,19 @@
     background: currentColor;
   }
 
+  .cam-narrow {
+    display: none !important;
+  }
+
   @container (max-width: 560px) {
-    .side.end > :not(.overflow, .phone-chat) {
+    .side.end > :not(.overflow, .cam-narrow),
+    .side.start > .lock,
+    .side.start > .cam-wide {
       display: none !important;
     }
 
-    .side.end > .overflow {
+    .side.end > .overflow,
+    .side.end > .cam-narrow {
       display: grid !important;
     }
   }
