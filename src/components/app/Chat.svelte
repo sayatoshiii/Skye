@@ -413,6 +413,9 @@
   const mentions = (content: Record<string, any>, userId?: string) =>
     !!userId && mentionsUser(content, userId, [$currentRoom?.members[userId]?.displayName ?? ""]);
 
+  let armed: string[] = $state([]);
+  const arm = (id: string) => armed[1] !== id && (armed = [armed[1] ?? id, id]);
+  const placed = new Map<string, { key: unknown[]; message: unknown }>();
   const baseMessages = $derived(
     $visibleTimeline
       .filter((event) => VISIBLE_TYPES.includes(event.type) && !(settings?.hideRedacted && event.redacted) && (settings?.showCallEvents || !CALL_EVENT_TYPES.includes(event.type) || (callSummary && callSessions.has(event.event_id))))
@@ -468,11 +471,15 @@
 
   const timelineMessages = $derived(
     foldMembers(baseMessages.filter((message: BaseMessage) => !message.thread))
-      .map((message, index, all) => ({
-        ...message,
-        grouped: isChained(all[index - 1], message),
-        last: !isChained(message, all[index + 1]),
-      })),
+      .map((message, index, all) => {
+        const grouped = isChained(all[index - 1], message);
+        const last = !isChained(message, all[index + 1]);
+        const key = [message.event, message.event.content, message.status, message.event.redacted, message.members?.length, settings, grouped, last];
+        const seen = placed.get(message.id);
+        const next = seen && seen.key.every((part, at) => part === key[at]) ? (seen.message as typeof message & { grouped: boolean; last: boolean }) : { ...message, grouped, last };
+        placed.set(message.id, { key, message: next });
+        return next;
+      }),
   );
 
   type ReactionGroup = { key: string; senders: string[]; own?: string; shortcode?: string };
@@ -711,16 +718,22 @@
     if (timeline && $canLoadOlder && timeline.scrollHeight <= timeline.clientHeight) loadOlder();
   };
 
+  const holdScroll = () => {
+    const rows = [...(timeline?.querySelectorAll<HTMLElement>("[data-event-id]") ?? [])];
+    const top = timeline?.getBoundingClientRect().top ?? 0;
+    const keep = rows.find((row) => row.getBoundingClientRect().bottom > top);
+    const from = keep?.getBoundingClientRect().top ?? 0;
+    return () => keep?.isConnected && timeline && (timeline.scrollTop += keep.getBoundingClientRect().top - from);
+  };
+
   const loadOlder = async () => {
     if (!timeline || loadingOlder || !$canLoadOlder) return;
 
     loadingOlder = true;
-    const fromBottom = timeline.scrollHeight - timeline.scrollTop;
-
+    const restore = holdScroll();
     const loaded = await loadOlderMessages();
     await tick();
-
-    if (timeline) timeline.scrollTop = timeline.scrollHeight - fromBottom;
+    restore();
     loadingOlder = false;
     if (loaded) fillViewport();
   };
@@ -728,8 +741,10 @@
   const loadNewer = async () => {
     if (loadingNewer || !isDetached) return;
     loadingNewer = true;
+    const restore = holdScroll();
     const more = await loadNewerMessages();
     await tick();
+    restore();
     loadingNewer = false;
     if (more && timeline && timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < LOAD_THRESHOLD) loadNewer();
   };
@@ -845,10 +860,18 @@
 
   const unpin = () => (pin = null);
 
+  let held: { row: HTMLElement; offset: number } | null = null;
+  const holdRow = () => {
+    const top = timeline?.getBoundingClientRect().top ?? 0;
+    const row = [...(timeline?.querySelectorAll<HTMLElement>(":scope > li[data-event-id]") ?? [])].find((item) => item.getBoundingClientRect().bottom > top);
+    held = row ? { row, offset: row.getBoundingClientRect().top - top } : null;
+  };
+
   const onresize = () => {
-    if (!timeline || loadingOlder) return;
+    if (!timeline || loadingOlder || loadingNewer) return;
     if (stuck && !isDetached) timeline.scrollTop = timeline.scrollHeight;
     else if (pin) applyPin();
+    else if (held?.row.isConnected) timeline.scrollTop += held.row.getBoundingClientRect().top - timeline.getBoundingClientRect().top - held.offset;
   };
 
   const restore = async (roomId: string, saved: Extract<ScrollAnchor, { bottom: false }>) => {
@@ -902,6 +925,7 @@
     if (timeline.scrollTop < LOAD_THRESHOLD) loadOlder();
     if (isDetached && distance < LOAD_THRESHOLD) loadNewer();
     if (stuck && document.visibilityState === "visible") markRoomRead();
+    holdRow();
     captureAnchor();
   };
 
@@ -1598,6 +1622,8 @@
           class:menu-open={menu?.message.id === message.id}
           class:editing={editing?.eventId === message.eventId}
           data-event-id={message.eventId}
+          onpointerenter={() => arm(message.id)}
+          onfocusin={() => arm(message.id)}
           oncontextmenu={(event) => oncontextmenu(event, message)}
           onpointerdown={(event) => onpointerdown(event, message)}
           onpointermove={(event) => onpointermove(event, message)}
@@ -1728,7 +1754,7 @@
               <ThreadSummary {summary} {getSender} items={() => threadItems(message.eventId)} onopen={() => openThread(message.eventId)} />
             {/if}
           </div>
-          {#if editing?.eventId !== message.eventId && !message.local}
+          {#if (armed.includes(message.id) || menu?.message.id === message.id) && editing?.eventId !== message.eventId && !message.local}
             <div class="toolbar row-nw" role="toolbar" aria-label={text("chat", "actions")}>
               {#if canReact(message)}
                 {#each quickKeys.slice(0, QUICK_TOOLBAR) as key (key)}
@@ -3022,6 +3048,11 @@
     opacity: 1;
     pointer-events: auto;
     transform: none;
+
+    @starting-style {
+      opacity: 0;
+      transform: translateY(2px);
+    }
   }
 
   .tool {
