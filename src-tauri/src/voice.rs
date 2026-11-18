@@ -26,6 +26,7 @@ const BUFFERED: usize = RATE as usize / 5;
 const HOLD: Duration = Duration::from_millis(350);
 const VOICE: f32 = 0.55;
 const FLOOR: f32 = -100.0;
+const SPEAKING: f32 = -62.0;
 
 static AUDIO: Mutex<()> = Mutex::new(());
 
@@ -53,7 +54,7 @@ struct Engine {
   input: Mutex<String>,
   output: Mutex<String>,
   running: Mutex<Option<mpsc::Sender<()>>>,
-  levels: Mutex<(Instant, HashMap<String, f32>)>,
+  levels: Mutex<(Instant, HashMap<String, f32>, Vec<String>)>,
 }
 
 struct Link {
@@ -135,7 +136,7 @@ fn decibels(frame: &[f32]) -> f32 {
   frame.is_empty().then_some(FLOOR).unwrap_or_else(|| (20.0 * ((frame.iter().map(|sample| sample * sample).sum::<f32>() / frame.len() as f32).sqrt() / 32768.0).max(1e-6).log10()).max(FLOOR))
 }
 
-fn process(engine: &Engine, denoise: &mut DenoiseState, raw: &[f32], loud: &mut Instant, tick: &mut u8) {
+fn process(engine: &Engine, denoise: &mut DenoiseState, raw: &[f32], loud: &mut Instant, tick: &mut (u8, bool)) {
   let tuning = *engine.tuning.lock().unwrap();
   let mut pcm: Vec<i16> = raw.iter().map(|sample| (sample * 32767.0).clamp(-32768.0, 32767.0) as i16).collect();
   let _ = engine.apm.lock().unwrap().process_stream(&mut pcm, RATE as i32, 1);
@@ -148,8 +149,8 @@ fn process(engine: &Engine, denoise: &mut DenoiseState, raw: &[f32], loud: &mut 
   let open = loud.elapsed() < HOLD;
   let out: Vec<i16> = heard.iter().map(|&sample| (sample * open as u8 as f32).clamp(-32768.0, 32767.0) as i16).collect();
   let _ = tauri::async_runtime::block_on(engine.source.capture_frame(&AudioFrame { data: Cow::Owned(out), sample_rate: RATE, num_channels: 1, samples_per_channel: FRAME as u32 }));
-  *tick = (*tick + 1) % 8;
-  (*tick == 0).then(|| engine.app.emit("voice:level", Level { db, open }));
+  tick.0 = (tick.0 + 1) % 100;
+  (open != tick.1 || (open && tick.0 == 0)).then(|| (tick.1 = open, engine.app.emit("voice:level", Level { db, open })));
 }
 
 fn mix(engine: &Engine, out: &mut [f32], channels: usize) {
@@ -165,7 +166,9 @@ fn mix(engine: &Engine, out: &mut [f32], channels: usize) {
   });
   let mut levels = engine.levels.lock().unwrap();
   heard.into_iter().for_each(|(identity, db)| (*levels.1.entry(identity).or_insert(db) = db.max(FLOOR), ()).1);
-  (levels.0.elapsed() > Duration::from_millis(80)).then(|| (engine.app.emit("voice:levels", std::mem::take(&mut levels.1)), levels.0 = Instant::now()));
+  let mut speaking: Vec<String> = levels.1.iter().filter(|(_, db)| **db > SPEAKING).map(|(identity, _)| identity.clone()).collect();
+  speaking.sort();
+  (speaking != levels.2 || (!speaking.is_empty() && levels.0.elapsed() > Duration::from_secs(1))).then(|| (engine.app.emit("voice:levels", std::mem::take(&mut levels.1)), levels.0 = Instant::now(), levels.2 = speaking));
   drop(levels);
   let mut reference: Vec<i16> = mixed.iter().map(|&sample| sample.clamp(-32768, 32767) as i16).collect();
   out.chunks_mut(channels).zip(&reference).for_each(|(chunk, &sample)| chunk.fill(sample as f32 / 32768.0));
@@ -212,7 +215,7 @@ fn run(engine: Arc<Engine>, stop: mpsc::Receiver<()>) {
   let thread = std::thread::spawn(move || {
     let mut denoise = DenoiseState::new();
     let mut loud = Instant::now() - HOLD;
-    let mut tick = 0u8;
+    let mut tick = (0u8, false);
     while flag.load(Ordering::Relaxed) {
       let _ = incoming.recv_timeout(Duration::from_millis(100)).map(|frame| process(&worker, &mut denoise, &frame, &mut loud, &mut tick));
     }
@@ -245,7 +248,7 @@ fn engine(app: &AppHandle, voice: &Voice) -> Answer<Arc<Engine>> {
       input: Mutex::new(voice.input.lock().unwrap().clone()),
       output: Mutex::new(voice.output.lock().unwrap().clone()),
       running: Mutex::default(),
-      levels: Mutex::new((Instant::now(), HashMap::new())),
+      levels: Mutex::new((Instant::now(), HashMap::new(), Vec::new())),
     });
     start(&engine);
     engine
