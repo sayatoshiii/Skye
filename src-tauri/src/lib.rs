@@ -1,5 +1,7 @@
 use tauri::Manager;
 
+mod embed;
+
 #[cfg(target_os = "linux")]
 mod voice;
 
@@ -9,13 +11,22 @@ mod screen;
 #[cfg(windows)]
 mod screen_win;
 
+#[cfg(any(target_os = "linux", target_os = "macos", windows))]
+mod ptt;
+
 #[cfg(target_os = "linux")]
 fn unlock(window: &tauri::WebviewWindow) {
-  let _ = window.with_webview(|webview| {
-    use webkit2gtk::{PermissionRequestExt, SettingsExt, WebViewExt};
+  let (enter, leave) = (window.clone(), window.clone());
+  let _ = window.with_webview(move |webview| {
+    use webkit2gtk::{CacheModel, PermissionRequestExt, SettingsExt, WebContextExt, WebViewExt};
     let view = webview.inner();
+    view.context().map(|context| context.set_cache_model(CacheModel::DocumentViewer));
+    WebViewExt::settings(&view).map(|settings| (settings.set_enable_page_cache(false), settings.set_enable_back_forward_navigation_gestures(false)));
     WebViewExt::settings(&view).map(|settings| (settings.set_enable_media_stream(true), settings.set_enable_webrtc(true), settings.set_enable_mediasource(true), settings.set_media_playback_requires_user_gesture(false)));
     view.connect_permission_request(|_, request| (request.allow(), true).1);
+    WebViewExt::settings(&view).map(|settings| settings.set_enable_fullscreen(true));
+    view.connect_enter_fullscreen(move |_| (enter.set_fullscreen(true), false).1);
+    view.connect_leave_fullscreen(move |_| (leave.set_fullscreen(false), false).1);
   });
 }
 
@@ -77,17 +88,22 @@ fn tray(_: &tauri::App) -> tauri::Result<()> { Ok(()) }
 
 #[cfg(target_os = "linux")]
 fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.manage(voice::Voice::default()).manage(screen::Screen::default()).invoke_handler(tauri::generate_handler![screen::screen_start, screen::screen_stop, screen::screen_audio, screen::screen_apps, screen::screen_sharing, screen::screen_watch, screen::screen_unwatch, voice::voice_connect, voice::voice_disconnect, voice::voice_key, voice::voice_mic, voice::voice_volume, voice::voice_tuning, voice::voice_devices, voice::voice_device, leave])
+  builder.manage(voice::Voice::default()).manage(screen::Screen::default()).invoke_handler(tauri::generate_handler![screen::screen_start, screen::screen_stop, screen::screen_audio, screen::screen_apps, screen::screen_sharing, screen::screen_watch, screen::screen_unwatch, voice::voice_connect, voice::voice_disconnect, voice::voice_key, voice::voice_mic, voice::voice_volume, voice::voice_tuning, voice::voice_devices, voice::voice_device, ptt::ptt_bind, embed::embed_port, leave])
 }
 
 #[cfg(windows)]
 fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.invoke_handler(tauri::generate_handler![screen_win::screen_apps, screen_win::screen_audio_capture, screen_win::screen_audio_release, leave])
+  builder.invoke_handler(tauri::generate_handler![screen_win::screen_apps, screen_win::screen_audio_capture, screen_win::screen_audio_release, ptt::ptt_bind, embed::embed_port, leave])
 }
 
-#[cfg(not(any(target_os = "linux", windows)))]
+#[cfg(target_os = "macos")]
 fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.invoke_handler(tauri::generate_handler![leave])
+  builder.invoke_handler(tauri::generate_handler![ptt::ptt_bind, embed::embed_port, leave])
+}
+
+#[cfg(mobile)]
+fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+  builder.invoke_handler(tauri::generate_handler![embed::embed_port, leave])
 }
 
 #[cfg(desktop)]
@@ -103,6 +119,7 @@ fn single(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   audio();
+  embed::serve();
   engine(single(tauri::Builder::default()))
     .plugin(tauri_plugin_log::Builder::default().level([log::LevelFilter::Warn, log::LevelFilter::Info][cfg!(debug_assertions) as usize]).build())
     .plugin(tauri_plugin_notification::init())
