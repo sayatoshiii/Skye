@@ -2,6 +2,9 @@ use tauri::Manager;
 
 mod embed;
 
+#[cfg(desktop)]
+mod files;
+
 #[cfg(target_os = "linux")]
 mod voice;
 
@@ -16,6 +19,7 @@ mod ptt;
 
 #[cfg(target_os = "linux")]
 fn unlock(window: &tauri::WebviewWindow) {
+  let app = window.app_handle().clone();
   let (enter, leave) = (window.clone(), window.clone());
   let _ = window.with_webview(move |webview| {
     use webkit2gtk::{CacheModel, PermissionRequestExt, SettingsExt, WebContextExt, WebViewExt};
@@ -27,6 +31,13 @@ fn unlock(window: &tauri::WebviewWindow) {
     WebViewExt::settings(&view).map(|settings| settings.set_enable_fullscreen(true));
     view.connect_enter_fullscreen(move |_| (enter.set_fullscreen(true), false).1);
     view.connect_leave_fullscreen(move |_| (leave.set_fullscreen(false), false).1);
+    view.connect_create(move |_, action| {
+      use tauri_plugin_opener::OpenerExt;
+      use webkit2gtk::URIRequestExt;
+      let target = action.clone().request().and_then(|request| request.uri()).map(|uri| uri.to_string()).filter(|uri| uri.starts_with("http") || uri.starts_with("mailto:"));
+      target.map(|uri| app.opener().open_url(uri, None::<&str>));
+      None
+    });
   });
 }
 
@@ -88,17 +99,17 @@ fn tray(_: &tauri::App) -> tauri::Result<()> { Ok(()) }
 
 #[cfg(target_os = "linux")]
 fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.manage(voice::Voice::default()).manage(screen::Screen::default()).invoke_handler(tauri::generate_handler![screen::screen_start, screen::screen_stop, screen::screen_audio, screen::screen_apps, screen::screen_sharing, screen::screen_watch, screen::screen_unwatch, voice::voice_connect, voice::voice_disconnect, voice::voice_key, voice::voice_mic, voice::voice_volume, voice::voice_tuning, voice::voice_devices, voice::voice_device, ptt::ptt_bind, embed::embed_port, leave])
+  builder.manage(voice::Voice::default()).manage(screen::Screen::default()).invoke_handler(tauri::generate_handler![screen::screen_start, screen::screen_stop, screen::screen_audio, screen::screen_apps, screen::screen_sharing, screen::screen_watch, screen::screen_unwatch, voice::voice_connect, voice::voice_disconnect, voice::voice_key, voice::voice_mic, voice::voice_volume, voice::voice_tuning, voice::voice_devices, voice::voice_device, ptt::ptt_bind, embed::embed_port, files::save_download, files::copy_image, leave])
 }
 
 #[cfg(windows)]
 fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.invoke_handler(tauri::generate_handler![screen_win::screen_apps, screen_win::screen_audio_capture, screen_win::screen_audio_release, ptt::ptt_bind, embed::embed_port, leave])
+  builder.invoke_handler(tauri::generate_handler![screen_win::screen_apps, screen_win::screen_audio_capture, screen_win::screen_audio_release, ptt::ptt_bind, embed::embed_port, files::save_download, files::copy_image, leave])
 }
 
 #[cfg(target_os = "macos")]
 fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.invoke_handler(tauri::generate_handler![ptt::ptt_bind, embed::embed_port, leave])
+  builder.invoke_handler(tauri::generate_handler![ptt::ptt_bind, embed::embed_port, files::save_download, files::copy_image, leave])
 }
 
 #[cfg(mobile)]
@@ -108,7 +119,7 @@ fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
 
 #[cfg(desktop)]
 fn single(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.plugin(tauri_plugin_single_instance::init(|app, _, _| reveal(app)))
+  builder.plugin(tauri_plugin_single_instance::init(|app, _, _| reveal(app))).plugin(tauri_plugin_clipboard_manager::init()).plugin(tauri_plugin_dialog::init()).plugin(tauri_plugin_opener::init())
 }
 
 #[cfg(mobile)]
@@ -118,6 +129,8 @@ fn single(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  #[cfg(target_os = "linux")]
+  std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none().then(|| unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") });
   audio();
   embed::serve();
   engine(single(tauri::Builder::default()))
@@ -129,5 +142,3 @@ pub fn run() {
     .expect("skye failed to start")
     .run(|_app, event| match event { #[cfg(target_os = "macos")] tauri::RunEvent::Reopen { .. } => reveal(_app), _ => {} });
 }
-  #[cfg(target_os = "linux")]
-  std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none().then(|| unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") });

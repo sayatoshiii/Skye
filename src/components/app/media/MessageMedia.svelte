@@ -74,7 +74,7 @@
 
   const download = async () => {
     downloading = true;
-    await downloadMedia(source, name).catch(() => (failed = true));
+    await downloadMedia(source, name).catch((error) => (failed = (error as Error)?.message !== "cancelled"));
     downloading = false;
   };
 </script>
