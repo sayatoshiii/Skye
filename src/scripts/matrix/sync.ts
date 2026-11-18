@@ -13,7 +13,7 @@ export const DEFAULT_SYNC_FILTER: SyncFilter = {
   presence: { types: ["m.presence"] },
   room: {
     state: { lazy_load_members: true },
-    timeline: { limit: 30, lazy_load_members: true },
+    timeline: { limit: 10, lazy_load_members: true },
   },
 };
 
@@ -30,7 +30,7 @@ export type SyncOptions = {
 
 const CRYPTO_TIMEOUT = 10000;
 const SINCE_KEY = "sync_since";
-const FILTER_KEY = "sync_filter_id_v2";
+const FILTER_KEY = "sync_filter_id_v3";
 
 const readStorage = (key: string) =>
   typeof localStorage === "undefined" ? null : localStorage.getItem(key);
