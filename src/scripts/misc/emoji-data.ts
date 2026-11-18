@@ -35,6 +35,7 @@ const TWEMOJI_QUIRKS: Record<string, string> = {
 
 let pending: Promise<EmojiIndex> | null = null;
 let ready: EmojiIndex | null = null;
+const listeners: ((index: EmojiIndex) => void)[] = [];
 
 export const normaliseHex = (hexcode: string) =>
   hexcode.toUpperCase().split("-").filter((part) => part !== "FE0F").join("-");
@@ -85,8 +86,10 @@ export const loadEmojiIndex = () =>
     import("emojibase-data/en/shortcodes/github.json"),
     import("emojibase-data/en/shortcodes/cldr.json"),
   ]).then(([data, emojibase, github, cldr]) =>
-    (ready = build(data.default as RawEmoji[], [emojibase.default, github.default, cldr.default] as Shortcodes[])),
+    (ready = build(data.default as RawEmoji[], [emojibase.default, github.default, cldr.default] as Shortcodes[]), listeners.splice(0).forEach((run) => run(ready!)), ready),
   ));
+
+export const whenEmojiIndex = (run: (index: EmojiIndex) => void) => (ready ? run(ready) : listeners.push(run));
 
 export const peekEmojiIndex = () => ready;
 
