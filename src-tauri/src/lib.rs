@@ -129,3 +129,5 @@ pub fn run() {
     .expect("skye failed to start")
     .run(|_app, event| match event { #[cfg(target_os = "macos")] tauri::RunEvent::Reopen { .. } => reveal(_app), _ => {} });
 }
+  #[cfg(target_os = "linux")]
+  std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none().then(|| unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") });
