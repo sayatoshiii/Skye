@@ -4,6 +4,7 @@
   import { getLinkPreview, type LinkPreview } from "../../../scripts/matrix/utilities/previews";
   import { EMBED_ALLOW, EMBED_SANDBOX, findEmbed } from "../../../scripts/misc/embeds";
   import { nearViewport } from "../../../scripts/misc/lazy";
+  import { embedPort, wrapEmbed } from "../../../scripts/misc/native";
   import { mediaSettings, setAlwaysAllowEmbed, type MediaSettings } from "../../../scripts/settings/media";
   import { session } from "../../../scripts/stores/matrix";
 
@@ -24,6 +25,8 @@
   let preview: LinkPreview | null = $state.raw(null);
   let image: string | undefined = $state();
   let playing = $state(false);
+  let port = $state(0);
+  embedPort.then((value) => (port = value));
 
   $effect(() => mediaSettings.subscribe((value) => (settings = value)));
 
@@ -50,7 +53,7 @@
     {#if embed && active}
       <div class="player">
         <iframe
-          src={source}
+          src={source && wrapEmbed(source, port)}
           title={preview?.title ?? embed.name}
           sandbox={EMBED_SANDBOX}
           allow={playing ? EMBED_ALLOW : EMBED_ALLOW.replace("; autoplay", "")}
