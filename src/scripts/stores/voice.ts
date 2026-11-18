@@ -777,6 +777,10 @@ export const joinVoice = async (roomId: RoomId) => {
 };
 
 native &&
+  (import("@tauri-apps/api/event").then(({ listen }) => listen<{ held: boolean }>("ptt", ({ payload }) => get(voicePrefs).pushToTalk && get(voice) && pttHeld.set(payload.held))),
+  voicePrefs.subscribe((prefs) => import("@tauri-apps/api/core").then(({ invoke }) => invoke("ptt_bind", { code: prefs.pushToTalk ? prefs.pttKey : "" }).catch(() => undefined))));
+
+native &&
   import("@tauri-apps/api/event").then(({ listen }) =>
     listen("skye:quit", () => disconnect().finally(() => import("@tauri-apps/api/core").then(({ invoke }) => invoke("leave")))),
   );
