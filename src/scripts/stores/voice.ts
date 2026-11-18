@@ -40,7 +40,7 @@ import { decryptPreview, redactRoomEvent, registerLiveSyncHook, registerSyncHook
 import { toast, toastKey } from "./toast";
 import { native } from "../misc/native";
 import { bridgePublisher, screenShared } from "./nativescreen";
-import { NativeRoom, nativeDevices, nativeLevels, nativeTuning, nativeVoice, nativeVoices } from "./nativeroom";
+import { NativeRoom, webInput, nativeDevices, nativeLevels, nativeTuning, nativeVoice, nativeVoices } from "./nativeroom";
 import { getLocalisedText } from "../accessibility/language/translation";
 
 export type VoiceKind = "rtc" | "legacy";
@@ -452,6 +452,9 @@ export const captureOf = (prefs: VoicePrefs, exact = false) => ({
   autoGainControl: true,
 });
 
+export const captureFor = async (prefs: VoicePrefs) =>
+  nativeVoice ? { ...captureOf(prefs), deviceId: await webInput(prefs.input).then((id) => (id ? { exact: id } : undefined)) } : captureOf(prefs, true);
+
 export const inputLevel = writable(0);
 export const transmitting = writable(false);
 const DB_FLOOR = -100;
@@ -490,8 +493,8 @@ const startMeter = (prefs: VoicePrefs) => {
   let alive = true;
   let loud = 0;
   let stop = () => void (alive = false);
-  navigator.mediaDevices
-    ?.getUserMedia({ audio: captureOf(prefs, true) })
+  captureFor(prefs)
+    .then((audio) => navigator.mediaDevices.getUserMedia({ audio }))
     .then((stream) => {
       const context = new AudioContext();
       const analyser = Object.assign(context.createAnalyser(), { fftSize: 1024 });

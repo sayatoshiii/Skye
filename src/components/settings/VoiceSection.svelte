@@ -7,7 +7,7 @@
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { copied } from "../../scripts/stores/toast";
   import type { SettingsSection } from "../../scripts/stores/settings";
-  import { captureOf, inputLevel, listDevices, transmitting, switchDevice, voicePrefs, watchInput, type VoicePrefs } from "../../scripts/stores/voice";
+  import { captureFor, inputLevel, listDevices, transmitting, switchDevice, voicePrefs, watchInput, type VoicePrefs } from "../../scripts/stores/voice";
   import type { MenuItem } from "../app/MessageMenu.svelte";
   import Toggle from "../ui/Toggle.svelte";
   import Icon from "./Icon.svelte";
@@ -114,7 +114,7 @@
 
   const test = async () => {
     if (testing) return testing();
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: captureOf(prefs, true) }).catch(() => null);
+    const stream = await captureFor(prefs).then((audio) => navigator.mediaDevices.getUserMedia({ audio })).catch(() => null);
     if (!stream) return;
     const context = new AudioContext();
     const analyser = Object.assign(context.createAnalyser(), { fftSize: 1024, smoothingTimeConstant: 0.6, minDecibels: -90, maxDecibels: -35 });

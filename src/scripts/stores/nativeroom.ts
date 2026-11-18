@@ -111,3 +111,9 @@ export const nativeTuning = (prefs: Tunable) =>
 export const nativeLevels = (show: (db: number, open: boolean) => void) => listen<{ db: number; open: boolean }>("voice:level", ({ payload }) => show(payload.db, payload.open));
 
 export const nativeVoices = (show: (levels: Record<string, number>) => void) => listen<Record<string, number>>("voice:levels", ({ payload }) => show(payload));
+
+export const webInput = async (id: string) => {
+  const label = (await deviceList()).inputs.find((device) => device.id === id)?.label.toLowerCase() ?? "";
+  const web = (await navigator.mediaDevices?.enumerateDevices?.().catch(() => [])) ?? [];
+  return web.find((device) => device.kind === "audioinput" && !!label && !!device.label && (label.includes(device.label.toLowerCase()) || device.label.toLowerCase().includes(label)))?.deviceId;
+};
