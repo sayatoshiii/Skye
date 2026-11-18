@@ -100,15 +100,70 @@
     list.at(moves[event.key] % list.length)?.focus();
   };
 
+  const CLOSE_PULL = 110;
+  const FLING = 0.55;
+  const TUG = 28;
+  const SLOP = 6;
+  let pull = $state(0);
+  let dragging = $state(false);
+  let gesture: { y: number; handle: boolean; top: boolean; mode: "" | "pull" | "scroll"; lastY: number; lastT: number; speed: number } | null = null;
+
+  const sheet = () => matchMedia("(max-width: 767px)").matches;
+  const stretch = (dy: number) => (dy > 0 ? dy : -TUG * (1 - Math.exp(dy / 80)));
+  const decide = (dy: number) =>
+    Math.abs(dy) < SLOP ? "" : gesture!.handle || (gesture!.top && dy > 0) || (dy < 0 && !!menu && menu.scrollHeight <= menu.clientHeight) ? "pull" : "scroll";
+
+  const touchstart = (event: TouchEvent) =>
+    sheet() &&
+    (gesture = {
+      y: event.touches[0].clientY,
+      handle: !!(event.target as Element).closest(".handle"),
+      top: (menu?.scrollTop ?? 0) <= 0,
+      mode: "",
+      lastY: event.touches[0].clientY,
+      lastT: performance.now(),
+      speed: 0,
+    });
+
+  const touchmove = (event: TouchEvent) => {
+    if (!gesture) return;
+    const y = event.touches[0].clientY;
+    const now = performance.now();
+    gesture.mode ||= decide(y - gesture.y);
+    gesture.speed = (y - gesture.lastY) / Math.max(1, now - gesture.lastT);
+    gesture.lastY = y;
+    gesture.lastT = now;
+    if (gesture.mode !== "pull") return;
+    event.preventDefault();
+    dragging = true;
+    pull = stretch(y - gesture.y);
+  };
+
+  const touchend = () => {
+    const done = !!gesture && gesture.mode === "pull" && (pull > CLOSE_PULL || (gesture.speed > FLING && pull > 24));
+    gesture = null;
+    dragging = false;
+    done ? exit.close() : (pull = 0);
+  };
+
+  $effect(() => {
+    const node = menu;
+    node?.addEventListener("touchstart", touchstart, { passive: true });
+    node?.addEventListener("touchmove", touchmove, { passive: false });
+    node?.addEventListener("touchend", touchend);
+    node?.addEventListener("touchcancel", touchend);
+    return () => (node?.removeEventListener("touchstart", touchstart), node?.removeEventListener("touchmove", touchmove), node?.removeEventListener("touchend", touchend), node?.removeEventListener("touchcancel", touchend));
+  });
+
   const choose = (item: MenuItem, event: MouseEvent | KeyboardEvent) => {
     exit.close();
     item.run(event);
   };
 </script>
 
-<div class="layer" class:closing={exit.closing} role="presentation" use:portal>
-  <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={dismiss} oncontextmenu={reopen}></button>
-  <div class="menu col" role="menu" onanimationend={exit.onanimationend} inert={exit.closing} aria-label={label} tabindex="-1" bind:this={menu} style:left="{left}px" style:top="{top}px" style:min-width={minWidth ? `${minWidth}px` : undefined} {onkeydown}>
+<div class="layer" class:closing={exit.closing} class:dragging role="presentation" use:portal>
+  <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={dismiss} oncontextmenu={reopen} style:opacity={pull > 0 ? Math.max(0.2, 1 - pull / 360) : null}></button>
+  <div class="menu col" role="menu" style:transform={pull ? `translateY(${pull}px)` : null} onanimationend={exit.onanimationend} inert={exit.closing} aria-label={label} tabindex="-1" bind:this={menu} style:left="{left}px" style:top="{top}px" style:min-width={minWidth ? `${minWidth}px` : undefined} {onkeydown}>
     <span class="handle" aria-hidden="true"></span>
     {#if quick?.length}
       <div class="quick row-nw" role="group" aria-label={quickLabel}>
@@ -294,13 +349,42 @@
       animation: rise var(--azure-duration-glide) var(--azure-ease-fluid);
     }
 
+    .menu {
+      transition: transform 460ms var(--azure-ease-spring);
+    }
+
+    .dragging .menu,
+    .dragging .scrim {
+      transition: none;
+    }
+
+    .scrim {
+      transition: opacity 460ms var(--azure-ease-out);
+    }
+
     .handle {
       display: block;
+      flex: none;
+      position: relative;
       width: 36px;
       height: 4px;
       margin: 0 auto var(--azure-spacing-sm);
       border-radius: var(--azure-radius-pill);
       background-color: var(--colours-outline-strong);
+      transition:
+        width 240ms var(--azure-ease-out),
+        background-color 240ms var(--azure-ease-out);
+    }
+
+    .handle::before {
+      content: "";
+      position: absolute;
+      inset: -14px -40px;
+    }
+
+    .dragging .handle {
+      width: 48px;
+      background-color: var(--colours-text-muted);
     }
 
     .closing .scrim {
