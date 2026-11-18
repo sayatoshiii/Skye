@@ -405,6 +405,8 @@
   }
 
   .gate input {
+    position: relative;
+    z-index: 1;
     grid-area: 1 / 1;
     appearance: none;
     width: 100%;
