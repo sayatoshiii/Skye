@@ -387,12 +387,10 @@ export const createCrypto = (context: CryptoContext) => {
     const machine = await ready;
     if (!machine || closed) return null;
 
-    const decrypted = await machine.decryptRoomEvent(
-      JSON.stringify({ ...event, room_id: roomId }),
-      new WasmRoomId(roomId),
-      decryptionSettings(),
-    );
+    const room = new WasmRoomId(roomId);
+    const decrypted = await machine.decryptRoomEvent(JSON.stringify({ ...event, room_id: roomId }), room, decryptionSettings()).finally(() => room.free());
     const clear = JSON.parse(decrypted.event) as MatrixEvent;
+    decrypted.free();
 
     return { type: clear.type, content: clear.content ?? {} };
   };
