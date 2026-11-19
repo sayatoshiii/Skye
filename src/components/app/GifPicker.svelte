@@ -52,6 +52,8 @@
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { favouriteGifs, gifboxCategories, gifboxReady, searchGifbox, toggleFavouriteGif, type GifCategory } from "../../scripts/settings/gifs";
   import { MENU_ICONS } from "../../scripts/misc/icons";
+  import { tooltip } from "../../scripts/misc/tooltip";
+  import { mediaSettings, setGifsAsLinks } from "../../scripts/settings/media";
   import { longpress } from "../../scripts/misc/longpress";
   import { copied } from "../../scripts/stores/toast";
   import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
@@ -202,6 +204,7 @@
 
   const settle = spring(0.45, 0.7);
   const leave = (_: Element) => ({ duration: reducedMotion() ? 0 : 350, css: (t: number) => `opacity: ${cubicOut(t)}; transform: scale(${0.8 + quartOut(t) * 0.2}); filter: blur(${(1 - quartOut(t)) * 6}px)` });
+  const swap = (_: Element) => ({ duration: reducedMotion() ? 0 : 320, css: (t: number) => `opacity: ${t}; transform: scale(${0.6 + quartOut(t) * 0.4}) rotate(${(1 - quartOut(t)) * -30}deg)` });
 
   const ratio = (gif: GifFavourite) => (gif.kind === "mxc" ? `${Number(gif.info.w) || 1} / ${Number(gif.info.h) || 1}` : `${gif.w ?? 1} / ${gif.h ?? 1}`);
 </script>
@@ -252,6 +255,17 @@
     <label class="search-box row-nw align-centre gap-sm">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13ZM20 20l-4.6-4.6" /></svg>
       <input class="search flex-max" type="search" placeholder={text("search")} aria-label={text("search")} bind:this={search} bind:value={query} />
+      <button type="button" class="as-links ghost press" class:on={$mediaSettings.gifsAsLinks} aria-pressed={$mediaSettings.gifsAsLinks} aria-label={text($mediaSettings.gifsAsLinks ? "as_links" : "as_files")} use:tooltip={text($mediaSettings.gifsAsLinks ? "as_links" : "as_files")} onclick={() => setGifsAsLinks(!$mediaSettings.gifsAsLinks)}>
+        {#key $mediaSettings.gifsAsLinks}
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" in:swap>
+            {#if $mediaSettings.gifsAsLinks}
+              <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1" />
+            {:else}
+              <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M12 18v-6M9.5 14.5 12 12l2.5 2.5" />
+            {/if}
+          </svg>
+        {/key}
+      </button>
     </label>
     {#if title}
       <div class="crumb row-nw align-centre gap-xs">
@@ -270,7 +284,7 @@
       {#if painted}
         <div class="categories">
           <button type="button" class="category favourites ghost press" onclick={() => open("favourites")}>
-            {#if favourites[0]}{#if favourites[0].kind === "link" && favourites[0].image}<img src={favourites[0].image} alt="" draggable="false" />{:else}<img alt="" draggable="false" use:gifSource={favourites[0]} />{/if}{/if}
+            {#if favourites[0]}{@const cover = favourites[0]}{#if cover.kind === "link" && cover.image}<img src={cover.image} alt="" draggable="false" />{:else if cover.kind === "link" && !cover.media && cover.video}<video src={cover.video} autoplay muted loop playsinline disablepictureinpicture></video>{:else if isVideoGif(cover)}<video autoplay muted loop playsinline disablepictureinpicture use:gifSource={cover}></video>{:else}<img alt="" draggable="false" use:gifSource={cover} />{/if}{/if}
             <span class="label row-nw align-centre gap-xs sm bold"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.star} /></svg>{text("favourites")}</span>
           </button>
           <button type="button" class="category ghost press" onclick={() => open("featured")}>
@@ -384,6 +398,28 @@
     flex: none;
   }
 
+  .as-links {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    margin-right: calc(var(--azure-spacing-xs) * -1);
+    border-radius: var(--azure-radius-sm);
+    color: var(--colours-text-muted);
+    transition: color var(--azure-duration-md) var(--azure-ease-fluid), background-color var(--azure-duration-md) var(--azure-ease-fluid);
+  }
+
+  .as-links:hover,
+  .as-links:focus-visible {
+    color: var(--colours-text-strong);
+    background-color: var(--colours-surface-active, var(--colours-surface-hover));
+  }
+
+  .as-links.on {
+    color: color-mix(in srgb, var(--colours-accent) 70%, var(--colours-text-strong));
+  }
+
   .crumb {
     animation: crumb-in var(--azure-duration-md) var(--azure-ease-fluid);
   }
@@ -432,7 +468,7 @@
     animation: tile-in var(--azure-duration-md) var(--azure-ease-fluid);
   }
 
-  .category img {
+  .category :is(img, video) {
     position: absolute;
     inset: 0;
     width: 100%;
