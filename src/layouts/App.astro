@@ -5,6 +5,7 @@ import "../styles/settings.css";
 import ContextMenu from "../components/app/ContextMenu.svelte";
 import Toast from "../components/ui/Toast.svelte";
 import ScreenAudioPicker from "../components/app/ScreenAudioPicker.svelte";
+import ScreenSharePicker from "../components/app/ScreenSharePicker.svelte";
 import { ACCENT_STORAGE_KEY } from "../scripts/settings/accent";
 import { MOTION_STORAGE_KEY } from "../scripts/settings/motion";
 ---
@@ -34,5 +35,6 @@ import { MOTION_STORAGE_KEY } from "../scripts/settings/motion";
     <ContextMenu client:only="svelte" />
     <Toast client:only="svelte" />
     <ScreenAudioPicker client:only="svelte" />
+    <ScreenSharePicker client:only="svelte" />
   </body>
 </html>

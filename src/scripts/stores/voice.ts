@@ -39,7 +39,7 @@ import {
 import { decryptPreview, redactRoomEvent, registerLiveSyncHook, registerSyncHook, registerToDeviceHook, rooms, sendEncryptedToDevice, sendRoomEvent, session } from "./matrix";
 import { toast, toastKey } from "./toast";
 import { native } from "../misc/native";
-import { bridgePublisher, screenShared } from "./nativescreen";
+import { askShare, bridgePublisher, screenShared, shareAudio } from "./nativescreen";
 import { NativeRoom, webInput, nativeDevices, nativeLevels, nativeTuning, nativeVoice, nativeVoices } from "./nativeroom";
 import { getLocalisedText } from "../accessibility/language/translation";
 
@@ -704,13 +704,26 @@ export const toggleCamera = () => {
 
 export const toggleScreen = () => {
   const link = publishLink();
+  const portalShare = async () => {
+    const choice = await askShare();
+    if (!choice) throw Object.assign(new Error("cancelled"), { name: "AbortError" });
+    const id = `${choice.surface}:0:0`;
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { mandatory: { chromeMediaSource: "desktop", chromeMediaSourceId: id, maxFrameRate: choice.fps, ...(choice.height ? { maxHeight: choice.height } : {}) } } } as MediaStreamConstraints);
+    const track = stream.getVideoTracks()[0];
+    track.contentHint = choice.mode === "text" ? "detail" : "motion";
+    const publication = await link!.room.localParticipant.publishTrack(track, { source: "screen_share" as Track.Source, simulcast: false, videoEncoding: { maxBitrate: choice.mode === "text" ? 2_500_000 : 6_000_000, maxFramerate: choice.fps } });
+    track.addEventListener("ended", () => link!.room.localParticipant.unpublishTrack(track));
+    choice.apps.length && shareAudio(choice.apps);
+    return publication;
+  };
   link &&
-    link.room.localParticipant
-      .setScreenShareEnabled(!get(screenOn), { audio: { restrictOwnAudio: true }, systemAudio: "include", selfBrowserSurface: "exclude", surfaceSwitching: "include" })
+    [portalShare, link.room.localParticipant.setScreenShareEnabled.bind(link.room.localParticipant)][+(!portal || get(screenOn))](!get(screenOn), { audio: { restrictOwnAudio: true }, systemAudio: "include", selfBrowserSurface: "exclude", surfaceSwitching: "include" })
       .then((publication) => screenShared(publication?.track?.mediaStreamTrack))
       .catch((error) => !MEDIA_ERRORS.includes((error as Error)?.name) && voiceError.set("screen"))
       .finally(() => live && refreshMedia(live));
 };
+
+const portal = native && !nativeVoice && /linux/i.test(typeof navigator === "undefined" ? "" : navigator.userAgent);
 
 const ringTargets = (roomId: RoomId) => {
   const summary = get(rooms)[roomId];
