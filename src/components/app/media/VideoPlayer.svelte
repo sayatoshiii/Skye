@@ -128,11 +128,14 @@
     } catch {}
   };
 
-  const toggleFullscreen = () => {
-    if (document.fullscreenElement) return void document.exitFullscreen().catch(() => undefined);
-    if (wrapper?.requestFullscreen) return void wrapper.requestFullscreen().catch(() => undefined);
-    (video as any)?.webkitEnterFullscreen?.();
-  };
+  type Prefixed = { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void; webkitRequestFullscreen?: () => void; webkitEnterFullscreen?: () => void };
+  const shownFull = () => document.fullscreenElement ?? (document as Prefixed).webkitFullscreenElement ?? null;
+  const fallback = () => ((wrapper as Prefixed | undefined)?.webkitRequestFullscreen ? (wrapper as Prefixed).webkitRequestFullscreen!() : (video as Prefixed | undefined)?.webkitEnterFullscreen?.());
+  const toggleFullscreen = () =>
+    shownFull()
+      ? (document.exitFullscreen?.() ?? Promise.reject()).catch(() => (document as Prefixed).webkitExitFullscreen?.())
+      : (wrapper?.requestFullscreen?.() ?? Promise.reject()).catch(fallback);
+  const syncFullscreen = () => (fullscreen = !!wrapper && shownFull() === wrapper);
 
   const menuItems = (): MenuItem[] =>
     fullscreen
@@ -236,7 +239,7 @@
   };
 </script>
 
-<svelte:document onfullscreenchange={() => (fullscreen = !!wrapper && document.fullscreenElement === wrapper)} />
+<svelte:document onfullscreenchange={syncFullscreen} onwebkitfullscreenchange={syncFullscreen} />
 
 <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 <div
