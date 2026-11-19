@@ -109,10 +109,14 @@
     };
   };
 
+  let drawn = $state(0);
+  const frame = () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+  const grow = (): unknown => drawn < sections.length && requestAnimationFrame(() => ((drawn += 2), grow()));
+
   $effect(() => {
     let alive = true;
-    loadEmojiIndex()
-      .then((loaded) => alive && (index = loaded))
+    Promise.all([loadEmojiIndex(), frame()])
+      .then(([loaded]) => alive && ((index = loaded), (drawn = 2), grow()))
       .catch(() => {});
     place().then(() => tick()).then(() => !matchMedia("(pointer: coarse)").matches && search?.focus());
     return () => (alive = false);
@@ -286,7 +290,7 @@
       {:else if !sections.length}
         <p class="empty sm faint">{text("emoji", "no_results")}</p>
       {/if}
-      {#each sections as section (section.id)}
+      {#each sections.slice(0, drawn) as section (section.id)}
         <section class="section" data-section={section.id} style:contain-intrinsic-size="auto {Math.ceil(section.entries.length / COLUMNS) * CELL + 32}px">
           <h3 class="section-title xs bold">{text("emoji", "categories", section.id)}</h3>
           <div class="grid">
