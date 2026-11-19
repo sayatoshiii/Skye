@@ -2606,14 +2606,20 @@
   }
 
   .timeline-mask {
+    position: relative;
     isolation: isolate;
     --fade-end: calc(var(--composer-space) * 0.55 + env(safe-area-inset-bottom));
     --fade-start: calc(var(--fade-end) + 48px);
-    mask-image: linear-gradient(
-      to top,
-      transparent var(--fade-end),
-      black var(--fade-start)
-    );
+  }
+
+  .timeline-mask::after {
+    content: "";
+    position: absolute;
+    inset: auto 0 0;
+    height: var(--fade-start);
+    z-index: 2;
+    pointer-events: none;
+    background: linear-gradient(to top, var(--colours-background) var(--fade-end), transparent);
   }
 
   .beginning {
