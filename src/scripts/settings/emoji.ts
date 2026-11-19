@@ -2,7 +2,7 @@ import { derived, get, writable } from "svelte/store";
 import { sessionRequest } from "../matrix/session";
 import { registerAccountDataHook, session } from "../stores/matrix";
 import { RECENT_EMOJI_KEY, RECENT_EMOJI_LIMIT, SKIN_TONE_KEY } from "./config";
-import { findEmoji, whenEmojiIndex, type EmojiIndex } from "../misc/emoji-data";
+import { findEmoji, loadEmojiIndex, whenEmojiIndex, type EmojiIndex } from "../misc/emoji-data";
 
 const emojiIndex = writable<EmojiIndex | null>(null);
 const isKnown = (unicode: string) => {
@@ -81,3 +81,5 @@ export const quickEmoji = derived([favouriteEmoji, recentEmoji, emojiIndex], ([f
 );
 
 whenEmojiIndex((index) => (emojiIndex.set(index), recentEmoji.update((current) => current.filter((unicode) => !!findEmoji(index, unicode)))));
+
+typeof window !== "undefined" && setTimeout(() => (window.requestIdleCallback ?? ((run: () => void) => setTimeout(run, 0)))(() => void loadEmojiIndex().catch(() => undefined)), 4000);
