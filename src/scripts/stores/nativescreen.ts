@@ -6,10 +6,12 @@ import { native } from "../misc/native";
 const none = () => undefined;
 
 export const LOCAL_SCREEN = "local:screen";
-const windowsBridge = native && typeof RTCPeerConnection !== "undefined" && typeof navigator !== "undefined" && /Windows/.test(navigator.userAgent);
+const webVoice = native && typeof RTCPeerConnection !== "undefined" && typeof navigator !== "undefined";
+const linuxBridge = webVoice && /Linux/.test(navigator.userAgent);
+const windowsBridge = (webVoice && /Windows/.test(navigator.userAgent)) || linuxBridge;
 export const audioPickable = (native && typeof RTCPeerConnection === "undefined") || windowsBridge;
 
-type Publisher = { publishTrack: (track: MediaStreamTrack, options: { source: string; name: string }) => Promise<unknown>; unpublishTrack: (track: MediaStreamTrack) => Promise<unknown> };
+type Publisher = { publishTrack: (track: MediaStreamTrack, options: { source: string; name: string; dtx?: boolean; red?: boolean; forceStereo?: boolean }) => Promise<unknown>; unpublishTrack: (track: MediaStreamTrack) => Promise<unknown> };
 let publisher: () => Publisher | undefined = none;
 export const bridgePublisher = (find: () => Publisher | undefined) => void (publisher = find);
 
@@ -51,12 +53,12 @@ const bridgeAudio = async (apps: string[]) => {
   const channel = new Channel<ArrayBuffer>();
   channel.onmessage = (data) => feed.port.postMessage(new Float32Array(data), [data]);
   bridge = { context, track };
-  await publisher()?.publishTrack(track, { source: "screen_share_audio", name: "screen-audio" });
+  await publisher()?.publishTrack(track, { source: "screen_share_audio", name: "screen-audio", dtx: false, red: false, forceStereo: true });
   await invoke("screen_audio_capture", { apps, channel });
 };
 
 export const screenShared = (track?: MediaStreamTrack) =>
-  windowsBridge && (track ? (track.getSettings() as MediaTrackSettings & { displaySurface?: string }).displaySurface === "window" && pickAudio([]) : releaseBridge());
+  windowsBridge && (track ? !linuxBridge && (track.getSettings() as MediaTrackSettings & { displaySurface?: string }).displaySurface === "window" && pickAudio([]) : releaseBridge());
 
 type Remote = { key: string; identity: string; source: "camera" | "screen"; live: boolean };
 
@@ -139,3 +141,15 @@ export const startScreen = async () => {
 export const stopScreen = () => (audioPicker.set(null), invoke("screen_stop").catch(none));
 
 export const shareAudio = (apps: string[]) => (audioPicker.set(null), windowsBridge ? bridgeAudio(apps).catch(none) : invoke("screen_audio", { apps }).catch(none));
+
+export type ShareMode = "smooth" | "text" | "custom";
+export type ShareChoice = { surface: "screen" | "window"; mode: ShareMode; height: number; fps: number; apps: string[] };
+export const sharePicker = writable<{ apps: string[] } | null>(null);
+let answer: ((choice: ShareChoice | null) => void) | null = null;
+
+export const askShare = async () => {
+  const apps = linuxBridge ? await invoke<string[]>("screen_apps").catch(() => [] as string[]) : [];
+  return new Promise<ShareChoice | null>((done) => (answer?.(null), (answer = done), sharePicker.set({ apps })));
+};
+
+export const answerShare = (choice: ShareChoice | null) => (sharePicker.set(null), answer?.(choice), (answer = null));
