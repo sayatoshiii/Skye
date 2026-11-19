@@ -149,8 +149,8 @@ fn process(engine: &Engine, denoise: &mut DenoiseState, raw: &[f32], loud: &mut 
   let open = loud.elapsed() < HOLD;
   let out: Vec<i16> = heard.iter().map(|&sample| (sample * open as u8 as f32).clamp(-32768.0, 32767.0) as i16).collect();
   let _ = tauri::async_runtime::block_on(engine.source.capture_frame(&AudioFrame { data: Cow::Owned(out), sample_rate: RATE, num_channels: 1, samples_per_channel: FRAME as u32 }));
-  tick.0 = (tick.0 + 1) % 100;
-  (open != tick.1 || (open && tick.0 == 0)).then(|| (tick.1 = open, engine.app.emit("voice:level", Level { db, open })));
+  tick.0 = (tick.0 + 1) % 6;
+  (open != tick.1 || (tick.0 == 0 && (open || db > SPEAKING))).then(|| (tick.1 = open, engine.app.emit("voice:level", Level { db, open })));
 }
 
 fn mix(engine: &Engine, out: &mut [f32], channels: usize) {
@@ -168,7 +168,7 @@ fn mix(engine: &Engine, out: &mut [f32], channels: usize) {
   heard.into_iter().for_each(|(identity, db)| (*levels.1.entry(identity).or_insert(db) = db.max(FLOOR), ()).1);
   let mut speaking: Vec<String> = levels.1.iter().filter(|(_, db)| **db > SPEAKING).map(|(identity, _)| identity.clone()).collect();
   speaking.sort();
-  (speaking != levels.2 || (!speaking.is_empty() && levels.0.elapsed() > Duration::from_secs(1))).then(|| (engine.app.emit("voice:levels", std::mem::take(&mut levels.1)), levels.0 = Instant::now(), levels.2 = speaking));
+  (speaking != levels.2 || (!speaking.is_empty() && levels.0.elapsed() > Duration::from_millis(60))).then(|| (engine.app.emit("voice:levels", std::mem::take(&mut levels.1)), levels.0 = Instant::now(), levels.2 = speaking));
   drop(levels);
   let mut reference: Vec<i16> = mixed.iter().map(|&sample| sample.clamp(-32768, 32767) as i16).collect();
   out.chunks_mut(channels).zip(&reference).for_each(|(chunk, &sample)| chunk.fill(sample as f32 / 32768.0));

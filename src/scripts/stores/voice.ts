@@ -471,7 +471,7 @@ const quiet = (bars: [number, number, number] | undefined) => !bars || Math.max(
 const pushLevels = (levels: Record<string, number>) => {
   const all = get(userLevels);
   const moved = Object.entries(levels).filter(([user, level]) => !(quiet(all[user]) && level < LEVEL_STEP) && Math.abs((all[user]?.[1] ?? 0) - level) + (all[user]?.[0] ?? 0) + (all[user]?.[2] ?? 0) >= LEVEL_STEP);
-  moved.length && userLevels.set({ ...all, ...Object.fromEntries(moved.map(([user, level]) => [user, [all[user]?.[1] ?? 0, level, all[user]?.[0] ?? 0] as [number, number, number]])) });
+  moved.length && userLevels.set({ ...all, ...Object.fromEntries(moved.map(([user, level]) => [user, (level < LEVEL_STEP ? [0, 0, 0] : [all[user]?.[1] ?? 0, level, all[user]?.[0] ?? 0]) as [number, number, number]])) });
 };
 const byUser = (levels: Record<string, number>) =>
   Object.entries(levels).reduce<Record<string, number>>((all, [identity, level]) => ({ ...all, [userOfIdentity(identity)]: Math.max(all[userOfIdentity(identity)] ?? 0, level) }), {});
