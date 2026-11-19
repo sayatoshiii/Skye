@@ -224,6 +224,41 @@
   $effect(() => () => pending.forEach((item) => item.preview && URL.revokeObjectURL(item.preview)));
 
   const room = $derived($currentRoom && toEntity($currentRoom, $session?.userId));
+
+  const DRAFTS_KEY = "skye:drafts";
+  const drafts: Record<string, { draft: string; pills: Pill[] }> = (() => {
+    try {
+      return JSON.parse(localStorage.getItem(DRAFTS_KEY) ?? "{}");
+    } catch {
+      return {};
+    }
+  })();
+  let draftRoom: string | undefined;
+  let saving: ReturnType<typeof setTimeout> | undefined;
+  const keepDrafts = () => {
+    try {
+      localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+    } catch {}
+  };
+  const stash = (id: string | undefined, value: string, marks: Pill[]) => id && (value.trim() ? (drafts[id] = { draft: value, pills: marks }) : delete drafts[id]);
+
+  $effect(() => {
+    const id = $currentRoom?.roomId;
+    untrack(() => {
+      if (id === draftRoom) return;
+      stash(draftRoom, draft, pills);
+      keepDrafts();
+      draft = (id && drafts[id]?.draft) || "";
+      pills = (id && drafts[id]?.pills) || [];
+      draftRoom = id;
+    });
+  });
+
+  $effect(() => {
+    const value = draft;
+    const marks = pills;
+    untrack(() => draftRoom && (stash(draftRoom, value, marks), clearTimeout(saving), (saving = setTimeout(keepDrafts, 400))));
+  });
   let stagedFor = $state<string | null>(null);
   let chatOpen = $state(false);
   let stageActive = $state(false);
