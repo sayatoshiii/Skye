@@ -65,7 +65,7 @@
   $effect(() => {
     if (!routed) return;
     const roomId = navigation.roomId ?? null;
-    queueMicrotask(() => selectRoom(roomId));
+    requestAnimationFrame(() => setTimeout(() => (navigation.roomId ?? null) === roomId && selectRoom(roomId)));
   });
 
   $effect(() => {
