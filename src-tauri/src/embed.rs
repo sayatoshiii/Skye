@@ -69,3 +69,54 @@ pub fn media_put(request: Request<'_>) -> Result<String, String> {
 pub fn media_drop(id: String) {
   let _ = media().lock().map(|mut stored| stored.remove(&id));
 }
+
+#[cfg(target_os = "linux")]
+fn transcode(id: &str, input: &[u8]) -> Result<Vec<u8>, String> {
+  use gstreamer::prelude::*;
+  let fail = |error: &dyn std::fmt::Display| error.to_string();
+  gstreamer::init().map_err(|error| fail(&error))?;
+  let base = std::env::temp_dir().join(format!("skye-{id}"));
+  let (from, to) = (base.with_extension("in"), base.with_extension("webm"));
+  std::fs::write(&from, input).map_err(|error| fail(&error))?;
+  let uri = |path: &std::path::Path| gstreamer::glib::filename_to_uri(path, None).map(|uri| uri.to_string()).map_err(|error| fail(&error));
+  let pipeline = gstreamer::parse::launch(&format!("uritranscodebin profile=\"video/webm:video/x-vp9:audio/x-opus\" source-uri=\"{}\" dest-uri=\"{}\"", uri(&from)?, uri(&to)?)).map_err(|error| fail(&error))?;
+  pipeline.connect("element-setup", false, |values| {
+    let element = values.get(1).and_then(|value| value.get::<gstreamer::Element>().ok())?;
+    (element.factory().map(|factory| factory.name()) == Some("vp9enc".into())).then(|| {
+      element.set_property_from_str("deadline", "1");
+      element.set_property("cpu-used", 8i32);
+      element.set_property("row-mt", true);
+      element.set_property("threads", std::thread::available_parallelism().map(|cores| cores.get() as i32).unwrap_or(4).min(16));
+      element.set_property("target-bitrate", 4_000_000i32);
+    });
+    None
+  });
+  pipeline.set_state(gstreamer::State::Playing).map_err(|error| fail(&error))?;
+  let ended = pipeline.bus().ok_or("no bus")?.iter_timed(gstreamer::ClockTime::NONE).find_map(|message| match message.view() {
+    gstreamer::MessageView::Eos(_) => Some(Ok(())),
+    gstreamer::MessageView::Error(error) => Some(Err(error.error().to_string())),
+    _ => None,
+  });
+  let _ = pipeline.set_state(gstreamer::State::Null);
+  let output = ended.unwrap_or(Err("stopped".into())).and_then(|_| std::fs::read(&to).map_err(|error| fail(&error)));
+  let _ = (std::fs::remove_file(&from), std::fs::remove_file(&to));
+  output
+}
+
+#[cfg(not(target_os = "linux"))]
+fn transcode(_: &str, _: &[u8]) -> Result<Vec<u8>, String> {
+  Err("unsupported".into())
+}
+
+#[tauri::command]
+pub async fn media_transcode(id: String) -> Result<(), String> {
+  let input = media().lock().map_err(|error| error.to_string())?.get(&id).map(|(_, bytes)| bytes.clone()).ok_or("missing")?;
+  let output = tauri::async_runtime::spawn_blocking({
+    let id = id.clone();
+    move || transcode(&id, &input)
+  })
+  .await
+  .map_err(|error| error.to_string())??;
+  media().lock().map_err(|error| error.to_string())?.get_mut(&id).map(|entry| *entry = ("video/webm".into(), Arc::new(output)));
+  Ok(())
+}
