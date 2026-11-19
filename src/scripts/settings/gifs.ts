@@ -42,7 +42,7 @@ export const gifFromContent = (content: Record<string, any>): GifFavourite => ({
 export const isGifbox = (url: string) => /^https?:\/\/(www\.)?gifbox\.me\/view\//i.test(url);
 
 const GIFBOX = "https://compat.gifbox.me/v2";
-const GIFBOX_KEY = import.meta.env.PUBLIC_GIFBOX_KEY ?? "";
+const GIFBOX_KEY = import.meta.env.PUBLIC_GIFBOX_KEY || "gbx_bElSPGYbiqpYn3X-8G7PezPGS2X0vrj4";
 
 export const gifboxReady = !!GIFBOX_KEY;
 
