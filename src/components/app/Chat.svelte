@@ -84,7 +84,7 @@
   import ThreadPanel from "./ThreadPanel.svelte";
   import CallStage from "./CallStage.svelte";
   import { placeCall, leaveCall } from "../../scripts/stores/calls";
-  import { joinable, voice } from "../../scripts/stores/voice";
+  import { joinable, voice, voicePrefs } from "../../scripts/stores/voice";
   import { SETTINGS_ICONS } from "../settings/icons";
   import ThreadSummary from "./ThreadSummary.svelte";
   import { bundledThread, threadRootOf, type ThreadSummary as Summary } from "../../scripts/matrix/timeline";
@@ -1521,8 +1521,9 @@
       !menu &&
       !event.altKey &&
       !event.isComposing &&
-      (event.ctrlKey || event.metaKey ? event.key.toLowerCase() === "v" && !event.shiftKey : event.key.length === 1 || event.key === "Enter") &&
-      !(event.target as HTMLElement).closest?.("button, a, [role=button], [role=menuitem], select, summary") &&
+      !($voicePrefs.pushToTalk && !event.ctrlKey && !event.metaKey && event.code === $voicePrefs.pttKey) &&
+      (event.ctrlKey || event.metaKey ? ["v", "c", "x", "a", "z", "y"].includes(event.key.toLowerCase()) : event.key.length === 1 || ["Enter", "Backspace", "Delete"].includes(event.key)) &&
+      !((event.key === " " || event.key === "Enter") && (event.target as HTMLElement).closest?.("button, a, [role=button], [role=menuitem], select, summary")) &&
       !document.querySelector("[aria-modal=true], [role=dialog], [role=menu]") &&
       !matchMedia("(pointer: coarse)").matches &&
       !getSelection()?.toString()
