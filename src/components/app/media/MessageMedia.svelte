@@ -9,6 +9,10 @@
   import { getWaveform } from "../../../scripts/matrix/utilities/content";
   import VoicePlayer from "./VoicePlayer.svelte";
   import VideoPlayer from "./VideoPlayer.svelte";
+  import { favouriteGifs, gifFromContent, isGifContent, toggleFavouriteGif } from "../../../scripts/settings/gifs";
+  import { MENU_ICONS } from "../../../scripts/misc/icons";
+  import { tooltip } from "../../../scripts/misc/tooltip";
+  import { starburst } from "../../../scripts/misc/starburst";
 
   let { content, sticker = false, sender, ts }: { content: Record<string, any>; sticker?: boolean; sender?: string; ts?: number } = $props();
 
@@ -56,6 +60,8 @@
   $effect(() => () => releases.splice(0).forEach((release) => release()));
 
   const useThumbnail = $derived(kind === "image" && !sticker && !!thumbnail && mimetype !== "image/gif");
+  const gif = $derived(!sticker && isGifContent(content) ? gifFromContent(content) : null);
+  const starred = $derived(!!gif && $favouriteGifs.some((item) => item.id === gif.id));
   const waveform = $derived(kind === "audio" ? getWaveform(content) : null);
 
   const onvisible = () => {
@@ -94,6 +100,11 @@
       <button type="button" class="open ghost" aria-label={text("media", "open").replace("{name}", name)} onclick={open}>
         {#if link}<img src={link} alt={content.body ?? ""} draggable="false" />{/if}
       </button>
+      {#if gif}
+        <button type="button" class="gif-star ghost press" class:on={starred} aria-label={text("gifs", starred ? "unfavourite" : "favourite")} aria-pressed={starred} use:starburst={starred} use:tooltip={text("gifs", starred ? "unfavourite" : "favourite")} onclick={() => gif && toggleFavouriteGif(gif)}>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.star} /></svg>
+        </button>
+      {/if}
     {:else if looping}
       {#if link}<video src={link} autoplay muted loop playsinline disablepictureinpicture aria-label={name} onerror={() => (unplayable = true)}></video>{/if}
     {:else if playing && link}
@@ -288,5 +299,59 @@
       width: var(--azure-touch);
       height: var(--azure-touch);
     }
+  }
+
+  .gif-star {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    color: white;
+    background-color: rgb(0 0 0 / 0.5);
+    backdrop-filter: blur(8px);
+    opacity: 0;
+    scale: 0.85;
+    transition:
+      opacity var(--azure-duration-fast) var(--azure-ease-out),
+      scale var(--azure-duration-settle) var(--azure-ease-settle),
+      color var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .frame:is(:hover, :focus-within) > .gif-star,
+  .gif-star.on {
+    opacity: 1;
+    scale: 1;
+  }
+
+  .gif-star.on {
+    color: #ffc83d;
+    filter: drop-shadow(0 0 6px rgb(255 200 61 / 0.3));
+  }
+
+  @media (hover: none) {
+    .gif-star:not(.on) {
+      display: none;
+    }
+  }
+
+  .gif-star path {
+    fill: transparent;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linejoin: round;
+    transition:
+      fill var(--azure-duration-slow) var(--azure-ease-out),
+      stroke var(--azure-duration-slow) var(--azure-ease-out);
+  }
+
+  .gif-star.on path {
+    fill: currentColor;
   }
 </style>
