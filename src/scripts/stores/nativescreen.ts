@@ -82,9 +82,9 @@ export class FrameTrack {
       .catch(none)
       .finally(() => (this.busy = false)));
 
-  private draw = (canvas: HTMLCanvasElement) => {
+  private draw = (canvas: HTMLCanvasElement, element?: HTMLMediaElement) => {
     const image = this.frame;
-    image && (canvas.width !== image.width || canvas.height !== image.height) && Object.assign(canvas, { width: image.width, height: image.height });
+    image && (canvas.width !== image.width || canvas.height !== image.height) && (Object.assign(canvas, { width: image.width, height: image.height }), element?.dispatchEvent(new Event("resize")));
     image && canvas.getContext("2d")?.drawImage(image, 0, 0);
   };
 
@@ -94,7 +94,7 @@ export class FrameTrack {
     element.style.display = "none";
     element.after(canvas);
     this.views.set(element, canvas);
-    this.draw(canvas);
+    this.draw(canvas, element);
     return element;
   };
 
