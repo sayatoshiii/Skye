@@ -2,6 +2,14 @@
   import { acquireMediaLink, getWideMediaLink, isMxc } from "../../scripts/matrix/utilities/media";
   import type { GifFavourite } from "../../scripts/settings/gifs";
 
+  export const onscreen = (node: HTMLVideoElement) => {
+    const observer = new IntersectionObserver(([entry]) => (entry?.isIntersecting ? node.play().catch(() => undefined) : node.pause()), { root: node.closest(".gif-scroll"), rootMargin: "120px 0px" });
+    observer.observe(node);
+    return { destroy: () => observer.disconnect() };
+  };
+
+  export const ready = (event: Event) => (event.currentTarget as HTMLElement).closest(".tile")?.setAttribute("data-ready", "");
+
   export const gifSource = (node: HTMLImageElement, gif: GifFavourite) => {
     let release = () => {};
     const apply = (value?: string) => value && node.isConnected && (node.src = value);
@@ -199,9 +207,11 @@
     use:longpress={(x, y) => (gifMenu = { gif, x, y })}
   >
     {#if gif.kind === "link" && gif.video}
-      <video src={gif.video} poster={gif.image} onplaying={(event) => event.currentTarget.removeAttribute("poster")} autoplay muted loop playsinline disablepictureinpicture preload="auto" aria-hidden="true"></video>
+      <span class="still" style:background-image={gif.image ? `url("${gif.image}")` : undefined}>
+        <video src={gif.video} poster={gif.image} onplaying={(event) => event.currentTarget.removeAttribute("poster")} muted loop playsinline disablepictureinpicture preload="auto" aria-hidden="true" use:onscreen onloadeddata={ready}></video>
+      </span>
     {:else}
-      <img alt="" loading="lazy" decoding="sync" draggable="false" use:gifSource={gif} />
+      <img alt="" loading="lazy" decoding="sync" draggable="false" use:gifSource={gif} onload={ready} />
     {/if}
   </button>
   <button type="button" class="star ghost press" class:on={saved} aria-label={text(saved ? "unfavourite" : "favourite")} aria-pressed={saved} use:starburst={saved} onclick={() => toggleFavouriteGif(gif)}>
@@ -524,6 +534,71 @@
     border: 0;
   }
 
+  .tile::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background:
+      linear-gradient(100deg, transparent 30%, rgb(255 255 255 / 0.06) 50%, transparent 70%) 0 0 / 250% 100%,
+      var(--colours-surface-hover);
+    animation: shimmer 1.4s var(--azure-ease-fluid) infinite;
+    transition: opacity var(--azure-duration-slow) var(--azure-ease-out);
+  }
+
+  .tile[data-ready]::after {
+    opacity: 0;
+    animation-play-state: paused;
+  }
+
+  .tile :is(video, img) {
+    opacity: 0;
+    outline: none;
+    border: 0;
+    transition: opacity var(--azure-duration-slow) var(--azure-ease-out);
+  }
+
+  .tile[data-ready] :is(video, img) {
+    opacity: 1;
+  }
+
+  .tile:not([data-ready]) .still {
+    background-image: none !important;
+  }
+
+  @keyframes shimmer {
+    from {
+      background-position: 125% 0, 0 0;
+    }
+    to {
+      background-position: -125% 0, 0 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tile::after {
+      animation: none;
+    }
+  }
+
+  .still {
+    display: block;
+    width: 100%;
+    height: 100%;
+    background: center / cover no-repeat;
+    transition: transform var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .pick:is(:hover, :focus-visible) .still {
+    transform: scale(1.04);
+  }
+
+  .still video {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+  }
+
   .pick :is(img, video) {
     display: block;
     width: 100%;
@@ -532,7 +607,7 @@
     transition: transform var(--azure-duration-md) var(--azure-ease-spring);
   }
 
-  .pick:is(:hover, :focus-visible) :is(img, video) {
+  .pick:is(:hover, :focus-visible) > img {
     transform: scale(1.04);
   }
 
@@ -543,6 +618,7 @@
 
   .star {
     position: absolute;
+    z-index: 2;
     top: 6px;
     right: 6px;
     display: grid;
