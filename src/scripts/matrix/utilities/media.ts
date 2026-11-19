@@ -139,6 +139,16 @@ export const getMediaBlob = (source: MediaSource, mimetype: string) => {
   }));
 };
 
+const seededLinks = new Map<string, string>();
+
+export const seedMedia = (url: string | undefined, blob: Blob, mimetypes: string[], link?: string) => {
+  if (!isMxc(url)) return;
+  mimetypes.forEach((type) => (blobCache[`${url}:${type}`] = Promise.resolve(new Blob([blob], { type }))));
+  if (link) seededLinks.set(url, link);
+};
+
+export const seededLink = (source: MediaSource | null) => (source ? seededLinks.get(getSourceKey(source)) : undefined);
+
 const served = (mimetype: string) => native && /linux/i.test(navigator.userAgent) && /^(video|audio)\//.test(mimetype);
 
 const serve = async (blob: Blob, mimetype: string) => {
