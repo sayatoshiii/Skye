@@ -16,8 +16,10 @@
       const still = next.media ?? next.image;
       still && isMxc(still) ? getWideMediaLink(still, 320, 320).then(apply) : apply(still);
     };
+    const keyOf = (next: GifFavourite) => (next.kind === "mxc" ? next.url : (next.media ?? next.image));
+    let shown = keyOf(gif);
     load(gif);
-    return { update: load, destroy: () => release() };
+    return { update: (next: GifFavourite) => keyOf(next) !== shown && ((shown = keyOf(next)), load(next)), destroy: () => release() };
   };
 </script>
 
@@ -197,9 +199,9 @@
     use:longpress={(x, y) => (gifMenu = { gif, x, y })}
   >
     {#if gif.kind === "link" && gif.video}
-      <video src={gif.video} poster={gif.image} autoplay muted loop playsinline disablepictureinpicture preload="metadata" aria-hidden="true"></video>
+      <video src={gif.video} poster={gif.image} onplaying={(event) => event.currentTarget.removeAttribute("poster")} autoplay muted loop playsinline disablepictureinpicture preload="auto" aria-hidden="true"></video>
     {:else}
-      <img alt="" loading="lazy" decoding="async" draggable="false" use:gifSource={gif} />
+      <img alt="" loading="lazy" decoding="sync" draggable="false" use:gifSource={gif} />
     {/if}
   </button>
   <button type="button" class="star ghost press" class:on={saved} aria-label={text(saved ? "unfavourite" : "favourite")} aria-pressed={saved} use:starburst={saved} onclick={() => toggleFavouriteGif(gif)}>
