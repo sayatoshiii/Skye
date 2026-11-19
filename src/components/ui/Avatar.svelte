@@ -1,6 +1,6 @@
 <script lang="ts">
   import { swap } from "../../scripts/misc/swap";
-  import { getMediaLink, isMxc } from "../../scripts/matrix/utilities/media";
+  import { getMediaLink, isMxc, knownMediaLink } from "../../scripts/matrix/utilities/media";
 
   let {
     name = "",
@@ -38,11 +38,12 @@
       .toUpperCase(),
   );
 
+  let last: string | undefined;
+
   $effect(() => {
     const source = url;
-    failed = false;
-    resolved = isMxc(source) ? undefined : source;
-    if (!isMxc(source) || !visible) return;
+    source !== last && ((failed = false), (resolved = isMxc(source) ? knownMediaLink(source) : source), (last = source));
+    if (!isMxc(source) || !visible || resolved) return;
 
     let current = true;
     getMediaLink(source).then((link) => {
@@ -57,7 +58,7 @@
 
 <span class="avatar" use:swap={url} bind:this={element} style:--size={size} style:--radius={radius}>
   {#if resolved && !failed}
-    <img src={resolved} alt="" loading="lazy" onerror={() => (failed = true)} />
+    <img src={resolved} alt="" decoding="sync" onerror={() => (failed = true)} />
   {:else}
     <span aria-hidden="true">{initials}</span>
   {/if}

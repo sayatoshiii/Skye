@@ -63,6 +63,10 @@ export const getAuthenticatedMedia = async (
   return asLink ? URL.createObjectURL(blob) : blob;
 };
 
+const resolvedMedia = new Map<string, string>();
+
+export const knownMediaLink = (url: string, size = 96) => resolvedMedia.get(`${url}:${size}`);
+
 export const getMediaLink = (url: string, size = 96) =>
   (mediaCache[`${url}:${size}`] ??= queueMedia(
     () =>
@@ -71,7 +75,9 @@ export const getMediaLink = (url: string, size = 96) =>
         { width: size, height: size, method: "crop" },
         true,
       ) as Promise<string>,
-  ).catch(() => undefined));
+  )
+    .then((link) => (link && resolvedMedia.set(`${url}:${size}`, link), link))
+    .catch(() => undefined));
 
 export const getWideMediaLink = (url: string, width = 640, height = 240) =>
   (mediaCache[`${url}:${width}x${height}`] ??= queueMedia(
