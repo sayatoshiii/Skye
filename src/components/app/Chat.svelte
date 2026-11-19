@@ -21,7 +21,8 @@
   import { serverNameFromUserId } from "../../scripts/matrix/discovery";
   import RoomSettings from "./RoomSettings.svelte";
   import type { TimelineEvent } from "../../scripts/matrix/types";
-  import { formatBytes, getUploadLimit, isInline, prepareAttachment, sanitiseFilename, uploadAttachment } from "../../scripts/matrix/utilities/attachments";
+  import { formatBytes, getUploadLimit, isInline, prepareAttachment, sanitiseFilename, uploadAttachment, type PreparedAttachment } from "../../scripts/matrix/utilities/attachments";
+  import { seedMedia } from "../../scripts/matrix/utilities/media";
   import { downloadMedia } from "../../scripts/matrix/utilities/download";
   import { isMxc, type MediaSource } from "../../scripts/matrix/utilities/media";
   import { findLinks, stripReplyFallback, toPreviewLine } from "../../scripts/misc/formatting";
@@ -153,6 +154,10 @@
   let settings: MediaSettings | null = $state.raw(null);
   let pending: Pending[] = $state([]);
   let pendingCounter = 0;
+  type Upload = { id: number; roomId: string; file: File; encrypted: boolean; reply?: ReplyTarget; extra?: Record<string, any>; prepared?: PreparedAttachment; content: Record<string, any> | null; preview?: string; still?: string; progress?: number; failed: boolean; done: boolean; controller: AbortController; ts: number };
+  let uploads: Upload[] = $state([]);
+  let uploadChain: Promise<unknown> = Promise.resolve();
+  const quietUploads = new Set<string>();
   let dragDepth = $state(0);
   let dockHeight = $state(60);
   let replying: (ReplyTarget & { name: string }) | null = $state(null);
@@ -996,23 +1001,73 @@
     pending = pending.filter((entry) => entry.id !== id);
   };
 
-  const uploadPending = async (items: Pending[], roomId: string, roomEncrypted: boolean, reply?: ReplyTarget) => {
-    const active = $session;
-    if (!active) return;
+  const findUpload = (id: number) => uploads.find((entry) => entry.id === id);
 
-    for (const item of items) {
-      item.progress = 0;
-      item.error = undefined;
-      try {
-        const prepared = await prepareAttachment(item.file, !settings?.keepImageMetadata);
-        const content = await uploadAttachment(active, prepared, roomEncrypted, (value) => (item.progress = value), undefined, item.extra);
-        await sendRoomMessage(content, reply, roomId);
-        removePending(item.id);
-      } catch {
-        item.progress = null;
-        item.error = text("media", "upload_failed");
-      }
+  const dropUpload = (id: number, done = false) => {
+    const upload = findUpload(id);
+    if (!upload) return;
+    upload.done = done;
+    upload.controller.abort();
+    if (!done) [upload.preview, upload.still].forEach((link) => link && URL.revokeObjectURL(link));
+    uploads = uploads.filter((entry) => entry.id !== id);
+  };
+
+  const runUpload = async (id: number) => {
+    const active = $session;
+    const upload = findUpload(id);
+    if (!active || !upload) return;
+    const controller = (upload.controller = new AbortController());
+    upload.failed = false;
+    upload.progress = 0;
+
+    try {
+      const prepared = upload.prepared ?? (await stageUpload(upload));
+      if (controller.signal.aborted) return;
+      const content = await uploadAttachment(active, prepared, upload.encrypted, (value) => (upload.progress = value), controller.signal, upload.extra);
+      const media = content.file?.url ?? content.url;
+      const types = (type: string) => [type, MEDIA.videoPlaybackTypes[type as keyof typeof MEDIA.videoPlaybackTypes]].filter(Boolean) as string[];
+      seedMedia(media, prepared.file, types(prepared.mimetype), prepared.kind === "image" ? upload.preview : undefined);
+      prepared.thumbnail && seedMedia(content.info.thumbnail_file?.url ?? content.info.thumbnail_url, prepared.thumbnail, types(prepared.thumbnailInfo?.mimetype ?? "image/jpeg"), upload.still ?? (prepared.kind === "image" ? upload.preview : undefined));
+      media && quietUploads.add(media);
+      const sending = sendRoomMessage(content, upload.reply, upload.roomId);
+      dropUpload(id, true);
+      await sending.catch(() => undefined);
+    } catch {
+      if (controller.signal.aborted) return;
+      upload.failed = true;
+      upload.progress = undefined;
     }
+  };
+
+  const stageUpload = async (upload: Upload) => {
+    const prepared = await prepareAttachment(upload.file, !settings?.keepImageMetadata);
+    upload.prepared = prepared;
+    upload.preview ??= prepared.kind === "file" ? undefined : URL.createObjectURL(prepared.file);
+    upload.still = prepared.kind === "video" && prepared.thumbnail ? URL.createObjectURL(prepared.thumbnail) : undefined;
+    upload.content = { msgtype: `m.${prepared.kind}`, body: prepared.name, filename: prepared.name, info: { ...prepared.info, ...upload.extra, ...(prepared.thumbnailInfo ? { thumbnail_info: prepared.thumbnailInfo } : {}) } };
+    return prepared;
+  };
+
+  const uploadPending = (items: Pending[], roomId: string, roomEncrypted: boolean, reply?: ReplyTarget) => {
+    const staged = items.map((item, index) => {
+      const upload: Upload = { id: item.id, roomId, file: item.file, encrypted: roomEncrypted, reply: index ? undefined : reply, extra: item.extra, content: null, preview: item.preview, failed: false, done: false, controller: new AbortController(), ts: Date.now() };
+      uploads.push(upload);
+      pending = pending.filter((entry) => entry.id !== item.id);
+      const live = findUpload(upload.id)!;
+      const ready = stageUpload(live).catch(() => ((live.failed = true), null));
+      return () => ready.then((prepared) => prepared && findUpload(upload.id) && runUpload(upload.id));
+    });
+    staged.forEach((start) => (uploadChain = uploadChain.then(start)));
+  };
+
+  const uploadItems = (upload: Upload) => [
+    ...(upload.failed ? [{ id: "upload-retry", label: text("media", "retry_upload"), icon: MENU_ICONS.retry, run: () => runUpload(upload.id) }] : []),
+    { id: "upload-cancel", label: text("media", upload.failed ? "remove_upload" : "cancel_upload"), icon: MENU_ICONS.delete, danger: true, run: () => dropUpload(upload.id) },
+  ];
+
+  const collapse = (node: HTMLElement, { quiet }: { quiet: boolean }) => {
+    const height = node.offsetHeight;
+    return { duration: quiet ? 0 : motion(260), easing: cubicOut, css: (t: number) => `opacity: ${t}; height: ${t * height}px; scale: ${0.96 + t * 0.04}; overflow: hidden;` };
   };
 
   const send = () => {
@@ -1659,7 +1714,7 @@
           </li>
         {:else}
         <li
-          in:fly|global={{ y: 10, duration: fresh(message.ts) ? motion(260) : 0, easing: cubicOut }}
+          in:fly|global={{ y: 10, duration: fresh(message.ts) && !quietUploads.has(message.content.file?.url ?? message.content.url) ? motion(260) : 0, easing: cubicOut }}
           class="message row-nw"
           class:grouped={message.grouped && !message.replyTo}
           class:last={message.last}
@@ -1852,6 +1907,47 @@
           </li>
         {/if}
       {/each}
+      {#if !isDetached}
+        {@const shown = uploads.filter((upload) => upload.roomId === room?.id && upload.content)}
+        {@const me = getSender(ownUserId ?? "")}
+        {@const previous = timelineMessages.at(-1)}
+        {#each shown as upload, index (upload.id)}
+          {@const grouped = index > 0 || (!upload.reply && isChained(previous, { sender: ownUserId ?? "", ts: upload.ts, kind: "media" }))}
+          <li
+            class="message row-nw sending upload"
+            class:grouped
+            class:last={index === shown.length - 1}
+            class:failed={upload.failed}
+            in:fly|global={{ y: 10, duration: motion(260), easing: cubicOut }}
+            out:collapse={{ quiet: upload.done }}
+            use:entityMenu={() => uploadItems(upload)}
+          >
+            <div class="gutter">
+              {#if grouped}
+                <time class="hover-time xs faint" datetime={new Date(upload.ts).toISOString()}>{formatTime(upload.ts)}</time>
+              {:else}
+                <span class="author-avatar"><Avatar name={me.name} url={me.avatar} size="38px" radius="50%" /></span>
+              {/if}
+            </div>
+            <div class="content col min-0">
+              {#if !grouped}
+                <div class="meta row-nw align-centre gap-sm">
+                  <span class="sender md bold" style:color={me.role?.color}><EmojiText text={me.name} /></span>
+                  <time class="xs faint" datetime={new Date(upload.ts).toISOString()}>{formatTime(upload.ts)}</time>
+                </div>
+              {/if}
+              {#if upload.content}<MessageMedia content={upload.content} preview={upload.preview} still={upload.still} progress={upload.failed ? undefined : upload.progress} oncancel={() => dropUpload(upload.id)} />{/if}
+              {#if upload.failed}
+                <p class="failure xs row-nw align-centre gap-sm" transition:slide={{ duration: motion(200), easing: cubicOut }}>
+                  <span>{text("media", "upload_failed")}</span>
+                  <button type="button" class="retry ghost press xs bold" onclick={() => runUpload(upload.id)}>{text("media", "retry_upload")}</button>
+                  <button type="button" class="retry ghost press xs bold" onclick={() => dropUpload(upload.id)}>{text("media", "remove_upload")}</button>
+                </p>
+              {/if}
+            </div>
+          </li>
+        {/each}
+      {/if}
       {#if isDetached && $canLoadNewer}
         <li class="history row centre" aria-busy="true">
           <span class="dots row-nw gap-sm" aria-label={text("chat", "loading_newer")}><span></span><span></span><span></span></span>
@@ -2706,6 +2802,18 @@
 
   .message.sending .content {
     opacity: 0.5;
+  }
+
+  .message.upload .content {
+    transition: opacity var(--azure-duration-md) var(--azure-ease-out);
+  }
+
+  .message.upload.failed .content {
+    opacity: 0.85;
+  }
+
+  .message.last:has(~ .upload) {
+    padding-bottom: 2px;
   }
 
   .notice {
