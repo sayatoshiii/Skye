@@ -4,7 +4,7 @@ export const swap = (node: HTMLElement, value: unknown) => {
   node.addEventListener("animationend", done);
   return {
     update: (next: unknown) =>
-      void (next !== last && ((last = next), node.classList.remove("blur-swap"), void node.offsetWidth, node.classList.add("blur-swap"))),
+      void (next !== last && (([last, next].every((side) => side !== undefined) && (node.classList.remove("blur-swap"), void node.offsetWidth, node.classList.add("blur-swap"))), (last = next))),
     destroy: () => node.removeEventListener("animationend", done),
   };
 };
