@@ -107,7 +107,7 @@
     (id === section || !guardUnsaved()) && ((section = id), (paged = true), pane?.scrollTo({ top: 0 }));
   };
 
-  const close = () => !guardUnsaved() && exit.close();
+  const close = () => !guardUnsaved() && ((document.activeElement as HTMLElement | null)?.blur(), exit.close());
   const back = () => !guardUnsaved() && (paged = false);
 
   const leave = async () => {
@@ -234,6 +234,10 @@
     box-shadow: 0 24px 64px -16px black;
     outline: none;
     animation: settings-pop var(--azure-duration-slow) var(--sheet);
+  }
+
+  .closing {
+    pointer-events: none;
   }
 
   .closing .settings-scrim {
