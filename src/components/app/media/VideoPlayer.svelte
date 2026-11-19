@@ -137,15 +137,15 @@
       : (wrapper?.requestFullscreen?.() ?? Promise.reject()).catch(fallback);
   const syncFullscreen = () => (fullscreen = !!wrapper && shownFull() === wrapper);
 
-  const menuItems = (): MenuItem[] =>
-    fullscreen
-      ? []
-      : [
-          { id: "video-play", label: entityText(paused || ended ? "play" : "pause"), icon: paused || ended ? MENU_ICONS.play : MENU_ICONS.pause, run: toggle },
-          { id: "video-mute", label: entityText(muted ? "unmute" : "mute"), icon: muted ? MENU_ICONS.volume : MENU_ICONS.mute, run: toggleMute },
-          { id: "video-fullscreen", label: entityText("fullscreen"), icon: MENU_ICONS.fullscreen, run: toggleFullscreen },
-          ...(ondownload ? [{ id: "video-save", label: entityText("save"), icon: MENU_ICONS.save, separated: true, run: ondownload }] : []),
-        ];
+  let retried = false;
+  const recover = () => (total && video && !retried ? ((retried = true), video.load(), (video.currentTime = Math.min(current, total)), video.play().catch(() => undefined)) : onerror());
+
+  const menuItems = (): MenuItem[] => [
+    { id: "video-play", label: entityText(paused || ended ? "play" : "pause"), icon: paused || ended ? MENU_ICONS.play : MENU_ICONS.pause, run: toggle },
+    { id: "video-mute", label: entityText(muted ? "unmute" : "mute"), icon: muted ? MENU_ICONS.volume : MENU_ICONS.mute, run: toggleMute },
+    { id: "video-fullscreen", label: fullscreen ? text("media", "exit_fullscreen") : entityText("fullscreen"), icon: MENU_ICONS.fullscreen, run: toggleFullscreen },
+    ...(ondownload ? [{ id: "video-save", label: entityText("save"), icon: MENU_ICONS.save, separated: true, run: ondownload }] : []),
+  ];
 
   const onbuffer = () => {
     if (!video || !video.buffered.length || !total) return;
@@ -230,6 +230,7 @@
   };
 
   const onsurface = (event: PointerEvent) => {
+    if (event.button !== 0) return;
     if (event.pointerType !== "mouse" && !shown) return wake();
     toggle();
   };
@@ -269,7 +270,7 @@
     ondblclick={toggleFullscreen}
     onloadedmetadata={() => video && Number.isFinite(video.duration) && (total = video.duration)}
     ondurationchange={() => video && Number.isFinite(video.duration) && (total = video.duration)}
-    ontimeupdate={() => video && (current = video.currentTime)}
+    ontimeupdate={() => video && ((current = video.currentTime), !video.paused && (waiting = false))}
     onprogress={onbuffer}
     onplay={() => {
       paused = false;
@@ -285,8 +286,9 @@
     }}
     onwaiting={() => (waiting = true)}
     oncanplay={() => (waiting = false)}
+    onseeked={() => (waiting = false)}
     onplaying={() => (waiting = false)}
-    onerror={onerror}
+    onerror={recover}
   ></video>
 
   <span class="vignette" aria-hidden="true"></span>
@@ -454,20 +456,25 @@
 
   .shown .vignette,
   .vp:focus-within .vignette,
+  .vp:not(.fullscreen):hover .vignette,
   .shown .vp-cluster,
-  .vp:focus-within .vp-cluster {
+  .vp:focus-within .vp-cluster,
+  .vp:not(.fullscreen):hover .vp-cluster {
     opacity: 1;
   }
 
   .shown .vp-cluster :global(button),
   .vp:focus-within .vp-cluster :global(button),
   .shown .bar,
-  .vp:focus-within .bar {
+  .vp:focus-within .bar,
+  .vp:not(.fullscreen):hover .vp-cluster :global(button),
+  .vp:not(.fullscreen):hover .bar {
     pointer-events: auto;
   }
 
   .shown .bar,
-  .vp:focus-within .bar {
+  .vp:focus-within .bar,
+  .vp:not(.fullscreen):hover .bar {
     opacity: 1;
     translate: 0;
   }

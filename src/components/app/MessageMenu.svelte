@@ -55,7 +55,8 @@
     onclose();
     tick().then(() =>
       document
-        .elementFromPoint(clientX, clientY)
+        .elementsFromPoint(clientX, clientY)
+        .find((element) => !element.closest(".layer"))
         ?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX, clientY, button: 2 })),
     );
   };
