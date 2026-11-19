@@ -1498,6 +1498,7 @@
 
   const onwindowkey = (event: KeyboardEvent) => {
     if (event.defaultPrevented || !room) return;
+    event.key === "Escape" && (event.target as HTMLElement).matches?.("button, a, [role=button], [role=treeitem]") && !(event.target as HTMLElement).closest(".chat, [role=dialog], [role=menu]") && (event.target as HTMLElement).blur();
     const field = (event.target as HTMLElement).closest?.("input, textarea, [contenteditable]");
     const composerEmpty = event.target === composer && !draft;
     const busy = !!(menu || pinsOpen || threadView || confirming || editing || replying);
