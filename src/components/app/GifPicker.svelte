@@ -8,23 +8,33 @@
     return { destroy: () => observer.disconnect() };
   };
 
-  export const ready = (event: Event) => (event.currentTarget as HTMLElement).closest(".tile")?.setAttribute("data-ready", "");
+  const settle = (node: Element, failed = false) => {
+    const tile = node.closest(".tile");
+    tile?.setAttribute("data-ready", "");
+    failed ? tile?.setAttribute("data-failed", "") : tile?.removeAttribute("data-failed");
+  };
 
-  export const gifSource = (node: HTMLImageElement, gif: GifFavourite) => {
+  export const ready = (event: Event) => settle(event.currentTarget as Element);
+
+  export const broken = (event: Event) => settle(event.currentTarget as Element, true);
+
+  export const isVideoGif = (gif: GifFavourite) => gif.kind === "mxc" && (gif.msgtype === "m.video" || String(gif.info?.mimetype ?? "").startsWith("video/"));
+
+  export const gifSource = (node: HTMLImageElement | HTMLVideoElement, gif: GifFavourite) => {
     let release = () => {};
-    const apply = (value?: string) => value && node.isConnected && (node.src = value);
+    const apply = (value?: string) => (value ? node.isConnected && (node.src = value) : settle(node, true));
     const load = (next: GifFavourite) => {
       release();
       release = () => {};
       if (next.kind === "mxc") {
-        const handle = acquireMediaLink({ url: next.url, file: next.file }, "image/gif");
+        const handle = acquireMediaLink({ url: next.url, file: next.file }, String(next.info?.mimetype ?? "image/gif").split(";")[0].trim() || "image/gif");
         release = handle.release;
-        return void handle.link.then(apply).catch(() => undefined);
+        return void handle.link.then(apply).catch(() => settle(node, true));
       }
       const still = next.media ?? next.image;
       still && isMxc(still) ? getWideMediaLink(still, 320, 320).then(apply) : apply(still);
     };
-    const keyOf = (next: GifFavourite) => (next.kind === "mxc" ? next.url : (next.media ?? next.image));
+    const keyOf = (next: GifFavourite) => (next.kind === "mxc" ? (next.url ?? next.file?.url) : (next.media ?? next.image));
     let shown = keyOf(gif);
     load(gif);
     return { update: (next: GifFavourite) => keyOf(next) !== shown && ((shown = keyOf(next)), load(next)), destroy: () => release() };
@@ -208,11 +218,14 @@
   >
     {#if gif.kind === "link" && gif.video}
       <span class="still" style:background-image={gif.image ? `url("${gif.image}")` : undefined}>
-        <video src={gif.video} poster={gif.image} onplaying={(event) => event.currentTarget.removeAttribute("poster")} muted loop playsinline disablepictureinpicture preload="auto" aria-hidden="true" use:onscreen onloadeddata={ready}></video>
+        <video src={gif.video} poster={gif.image} onplaying={(event) => event.currentTarget.removeAttribute("poster")} muted loop playsinline disablepictureinpicture preload="auto" aria-hidden="true" use:onscreen onloadeddata={ready} onerror={broken}></video>
       </span>
+    {:else if isVideoGif(gif)}
+      <video muted loop playsinline disablepictureinpicture preload="auto" aria-hidden="true" use:gifSource={gif} use:onscreen onloadeddata={ready} onerror={broken}></video>
     {:else}
-      <img alt="" loading="lazy" decoding="sync" draggable="false" use:gifSource={gif} onload={ready} />
+      <img alt="" decoding="async" draggable="false" use:gifSource={gif} onload={ready} onerror={broken} />
     {/if}
+    <svg class="missing" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 5h16v14H4zM4 15l4-4 4 4 3-3 5 5M3 3l18 18" /></svg>
   </button>
   <button type="button" class="star ghost press" class:on={saved} aria-label={text(saved ? "unfavourite" : "favourite")} aria-pressed={saved} use:starburst={saved} onclick={() => toggleFavouriteGif(gif)}>
     <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.star} /></svg>
@@ -547,7 +560,7 @@
     transition: opacity var(--azure-duration-slow) var(--azure-ease-out);
   }
 
-  .tile[data-ready]::after {
+  .tile:global([data-ready])::after {
     opacity: 0;
     animation-play-state: paused;
   }
@@ -559,11 +572,24 @@
     transition: opacity var(--azure-duration-slow) var(--azure-ease-out);
   }
 
-  .tile[data-ready] :is(video, img) {
+  .tile:global([data-ready]) :is(video, img) {
     opacity: 1;
   }
 
-  .tile:not([data-ready]) .still {
+  .missing {
+    position: absolute;
+    inset: 0;
+    margin: auto;
+    color: var(--colours-text-faint);
+    opacity: 0;
+    transition: opacity var(--azure-duration-slow) var(--azure-ease-out);
+  }
+
+  .tile:global([data-failed]) .missing {
+    opacity: 1;
+  }
+
+  .tile:not(:global([data-ready])) .still {
     background-image: none !important;
   }
 
