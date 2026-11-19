@@ -208,17 +208,22 @@
   const joinItems = (): MenuItem[] => [{ id: "stage-join", label, icon: direct ? SETTINGS_ICONS.call : SETTINGS_ICONS.headphones, run: join }, ...stageItems()];
   let fullTile = $state<string | null>(null);
   $effect(() => {
-    const sync = () => (fullTile = (document.fullscreenElement as HTMLElement | null)?.dataset.tile ?? null);
+    const sync = () => (fullTile = shownFull()?.dataset.tile ?? null);
     const events = ["fullscreenchange", "webkitfullscreenchange"];
     events.forEach((event) => document.addEventListener(event, sync));
     window.addEventListener("resize", sync);
     return () => (events.forEach((event) => document.removeEventListener(event, sync)), window.removeEventListener("resize", sync));
   });
   const tileNode = (id: string) => document.querySelector<HTMLElement>(`[data-tile="${CSS.escape(id)}"]`);
+  type Prefixed = { webkitFullscreenElement?: Element | null; webkitExitFullscreen?: () => void; webkitRequestFullscreen?: () => void };
+  const shownFull = () => (document.fullscreenElement ?? (document as Prefixed).webkitFullscreenElement ?? null) as HTMLElement | null;
   const fullscreen = (id: string) => {
-    const current = (document.fullscreenElement as HTMLElement | null)?.dataset.tile ?? null;
+    const current = shownFull()?.dataset.tile ?? null;
+    const node = tileNode(id);
     fullTile = current;
-    void (current === id ? document.exitFullscreen() : tileNode(id)?.requestFullscreen())?.catch(() => (fullTile = (document.fullscreenElement as HTMLElement | null)?.dataset.tile ?? null));
+    current === id
+      ? (document.exitFullscreen?.() ?? Promise.reject()).catch(() => (document as Prefixed).webkitExitFullscreen?.())
+      : (node?.requestFullscreen?.({ navigationUI: "hide" }) ?? Promise.reject()).catch(() => (node as Prefixed | null)?.webkitRequestFullscreen?.());
   };
   const pip = (id: string) => pictureInPicture(tileNode(id)?.querySelector("video"));
   const tileItems = (tile: Tile): MenuItem[] => [
