@@ -86,6 +86,8 @@
   const down = (event: PointerEvent) => {
     event.stopPropagation();
     if (event.button !== 0 || (event.target as Element).closest("button")) return;
+    event.preventDefault();
+    getSelection()?.removeAllRanges();
     start = { x: event.clientX, y: event.clientY, ox: offset.x, oy: offset.y };
     samples = [{ x: event.clientX, y: event.clientY, t: event.timeStamp }];
     moved = false;
@@ -183,6 +185,9 @@
 
 <style>
   .mini {
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none;
     --ease: cubic-bezier(0.32, 0.72, 0, 1);
     --gap: 16px;
     position: fixed;
