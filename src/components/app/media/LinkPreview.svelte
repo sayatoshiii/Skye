@@ -7,6 +7,10 @@
   import { embedPort, wrapEmbed } from "../../../scripts/misc/native";
   import { mediaSettings, setAlwaysAllowEmbed, type MediaSettings } from "../../../scripts/settings/media";
   import { session } from "../../../scripts/stores/matrix";
+  import { favouriteGifs, gifFromGifbox, gifFromLink, gifboxReady, isGifbox, isGifLink, resolveGifbox, toggleFavouriteGif, type Gifbox } from "../../../scripts/settings/gifs";
+  import { MENU_ICONS } from "../../../scripts/misc/icons";
+  import { tooltip } from "../../../scripts/misc/tooltip";
+  import { starburst } from "../../../scripts/misc/starburst";
 
   let { url, ts, previews }: { url: string; ts: number; previews: boolean } = $props();
 
@@ -38,9 +42,15 @@
     embed && !playing ? embed.src.replace(/([?&]autoplay=)(1|true)/, (_, key, value) => key + (value === "true" ? "false" : "0")) : embed?.src,
   );
 
+  const gifLink = $derived(isGifLink(url));
+  const starred = $derived(gifLink && $favouriteGifs.some((item) => item.id === url));
+  let box: Gifbox | null = $state.raw(null);
+  const favourite = () => toggleFavouriteGif(box ? gifFromGifbox(url, box) : gifFromLink(url, preview?.image, preview?.imageWidth, preview?.imageHeight));
+
   const onvisible = () => {
     const current = $session;
     if (!previews || !current) return;
+    if (isGifbox(url) && gifboxReady) return void resolveGifbox(url).then((value) => (box = value));
     getLinkPreview(current, url, ts).then(async (value) => {
       preview = value;
       if (value?.image) image = await getWideMediaLink(value.image, 640, 360);
@@ -49,8 +59,15 @@
 </script>
 
 {#if embed || previews}
-  <div class="preview" data-link={url} class:portrait={embed?.portrait} class:hidden={!embed && !preview} use:nearViewport={onvisible}>
-    {#if embed && active}
+  <div class="preview" data-link={url} class:portrait={embed?.portrait} class:hidden={!embed && !preview && !box} use:nearViewport={onvisible}>
+    {#if box}
+      <div class="card gifbox" style:aspect-ratio="{box.w} / {box.h}">
+        <video src={box.video} poster={box.image} autoplay muted loop playsinline disablepictureinpicture aria-label={box.title ?? "GIF"}></video>
+        <button type="button" class="gif-star ghost press" class:on={starred} aria-label={text("gifs", starred ? "unfavourite" : "favourite")} aria-pressed={starred} use:starburst={starred} use:tooltip={text("gifs", starred ? "unfavourite" : "favourite")} onclick={favourite}>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.star} /></svg>
+        </button>
+      </div>
+    {:else if embed && active}
       <div class="player">
         <iframe
           src={source && wrapEmbed(source, port)}
@@ -68,6 +85,11 @@
       </button>
     {:else if embed || preview}
       <div class="card col">
+        {#if gifLink}
+        <button type="button" class="gif-star ghost press" class:on={starred} aria-label={text("gifs", starred ? "unfavourite" : "favourite")} aria-pressed={starred} use:starburst={starred} use:tooltip={text("gifs", starred ? "unfavourite" : "favourite")} onclick={favourite}>
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.star} /></svg>
+        </button>
+        {/if}
         {#if embed && image}
           <div class="stage">
             <img src={image} alt="" draggable="false" />
@@ -171,7 +193,20 @@
     box-shadow: 0 0 18px -6px var(--colours-accent-glow);
   }
 
+  .card.gifbox {
+    width: min(100%, 320px);
+    border-left-width: 1px;
+  }
+
+  .card.gifbox video {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
   .card {
+    position: relative;
     overflow: hidden;
     border-radius: var(--azure-radius-md);
     border: 1px solid var(--colours-outline-hairline);
@@ -309,5 +344,59 @@
     .allow {
       min-height: var(--azure-touch);
     }
+  }
+
+  .gif-star {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    padding: 0;
+    border: 0;
+    border-radius: 50%;
+    color: white;
+    background-color: rgb(0 0 0 / 0.5);
+    backdrop-filter: blur(8px);
+    opacity: 0;
+    scale: 0.85;
+    transition:
+      opacity var(--azure-duration-fast) var(--azure-ease-out),
+      scale var(--azure-duration-settle) var(--azure-ease-settle),
+      color var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .card:is(:hover, :focus-within) > .gif-star,
+  .gif-star.on {
+    opacity: 1;
+    scale: 1;
+  }
+
+  .gif-star.on {
+    color: #ffc83d;
+    filter: drop-shadow(0 0 6px rgb(255 200 61 / 0.3));
+  }
+
+  @media (hover: none) {
+    .gif-star:not(.on) {
+      display: none;
+    }
+  }
+
+  .gif-star path {
+    fill: transparent;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linejoin: round;
+    transition:
+      fill var(--azure-duration-slow) var(--azure-ease-out),
+      stroke var(--azure-duration-slow) var(--azure-ease-out);
+  }
+
+  .gif-star.on path {
+    fill: currentColor;
   }
 </style>

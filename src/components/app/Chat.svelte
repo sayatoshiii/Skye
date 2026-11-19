@@ -1193,6 +1193,8 @@
     const add = (id: string, label: string, icon: string, run: MenuItem["run"], danger = false) => items.push({ id, label, icon, run, danger });
     const failed = message.status === "failed";
 
+    if (link && isGifLink(link)) add("gif-favourite", text("gifs", gifIds.has(link) ? "unfavourite" : "favourite"), gifIds.has(link) ? MENU_ICONS.unstar : MENU_ICONS.star, () => favouriteLink(link, message.ts));
+
     if (link) {
       add("open-link", text("context_menu", "open_link"), MENU_ICONS.open, () => window.open(link, "_blank", "noopener,noreferrer"));
       add("copy-link", text("context_menu", "copy_link"), MENU_ICONS.link, () => copy(link, "link_copied", "link"));
@@ -1222,6 +1224,10 @@
       const copyKind = gif ? "copy_gif" : mimetype.startsWith("video/") ? "copy_video" : mimetype.startsWith("image/") ? "copy_image" : null;
       if (copyKind && isInline(mimetype, mimetype.split("/")[0] as "image" | "video") && canCopyMedia(mimetype))
         add("copy-media", text("chat", copyKind), MENU_ICONS.copy, () => copyMedia(source, mimetype).then(() => toastKey(copyKind === "copy_image" ? "image_copied" : "media_copied", { icon: "copy" }), () => undefined));
+      if (isGifContent(message.content)) {
+        const gif = gifFromContent(message.content);
+        add("gif-favourite", text("gifs", gifIds.has(gif.id) ? "unfavourite" : "favourite"), gifIds.has(gif.id) ? MENU_ICONS.unstar : MENU_ICONS.star, () => toggleFavouriteGif(gif));
+      }
       add("download", text("chat", "download"), MENU_ICONS.save, () => downloadMedia(source, name).then(() => toastKey("saved", { icon: "save", tone: "success" }), () => undefined));
     }
 
