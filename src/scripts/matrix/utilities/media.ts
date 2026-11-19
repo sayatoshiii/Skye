@@ -149,12 +149,29 @@ export const seedMedia = (url: string | undefined, blob: Blob, mimetypes: string
 
 export const seededLink = (source: MediaSource | null) => (source ? seededLinks.get(getSourceKey(source)) : undefined);
 
-const served = (mimetype: string) => native && /linux/i.test(navigator.userAgent) && /^(video|audio)\//.test(mimetype);
+const served = (mimetype: string) => native && /linux/i.test(navigator.userAgent) && !/Chrome\//.test(navigator.userAgent) && /^(video|audio)\//.test(mimetype);
 
-const serve = async (blob: Blob, mimetype: string) => {
+const chromium = () => native && /linux/i.test(navigator.userAgent) && /Chrome\//.test(navigator.userAgent);
+
+const plays = (link: string, mimetype: string) =>
+  new Promise<boolean>((done) => {
+    const probe = document.createElement(mimetype.startsWith("audio") ? "audio" : "video");
+    const finish = (ok: boolean) => (done(ok), probe.removeAttribute("src"), probe.load());
+    probe.onloadedmetadata = () => finish(true);
+    probe.onerror = () => finish(false);
+    Object.assign(probe, { muted: true, preload: "metadata", src: link });
+  });
+
+const playable = async (blob: Blob, mimetype: string) => {
+  const link = URL.createObjectURL(blob);
+  return !chromium() || !/^(video|audio)\//.test(mimetype) || (await plays(link, mimetype)) ? link : (URL.revokeObjectURL(link), serve(blob, mimetype, true));
+};
+
+const serve = async (blob: Blob, mimetype: string, convert = false) => {
   const { invoke } = await import("@tauri-apps/api/core");
   const [port, id] = await Promise.all([embedPort, invoke<string>("media_put", new Uint8Array(await blob.arrayBuffer()), { headers: { "x-type": mimetype } })]);
-  return port ? `http://localhost:${port}/media/${id}` : URL.createObjectURL(blob);
+  const ready = convert ? await invoke("media_transcode", { id }).then(() => true, () => false) : true;
+  return port && ready ? `http://localhost:${port}/media/${id}` : (unserve(`/${id}`), URL.createObjectURL(blob));
 };
 
 const unserve = (link: string) => import("@tauri-apps/api/core").then(({ invoke }) => invoke("media_drop", { id: link.split("/").pop() }));
@@ -163,7 +180,7 @@ export const acquireMediaLink = (source: MediaSource, mimetype: string) => {
   const key = `${getSourceKey(source)}:${mimetype}`;
   const entry = (linkCache[key] ??= {
     count: 0,
-    link: getMediaBlob(source, mimetype).then((blob) => (served(mimetype) ? serve(blob, mimetype) : URL.createObjectURL(blob))),
+    link: getMediaBlob(source, mimetype).then((blob) => (served(mimetype) ? serve(blob, mimetype) : playable(blob, mimetype))),
   });
 
   entry.count++;

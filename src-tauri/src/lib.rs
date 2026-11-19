@@ -5,19 +5,22 @@ mod embed;
 #[cfg(desktop)]
 mod files;
 
-#[cfg(target_os = "linux")]
+#[cfg(any())]
 mod voice;
 
-#[cfg(target_os = "linux")]
+#[cfg(any())]
 mod screen;
 
 #[cfg(windows)]
 mod screen_win;
 
+#[cfg(target_os = "linux")]
+mod screen_pw;
+
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 mod ptt;
 
-#[cfg(target_os = "linux")]
+#[cfg(any())]
 fn unlock(window: &tauri::WebviewWindow) {
   let app = window.app_handle().clone();
   let (enter, leave) = (window.clone(), window.clone());
@@ -41,16 +44,15 @@ fn unlock(window: &tauri::WebviewWindow) {
   });
 }
 
-#[cfg(not(target_os = "linux"))]
 fn unlock(_: &tauri::WebviewWindow) {}
 
-#[cfg(target_os = "linux")]
+#[cfg(any())]
 unsafe extern "C" {
   #[link_name = "_ZN14modules_portal18InitializePipewireEPv"]
   fn initialize_pipewire(module: *mut std::ffi::c_void);
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(any())]
 fn audio() {
   let module = unsafe { libc::dlopen(c"libpipewire-0.3.so.0".as_ptr(), libc::RTLD_NOW | libc::RTLD_GLOBAL) };
   (!module.is_null()).then(|| unsafe { initialize_pipewire(module) });
@@ -58,8 +60,29 @@ fn audio() {
   std::mem::forget(cpal::default_host());
 }
 
-#[cfg(not(target_os = "linux"))]
 fn audio() {}
+
+#[cfg(target_os = "linux")]
+fn style<'a>(app: &tauri::App, builder: tauri::WebviewWindowBuilder<'a, tauri::DynRuntime, tauri::App>) -> tauri::WebviewWindowBuilder<'a, tauri::DynRuntime, tauri::App> {
+  use tauri_runtime_cef::WebviewWindowBuilderCefExt;
+  let profile = app.path().cache_dir().map(|cache| cache.join(&app.config().identifier).join("cef").join("skye"));
+  profile.into_iter().fold(builder, |builder, path| builder.data_directory(path)).browser_runtime_style(tauri_runtime_cef::RuntimeStyle::Alloy)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn style<'a>(_: &tauri::App, builder: tauri::WebviewWindowBuilder<'a, tauri::DynRuntime, tauri::App>) -> tauri::WebviewWindowBuilder<'a, tauri::DynRuntime, tauri::App> {
+  builder
+}
+
+fn window(app: &tauri::App) -> tauri::Result<tauri::WebviewWindow> {
+  use tauri::webview::{NewWindowResponse, PermissionKind, PermissionResponse};
+  use tauri_plugin_opener::OpenerExt;
+  let opener = app.handle().clone();
+  style(app, tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?)
+    .on_permission_request(|_, kind| [PermissionResponse::Allow, PermissionResponse::Default][matches!(kind, PermissionKind::Other) as usize])
+    .on_new_window(move |url, _| (["http", "https", "mailto"].contains(&url.scheme()).then(|| opener.opener().open_url(url.as_str(), None::<&str>)), NewWindowResponse::Deny).1)
+    .build()
+}
 
 fn reveal(app: &tauri::AppHandle) {
   app.get_webview_window("main").map(|window| (window.show(), window.unminimize(), window.set_focus()));
@@ -98,43 +121,51 @@ fn tray(app: &tauri::App) -> tauri::Result<()> {
 fn tray(_: &tauri::App) -> tauri::Result<()> { Ok(()) }
 
 #[cfg(target_os = "linux")]
-fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.manage(voice::Voice::default()).manage(screen::Screen::default()).invoke_handler(tauri::generate_handler![screen::screen_start, screen::screen_stop, screen::screen_audio, screen::screen_apps, screen::screen_sharing, screen::screen_watch, screen::screen_unwatch, voice::voice_connect, voice::voice_disconnect, voice::voice_key, voice::voice_mic, voice::voice_volume, voice::voice_tuning, voice::voice_devices, voice::voice_device, ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_drop, files::save_download, files::copy_image, leave])
+fn engine(builder: tauri::Builder) -> tauri::Builder {
+  builder.invoke_handler(tauri::generate_handler![screen_pw::screen_apps, screen_pw::screen_audio_capture, screen_pw::screen_audio_release, ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_transcode, embed::media_drop, files::save_download, files::copy_image, leave])
 }
 
 #[cfg(windows)]
-fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.invoke_handler(tauri::generate_handler![screen_win::screen_apps, screen_win::screen_audio_capture, screen_win::screen_audio_release, ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_drop, files::save_download, files::copy_image, leave])
+fn engine(builder: tauri::Builder) -> tauri::Builder {
+  builder.invoke_handler(tauri::generate_handler![screen_win::screen_apps, screen_win::screen_audio_capture, screen_win::screen_audio_release, ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_transcode, embed::media_drop, files::save_download, files::copy_image, leave])
 }
 
 #[cfg(target_os = "macos")]
-fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.invoke_handler(tauri::generate_handler![ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_drop, files::save_download, files::copy_image, leave])
+fn engine(builder: tauri::Builder) -> tauri::Builder {
+  builder.invoke_handler(tauri::generate_handler![ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_transcode, embed::media_drop, files::save_download, files::copy_image, leave])
 }
 
 #[cfg(mobile)]
-fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.invoke_handler(tauri::generate_handler![embed::embed_port, embed::media_put, embed::media_drop, leave])
+fn engine(builder: tauri::Builder) -> tauri::Builder {
+  builder.invoke_handler(tauri::generate_handler![embed::embed_port, embed::media_put, embed::media_transcode, embed::media_drop, leave])
 }
 
 #[cfg(desktop)]
-fn single(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+fn single(builder: tauri::Builder) -> tauri::Builder {
   builder.plugin(tauri_plugin_single_instance::init(|app, _, _| reveal(app))).plugin(tauri_plugin_clipboard_manager::init()).plugin(tauri_plugin_dialog::init()).plugin(tauri_plugin_opener::init())
 }
 
 #[cfg(mobile)]
-fn single(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
+fn single(builder: tauri::Builder) -> tauri::Builder {
   builder
 }
+
+#[cfg(target_os = "linux")]
+fn runtime() -> tauri_runtime_cef::Cef {
+  tauri_runtime_cef::Cef::default().enable_features(["WebRTCPipeWireCapturer"])
+}
+
+#[cfg(not(target_os = "linux"))]
+fn runtime() -> tauri_runtime_wry::Wry { tauri_runtime_wry::Wry::default() }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   audio();
   embed::serve();
-  engine(single(tauri::Builder::default()))
+  engine(single(tauri::Builder::default().runtime(runtime())))
     .plugin(tauri_plugin_log::Builder::default().level([log::LevelFilter::Warn, log::LevelFilter::Info][cfg!(debug_assertions) as usize]).build())
     .plugin(tauri_plugin_notification::init())
-    .setup(|app| Ok((app.get_webview_window("main").as_ref().map(unlock).unwrap_or_default(), tray(app)?).0))
+    .setup(|app| Ok((unlock(&window(app)?), tray(app)?).0))
     .on_window_event(|window, event| match event { tauri::WindowEvent::CloseRequested { api, .. } if cfg!(desktop) => (api.prevent_close(), window.hide()).1.unwrap_or_default(), _ => {} })
     .build(tauri::generate_context!())
     .expect("skye failed to start")
