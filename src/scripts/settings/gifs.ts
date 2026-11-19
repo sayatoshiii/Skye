@@ -90,19 +90,29 @@ const valid = (item: any): item is GifFavourite =>
 
 export const favouriteGifs = writable<GifFavourite[]>([]);
 
+let sent: string | null = null;
+let inflight = 0;
+
 registerAccountDataHook((events) => {
   const list = events.findLast((candidate) => candidate.type === GIF_TYPE)?.content?.favourites;
-  if (Array.isArray(list)) favouriteGifs.set(list.filter(valid));
+  if (!Array.isArray(list)) return;
+  const echo = JSON.stringify(list) === sent;
+  if (inflight && !echo) return;
+  echo || favouriteGifs.set(list.filter(valid));
 });
 
 const save = () => {
   const active = get(session);
+  sent = JSON.stringify(get(favouriteGifs));
   active &&
+    (inflight++,
     sessionRequest(active, {
       endpoint: `user/${encodeURIComponent(active.userId)}/account_data/${GIF_TYPE}`,
       method: "PUT",
       body: { favourites: get(favouriteGifs) },
-    }).catch((error) => console.warn("Skye could not save favourite GIFs", error));
+    })
+      .catch((error) => console.warn("Skye could not save favourite GIFs", error))
+      .finally(() => setTimeout(() => inflight--, 1500)));
 };
 
 export const isFavouriteGif = (id: string) => get(favouriteGifs).some((item) => item.id === id);

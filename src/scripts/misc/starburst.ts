@@ -3,7 +3,12 @@ import { reducedMotion, springFrames } from "./spring";
 const COLOURS = ["#ffd56b", "#b58cff", "#ff8fc8", "#ffc83d", "#8fb8ff", "#d9a8ff", "#ffe9a8", "#ff9fe0"];
 const FLUID = "cubic-bezier(0.32, 0.72, 0, 1)";
 
+const live = new WeakMap<HTMLElement, HTMLElement[]>();
+
 const burst = (node: HTMLElement) => {
+  live.get(node)?.forEach((spark) => spark.remove());
+  const sparks: HTMLElement[] = [];
+  live.set(node, sparks);
   const rect = node.getBoundingClientRect();
   const x = rect.left + rect.width / 2;
   const y = rect.top + rect.height / 2;
@@ -11,12 +16,15 @@ const burst = (node: HTMLElement) => {
     const spark = document.createElement("span");
     const angle = (at / 8) * Math.PI * 2 - Math.PI / 2 + (Math.random() - 0.5) * 0.5;
     const reach = 24 + Math.random() * 8;
-    const size = 8 + (at % 2) * 2;
-    spark.style.cssText = `position:fixed;left:${x - size / 2}px;top:${y - size / 2}px;width:${size}px;height:${size}px;border-radius:50%;pointer-events:none;z-index:2147483647;background:${COLOURS[at]};filter:blur(0.3px);box-shadow:0 0 8px ${COLOURS[at]}88`;
+    const size = 11 + (at % 2) * 3;
+    const spin = (Math.random() - 0.5) * 140;
+    spark.style.cssText = `position:fixed;left:${x - size / 2}px;top:${y - size / 2}px;width:${size}px;height:${size}px;pointer-events:none;z-index:2147483647`;
+    spark.innerHTML = `<svg viewBox="0 0 24 24" width="${size}" height="${size}" style="display:block;overflow:visible"><path d="M12 3.2l2.6 5.6 6.1.7-4.5 4.2 1.2 6.1L12 16.8l-5.4 3 1.2-6.1-4.5-4.2 6.1-.7z" fill="${COLOURS[at]}" stroke="${COLOURS[at]}" stroke-width="2.6" stroke-linejoin="round" /></svg>`;
     document.body.append(spark);
+    sparks.push(spark);
     const dx = Math.cos(angle) * reach;
     const dy = Math.sin(angle) * reach;
-    spark.animate([{ transform: "translate(0, 0) scale(0.4)" }, { transform: `translate(${dx}px, ${dy}px) scale(1)`, offset: 0.45 }, { transform: `translate(${dx * 1.12}px, ${dy * 1.12}px) scale(0.6)` }], { duration: 1100, delay: 120, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "backwards" });
+    spark.animate([{ transform: "translate(0, 0) rotate(0deg) scale(0.4)" }, { transform: `translate(${dx}px, ${dy}px) rotate(${spin * 0.7}deg) scale(1)`, offset: 0.45 }, { transform: `translate(${dx * 1.12}px, ${dy * 1.12}px) rotate(${spin}deg) scale(0.6)` }], { duration: 1100, delay: 120, easing: "cubic-bezier(0.16, 1, 0.3, 1)", fill: "backwards" });
     spark
       .animate([{ opacity: 0 }, { opacity: 0.95, offset: 0.08 }, { opacity: 0.95, offset: 0.4 }, { opacity: 0 }], { duration: 1100, delay: 120, easing: "cubic-bezier(0.33, 0, 0.67, 1)", fill: "backwards" })
       .finished.finally(() => spark.remove());
