@@ -27,6 +27,8 @@
   --azure-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
   --azure-ease-fluid: cubic-bezier(0.32, 0.72, 0, 1);
   --azure-duration-glide: 520ms;
+  --azure-ease-settle: linear(0, 0.0428, 0.1467, 0.2815, 0.4255, 0.5639, 0.6877, 0.7922, 0.876, 0.9397, 0.9856, 1.0162, 1.0346, 1.0436, 1.046, 1.0438, 1.0389, 1.0327, 1.0261, 1.0197, 1.0141, 1.0093, 1.0055, 1.0026, 1.0006);
+  --azure-duration-settle: 542ms;
 
   --azure-z-base: 0;
   --azure-z-raised: 10;
@@ -43,6 +45,7 @@
     --azure-duration-md: 0ms;
     --azure-duration-slow: 0ms;
     --azure-duration-glide: 0ms;
+    --azure-duration-settle: 0ms;
   }
 }
 
@@ -52,6 +55,7 @@
   --azure-duration-md: 0ms;
   --azure-duration-slow: 0ms;
   --azure-duration-glide: 0ms;
+  --azure-duration-settle: 0ms;
 }
 
 :root[data-motion="reduce"] *:not(.motion-keep),

@@ -1289,6 +1289,24 @@
       "failed": "{count} couldn't be left. Try again.",
       "cancel": "Cancel"
     },
+    "gifs": {
+      "picker": "GIF picker",
+      "open_picker": "Choose a GIF",
+      "search": "Search for GIFs...",
+      "trending": "Trending GIFs",
+      "back": "Back",
+      "favourites": "Favourites",
+      "load_failed": "Couldn't load GIFs right now",
+      "retry": "Try again",
+      "send": "Send GIF",
+      "favourite": "Favourite GIF",
+      "unfavourite": "Unfavourite GIF",
+      "copy_link": "Copy GIF link",
+      "actions": "GIF actions",
+      "no_results": "No GIFs found",
+      "empty_title": "No favourite GIFs yet",
+      "empty_body": "Star any GIF and it'll show up here on all your devices"
+    },
     "emoji": {
       "info": "Emoji details",
       "codepoints": "Codepoints",
