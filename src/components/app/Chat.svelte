@@ -861,11 +861,16 @@
   const unpin = () => (pin = null);
 
   let held: { row: HTMLElement; offset: number } | null = null;
-  const holdRow = () => {
-    const top = timeline?.getBoundingClientRect().top ?? 0;
-    const row = [...(timeline?.querySelectorAll<HTMLElement>(":scope > li[data-event-id]") ?? [])].find((item) => item.getBoundingClientRect().bottom > top);
-    held = row ? { row, offset: row.getBoundingClientRect().top - top } : null;
-  };
+  let holding = 0;
+  const firstShown = (rows: HTMLElement[], top: number, low = 0, high = rows.length): HTMLElement | undefined =>
+    low >= high ? rows[low] : rows[(low + high) >> 1].getBoundingClientRect().bottom > top ? firstShown(rows, top, low, (low + high) >> 1) : firstShown(rows, top, ((low + high) >> 1) + 1, high);
+  const holdRow = () =>
+    (holding ||= requestAnimationFrame(() => {
+      holding = 0;
+      const top = timeline?.getBoundingClientRect().top ?? 0;
+      const row = firstShown([...(timeline?.querySelectorAll<HTMLElement>(":scope > li[data-event-id]") ?? [])], top);
+      held = row ? { row, offset: row.getBoundingClientRect().top - top } : null;
+    }));
 
   const onresize = () => {
     if (!timeline || loadingOlder || loadingNewer) return;
