@@ -65,21 +65,6 @@
     if (kind === "video" && thumbnail) acquire(thumbnail, thumbnailType, (value) => (poster = value));
   };
 
-  const snapshot = (event: Event) => {
-    const video = event.currentTarget as HTMLVideoElement;
-    const scale = Math.min(1, (size?.w ?? video.videoWidth) / video.videoWidth);
-    const canvas = Object.assign(document.createElement("canvas"), { width: Math.round(video.videoWidth * scale), height: Math.round(video.videoHeight * scale) });
-    canvas.getContext("2d")?.drawImage(video, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob((blob) => {
-      if (!blob || playing) return;
-      const still = URL.createObjectURL(blob);
-      releases.splice(0).forEach((release) => release());
-      releases.push(() => URL.revokeObjectURL(still));
-      poster = still;
-      link = undefined;
-    }, "image/jpeg", 0.85);
-  };
-
   const play = () => {
     playing = true;
     if (!link) acquire(source, playType, (value) => (link = value));
@@ -117,7 +102,7 @@
       {#if poster}
         <img src={poster} alt="" draggable="false" />
       {:else if link}
-        <video class="still" src={`${link}#t=0.001`} onloadeddata={snapshot} muted playsinline preload="metadata" disablepictureinpicture aria-hidden="true" tabindex="-1" onerror={() => (unplayable = true)}></video>
+        <video class="still" src={`${link}#t=0.001`} muted playsinline preload="metadata" disablepictureinpicture aria-hidden="true" tabindex="-1" onerror={() => (unplayable = true)}></video>
       {/if}
       <span class="video-info col" aria-hidden="true">
         <span class="sm bold truncate">{name}</span>

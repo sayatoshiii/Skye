@@ -1,5 +1,6 @@
 import { API, baseURL } from "../../api/client";
 import { serialiseURIObject } from "../../misc/uri";
+import { embedPort, native } from "../../misc/native";
 import { loadSession } from "../session";
 import type { Session } from "../types";
 
@@ -138,11 +139,21 @@ export const getMediaBlob = (source: MediaSource, mimetype: string) => {
   }));
 };
 
+const served = (mimetype: string) => native && /linux/i.test(navigator.userAgent) && /^(video|audio)\//.test(mimetype);
+
+const serve = async (blob: Blob, mimetype: string) => {
+  const { invoke } = await import("@tauri-apps/api/core");
+  const [port, id] = await Promise.all([embedPort, invoke<string>("media_put", new Uint8Array(await blob.arrayBuffer()), { headers: { "x-type": mimetype } })]);
+  return port ? `http://localhost:${port}/media/${id}` : URL.createObjectURL(blob);
+};
+
+const unserve = (link: string) => import("@tauri-apps/api/core").then(({ invoke }) => invoke("media_drop", { id: link.split("/").pop() }));
+
 export const acquireMediaLink = (source: MediaSource, mimetype: string) => {
   const key = `${getSourceKey(source)}:${mimetype}`;
   const entry = (linkCache[key] ??= {
     count: 0,
-    link: getMediaBlob(source, mimetype).then((blob) => URL.createObjectURL(blob)),
+    link: getMediaBlob(source, mimetype).then((blob) => (served(mimetype) ? serve(blob, mimetype) : URL.createObjectURL(blob))),
   });
 
   entry.count++;
@@ -156,7 +167,7 @@ export const acquireMediaLink = (source: MediaSource, mimetype: string) => {
       if (--entry.count > 0 || linkCache[key] !== entry) return;
       delete linkCache[key];
       delete blobCache[key];
-      entry.link.then((link) => URL.revokeObjectURL(link)).catch(() => undefined);
+      entry.link.then((link) => (link.startsWith("blob:") ? URL.revokeObjectURL(link) : unserve(link))).catch(() => undefined);
     },
   };
 };
