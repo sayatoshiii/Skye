@@ -99,22 +99,22 @@ fn tray(_: &tauri::App) -> tauri::Result<()> { Ok(()) }
 
 #[cfg(target_os = "linux")]
 fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.manage(voice::Voice::default()).manage(screen::Screen::default()).invoke_handler(tauri::generate_handler![screen::screen_start, screen::screen_stop, screen::screen_audio, screen::screen_apps, screen::screen_sharing, screen::screen_watch, screen::screen_unwatch, voice::voice_connect, voice::voice_disconnect, voice::voice_key, voice::voice_mic, voice::voice_volume, voice::voice_tuning, voice::voice_devices, voice::voice_device, ptt::ptt_bind, embed::embed_port, files::save_download, files::copy_image, leave])
+  builder.manage(voice::Voice::default()).manage(screen::Screen::default()).invoke_handler(tauri::generate_handler![screen::screen_start, screen::screen_stop, screen::screen_audio, screen::screen_apps, screen::screen_sharing, screen::screen_watch, screen::screen_unwatch, voice::voice_connect, voice::voice_disconnect, voice::voice_key, voice::voice_mic, voice::voice_volume, voice::voice_tuning, voice::voice_devices, voice::voice_device, ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_drop, files::save_download, files::copy_image, leave])
 }
 
 #[cfg(windows)]
 fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.invoke_handler(tauri::generate_handler![screen_win::screen_apps, screen_win::screen_audio_capture, screen_win::screen_audio_release, ptt::ptt_bind, embed::embed_port, files::save_download, files::copy_image, leave])
+  builder.invoke_handler(tauri::generate_handler![screen_win::screen_apps, screen_win::screen_audio_capture, screen_win::screen_audio_release, ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_drop, files::save_download, files::copy_image, leave])
 }
 
 #[cfg(target_os = "macos")]
 fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.invoke_handler(tauri::generate_handler![ptt::ptt_bind, embed::embed_port, files::save_download, files::copy_image, leave])
+  builder.invoke_handler(tauri::generate_handler![ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_drop, files::save_download, files::copy_image, leave])
 }
 
 #[cfg(mobile)]
 fn engine(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
-  builder.invoke_handler(tauri::generate_handler![embed::embed_port, leave])
+  builder.invoke_handler(tauri::generate_handler![embed::embed_port, embed::media_put, embed::media_drop, leave])
 }
 
 #[cfg(desktop)]
@@ -129,8 +129,6 @@ fn single(builder: tauri::Builder<tauri::Wry>) -> tauri::Builder<tauri::Wry> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-  #[cfg(target_os = "linux")]
-  std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none().then(|| unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") });
   audio();
   embed::serve();
   engine(single(tauri::Builder::default()))
