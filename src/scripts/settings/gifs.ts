@@ -5,9 +5,11 @@ import { registerAccountDataHook, session } from "../stores/matrix";
 
 export type GifFavourite =
   | { id: string; kind: "mxc"; msgtype?: string; url?: string; file?: EncryptedFile; info: Record<string, any>; body: string }
-  | { id: string; kind: "link"; url: string; media?: string; video?: string; full?: string; postId?: string; image?: string; title?: string; w?: number; h?: number };
+  | { id: string; kind: "link"; url: string; sent?: Record<string, any>; media?: string; video?: string; full?: string; postId?: string; image?: string; title?: string; w?: number; h?: number };
 
 export type Gifbox = { video: string; full: string; gif?: string; postId: string; image?: string; title?: string; w: number; h: number };
+
+const mp4 = typeof document === "undefined" || !!document.createElement("video").canPlayType('video/mp4; codecs="avc1.42E01E"');
 
 export const GIF_TYPE = "chat.skye.gifs";
 
@@ -51,13 +53,13 @@ const gifboxCall = (endpoint: string, params: Record<string, string>, signal?: A
 
 const toGifbox = (post: Record<string, any>): (Gifbox & { url: string }) | null => {
   const formats = post?.media_formats ?? {};
-  const video = formats.tinymp4 ?? formats.mp4 ?? formats.loopedmp4;
+  const video = (mp4 ? null : (formats.tinywebm ?? formats.webm)) ?? formats.tinymp4 ?? formats.mp4 ?? formats.loopedmp4;
   const gif = formats.gif ?? formats.mediumgif ?? formats.tinygif ?? formats.nanogif;
   return video?.url ? { url: String(post.itemurl ?? post.url), video: video.url, full: (formats.mp4 ?? video).url, ...(gif?.url ? { gif: gif.url } : {}), image: formats.preview?.url, title: post.title || post.content_description || undefined, w: Number(video.dims?.[0]) || 1, h: Number(video.dims?.[1]) || 1, postId: String(post.id) } : null;
 };
 
 export const searchGifbox = async (query: string, pos: string, signal?: AbortSignal) => {
-  const body = await gifboxCall(query.trim() ? "search" : "featured", { limit: "24", media_filter: "preview,mp4,tinymp4,gif,mediumgif,tinygif,nanogif", ...(query.trim() ? { q: query.trim() } : {}), ...(pos ? { pos } : {}) }, signal);
+  const body = await gifboxCall(query.trim() ? "search" : "featured", { limit: "24", media_filter: "preview,mp4,tinymp4,webm,tinywebm,gif,mediumgif,tinygif,nanogif", ...(query.trim() ? { q: query.trim() } : {}), ...(pos ? { pos } : {}) }, signal);
   return { next: String(body?.next ?? ""), results: ((body?.results ?? []) as Record<string, any>[]).map(toGifbox).filter((item): item is Gifbox & { url: string } => !!item).map((item) => gifFromGifbox(item.url, item)) };
 };
 
@@ -70,6 +72,11 @@ export const resolveGifbox = (url: string) => {
   const request = gifboxCall("posts", { ids: id }).then((body) => toGifbox(body?.results?.[0])).catch(() => (gifboxCache.delete(id), null));
   gifboxCache.set(id, request);
   return request;
+};
+
+export const seedGifbox = (url: string, box: Gifbox) => {
+  const id = url.match(/gifbox\.me\/view\/([\w-]+)/i)?.[1];
+  id && !gifboxCache.has(id) && gifboxCache.set(id, Promise.resolve(box));
 };
 
 export const shareGifbox = (postId?: string, query = "") => postId && gifboxReady && gifboxCall("registershare", { id: postId, ...(query ? { q: query } : {}) }).catch(() => undefined);
@@ -119,6 +126,12 @@ export const isFavouriteGif = (id: string) => get(favouriteGifs).some((item) => 
 
 export const toggleFavouriteGif = (gif: GifFavourite) => {
   favouriteGifs.update((current) => (current.some((item) => item.id === gif.id) ? current.filter((item) => item.id !== gif.id) : [gif, ...current]));
+  save();
+};
+
+export const rememberGifUpload = (id: string, content: Record<string, any>) => {
+  if (!isFavouriteGif(id) || !(isMxc(content.url) || isMxc(content.file?.url))) return;
+  favouriteGifs.update((current) => current.map((item) => (item.id === id && item.kind === "link" ? { ...item, sent: { msgtype: content.msgtype, body: content.body, info: content.info ?? {}, ...(content.url ? { url: content.url } : { file: content.file }) } } : item)));
   save();
 };
 

@@ -49,8 +49,8 @@
 
   const onvisible = () => {
     const current = $session;
-    if (!previews || !current) return;
     if (isGifbox(url) && gifboxReady) return void resolveGifbox(url).then((value) => (box = value));
+    if (!previews || !current) return;
     getLinkPreview(current, url, ts).then(async (value) => {
       preview = value;
       if (value?.image) image = await getWideMediaLink(value.image, 640, 360);
@@ -58,7 +58,7 @@
   };
 </script>
 
-{#if embed || previews}
+{#if embed || previews || isGifbox(url)}
   <div class="preview" data-link={url} class:portrait={embed?.portrait} class:hidden={!embed && !preview && !box} use:nearViewport={onvisible}>
     {#if box}
       <div class="card gifbox" style:aspect-ratio="{box.w} / {box.h}">

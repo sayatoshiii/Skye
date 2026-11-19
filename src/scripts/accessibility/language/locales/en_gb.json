@@ -347,6 +347,8 @@
         "animations_hint": "Turn UI animations on or off",
         "hide_redacted": "Hide deleted messages",
         "hide_redacted_hint": "Hide deleted message indicators from your chats",
+        "gifs_as_links": "Send GIFs as links",
+        "gifs_as_links_hint": "Share GIFs from the picker as embedded links instead of uploading the file",
         "animations_system": "Your system asks for reduced motion, so animations stay off",
         "copy_hex": "Copy colour code",
         "show_call_events": "Show call activity",
@@ -1308,7 +1310,9 @@
       "actions": "GIF actions",
       "no_results": "No GIFs found",
       "empty_title": "No favourite GIFs yet",
-      "empty_body": "Star any GIF and it'll show up here on all your devices"
+      "empty_body": "Star any GIF and it'll show up here on all your devices",
+      "as_links": "Sending as links",
+      "as_files": "Sending as files"
     },
     "emoji": {
       "info": "Emoji details",

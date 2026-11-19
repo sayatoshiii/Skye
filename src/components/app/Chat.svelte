@@ -71,7 +71,7 @@
   } from "../../scripts/stores/matrix";
   import EmojiPicker from "./EmojiPicker.svelte";
   import GifPicker from "./GifPicker.svelte";
-  import { favouriteGifs, favouriteLinkGif, shareGifbox, gifFromContent, gifFromLink, isGifContent, isGifLink, toggleFavouriteGif, type GifFavourite } from "../../scripts/settings/gifs";
+  import { favouriteGifs, favouriteLinkGif, isGifbox, rememberGifUpload, seedGifbox, shareGifbox, gifFromContent, gifFromLink, isGifContent, isGifLink, toggleFavouriteGif, type GifFavourite } from "../../scripts/settings/gifs";
   import { getLinkPreview } from "../../scripts/matrix/utilities/previews";
   import { quickEmoji, useEmoji } from "../../scripts/settings/emoji";
   import Avatar from "../ui/Avatar.svelte";
@@ -1064,6 +1064,7 @@
       seedMedia(media, prepared.file, types(prepared.mimetype), prepared.kind === "image" ? upload.preview : undefined);
       prepared.thumbnail && seedMedia(content.info.thumbnail_file?.url ?? content.info.thumbnail_url, prepared.thumbnail, types(prepared.thumbnailInfo?.mimetype ?? "image/jpeg"), upload.still ?? (prepared.kind === "image" ? upload.preview : undefined));
       media && quietUploads.add(media);
+      gifUploads.has(id) && (rememberGifUpload(gifUploads.get(id)!, content), gifUploads.delete(id));
       const sending = sendRoomMessage(content, upload.reply, upload.roomId);
       dropUpload(id, true);
       await sending.catch(() => undefined);
@@ -1125,21 +1126,28 @@
     draft = "";
   };
 
+  const gifUploads = new Map<number, string>();
+
   const sendGif = async (gif: GifFavourite, reply?: ReplyTarget) => {
     if (!room) return;
     readFromNotice();
     stuck = true;
     if (isDetached) jumpToPresent();
-    if (gif.kind === "mxc") return void sendRoomMessage({ msgtype: gif.msgtype ?? "m.image", body: gif.body, info: gif.info, ...(gif.url ? { url: gif.url } : { file: gif.file }) }, reply).catch(() => undefined);
+    const reuse = gif.kind === "mxc" ? gif : settings?.gifsAsLinks ? null : gif.sent;
+    if (reuse) return void sendRoomMessage({ msgtype: reuse.msgtype ?? "m.image", body: reuse.body, info: reuse.info, ...(reuse.url ? { url: reuse.url } : { file: reuse.file }) }, reply).catch(() => undefined);
+    if (gif.kind !== "link") return;
+    const linked = () => (isGifbox(gif.url) && gif.video && gif.full && gif.postId && seedGifbox(gif.url, { video: gif.video, full: gif.full, gif: gif.media, postId: gif.postId, image: gif.image, title: gif.title, w: gif.w ?? 1, h: gif.h ?? 1 }), shareGifbox(gif.postId), void sendMessage(gif.url, reply).catch(() => undefined));
+    if (settings?.gifsAsLinks) return linked();
     const from = gif.media ?? gif.full;
     const blob = from ? await fetch(from).then((response) => (response.ok ? response.blob() : null)).catch(() => null) : null;
-    if (!blob || !/^(image|video)\//.test(blob.type)) return void sendMessage(gif.url, reply).catch(() => undefined);
+    if (!blob || !/^(image|video)\//.test(blob.type)) return linked();
     shareGifbox(gif.postId);
     const stem = (gif.title ?? (gif.url.split("/").pop() ?? "gif").split(/[?#]/)[0].replace(/\.\w+$/, "")).trim() || "gif";
     await addFiles([new File([blob], `${stem}.${blob.type.split("/")[1]?.split(";")[0] ?? "gif"}`, { type: blob.type })]);
     const item = pending.at(-1);
     if (!item || item.error) return;
     item.extra = blob.type.startsWith("video/") ? { "fi.mau.gif": true, "fi.mau.loop": true, "fi.mau.autoplay": true, "fi.mau.hide_controls": true, "fi.mau.no_audio": true } : undefined;
+    gifUploads.set(item.id, gif.id);
     uploadPending([item], room.id, encrypted, reply);
   };
 
@@ -1843,6 +1851,7 @@
               <LocationCard location={message.location ?? null} live={message.live} label={message.live === undefined ? undefined : text("location", message.live ? "live_shared" : "live_ended")} />
             {:else if message.kind === "poll"}
               <Poll event={message.event} related={relations.get(message.eventId) ?? []} {ownUserId} mayEnd={mayModerate} />
+            {:else if message.links.length === 1 && isGifbox(message.links[0]) && String(message.content.body ?? "").trim() === message.links[0]}
             {:else if message.plain}
               <div class="body-swap">
                 {#key `${message.content.body ?? ""}\u0000${message.content.formatted_body ?? ""}`}

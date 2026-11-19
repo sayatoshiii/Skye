@@ -5,7 +5,7 @@
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { tooltip } from "../../scripts/misc/tooltip";
   import { accentPresets, getAccent, getAccentPreset, isHexColour, setAccent, type AccentPreset } from "../../scripts/settings/accent";
-  import { mediaSettings, setHideRedacted, setShowCallEvents } from "../../scripts/settings/media";
+  import { mediaSettings, setGifsAsLinks, setHideRedacted, setShowCallEvents } from "../../scripts/settings/media";
   import { getMotionChoice, setMotionChoice, systemReducesMotion } from "../../scripts/settings/motion";
   import { copied } from "../../scripts/stores/toast";
   import type { MenuItem } from "../app/MessageMenu.svelte";
@@ -117,6 +117,16 @@
       <p class="set-hint">{look("hide_redacted_hint")}</p>
     </div>
     <Toggle checked={$mediaSettings.hideRedacted} label={look("hide_redacted")} onchange={setHideRedacted} />
+  </div>
+</section>
+
+<section class="set-section" data-part="gifs">
+  <div class="split">
+    <div class="head col">
+      <h3 class="set-heading title">{look("gifs_as_links")}</h3>
+      <p class="set-hint">{look("gifs_as_links_hint")}</p>
+    </div>
+    <Toggle checked={$mediaSettings.gifsAsLinks} label={look("gifs_as_links")} onchange={setGifsAsLinks} />
   </div>
 </section>
 
