@@ -41,7 +41,11 @@
   };
   let width = $state(readWidth());
   let ratio = $state(16 / 9);
-  const measure = () => video?.videoWidth && video.videoHeight && (ratio = video.videoWidth / video.videoHeight);
+  const measure = () => {
+    const frame = video?.nextElementSibling instanceof HTMLCanvasElement ? video.nextElementSibling : null;
+    const [w, h] = video?.videoWidth ? [video.videoWidth, video.videoHeight] : [frame?.width ?? 0, frame?.height ?? 0];
+    w && h && (ratio = w / h);
+  };
   let resizing = $state(false);
   const fit = (value: number) => Math.round(Math.min(Math.max(value, 200), Math.min(innerWidth - 32, 760)));
   const resize = (value: number) => {
@@ -289,7 +293,8 @@
     cursor: grabbing;
   }
 
-  video {
+  video,
+  video + :global(canvas) {
     display: block;
     width: 100%;
     height: 100%;
