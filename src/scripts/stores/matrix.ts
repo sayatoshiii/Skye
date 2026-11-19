@@ -187,8 +187,9 @@ let roomStore: RoomStore | null = null;
 let crypto: CryptoHooks = {};
 let cryptoHandle: CryptoHandle | null = null;
 const timelines: Record<RoomId, TimelineHandle> = {};
-const KEPT_TIMELINES = 8;
-const KEPT_EVENTS = 50;
+const KEPT_TIMELINES = 40;
+const KEPT_EVENTS = 150;
+const QUICK = 25;
 let unsubscribeTimeline: (() => void) | null = null;
 
 type ContextView = {
@@ -756,7 +757,8 @@ export const selectRoom = async (roomId: RoomId | null) => {
   unsubscribeTimeline = null;
   const previous = get(currentRoomId);
   const saved = previous && previous !== roomId ? getScrollAnchor(previous) : undefined;
-  previous && previous !== roomId && timelines[previous]?.trim(KEPT_EVENTS, saved && !saved.bottom ? saved.eventId : undefined);
+  const leaving = previous && previous !== roomId ? timelines[previous] : undefined;
+  leaving && setTimeout(() => leaving.trim(KEPT_EVENTS, saved && !saved.bottom ? saved.eventId : undefined), 1500);
   const markers = get(unreadMarkers);
   if (previous && previous !== roomId && markers[previous] && !markers[previous].armed)
     setMarker(previous, { ...markers[previous], armed: true });
@@ -783,14 +785,21 @@ export const selectRoom = async (roomId: RoomId | null) => {
   Object.keys(timelines).slice(0, -KEPT_TIMELINES).forEach((id) => (delete timelines[id], delete pinnedCache[id]));
   context = null;
   anchor = null;
-  showLive(timeline);
+  const landing = getScrollAnchor(roomId);
+  const events = timeline.getEvents();
+  const still = () => get(currentRoomId) === roomId && !context;
+  const grow = (count: number): unknown =>
+    still() && (count >= Math.min(events.length, WINDOW) ? showLive(timeline) : (currentTimeline.set(events.slice(-count)), requestAnimationFrame(() => setTimeout(() => grow(count + QUICK)))));
+  !landing || landing.bottom ? (canLoadOlder.set(false), detached.set(false), canLoadNewer.set(false), grow(QUICK)) : showLive(timeline);
   unsubscribeTimeline = timeline.on("change", () => context || showLive(timeline));
   loadMembers(roomId);
 
-  if (timeline.getEvents().length === 0 && timeline.canPaginate())
+  if (timeline.getEvents().length === 0 && timeline.canPaginate()) {
     await timeline.paginateBackwards().catch(() => false);
+    if (get(currentRoomId) !== roomId) return;
+    showLive(timeline);
+  }
 
-  showLive(timeline);
   markRoomRead(roomId);
 };
 

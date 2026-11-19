@@ -22,8 +22,16 @@
 
   const roles = $derived(roleIndex(room));
 
+  const collator = new Intl.Collator(undefined, { sensitivity: "base" });
+  let settled = $state<string | undefined>();
+  $effect(() => {
+    const id = room?.roomId;
+    let frame = requestAnimationFrame(() => (frame = requestAnimationFrame(() => (settled = id))));
+    return () => cancelAnimationFrame(frame);
+  });
+
   const members = $derived.by(() => {
-    if (!room) return [];
+    if (!room || settled !== room.roomId) return [];
 
     const fromState = Object.values(room.members).filter(({ membership }) => membership === "join");
     const merged = { ...Object.fromEntries(fromState.map((member) => [member.userId, member])), ...$joinedMembers[room.roomId] };
@@ -37,7 +45,7 @@
         powerLevel: getPowerLevel(room, member.userId),
         role: roles.get(levelOf(room, member.userId)),
       }))
-      .sort((a, b) => b.powerLevel - a.powerLevel || a.displayName.localeCompare(b.displayName));
+      .sort((a, b) => b.powerLevel - a.powerLevel || collator.compare(a.displayName, b.displayName));
   });
 
   const MEMBER_PAGE = 80;
