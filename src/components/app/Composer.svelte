@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  export type Pending = { id: number; file: File; preview?: string; progress: number | null; error?: string };
+  export type Pending = { id: number; file: File; preview?: string; progress: number | null; error?: string; extra?: Record<string, any> };
 </script>
 
 <script lang="ts">
@@ -9,6 +9,8 @@
   import { twemojiFile } from "../../scripts/misc/emoji-data";
   import { useEmoji } from "../../scripts/settings/emoji";
   import EmojiPicker from "./EmojiPicker.svelte";
+  import GifPicker from "./GifPicker.svelte";
+  import type { GifFavourite } from "../../scripts/settings/gifs";
   import EditorField from "./EditorField.svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { formatBytes, sanitiseFilename } from "../../scripts/matrix/utilities/attachments";
@@ -34,6 +36,7 @@
     onmetadata: (keep: boolean) => void;
     onpoll?: () => void;
     onlocation?: () => void;
+    ongif?: (gif: GifFavourite) => void;
   };
 
   let {
@@ -53,6 +56,7 @@
     onmetadata,
     onpoll,
     onlocation,
+    ongif,
   }: Props = $props();
 
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
@@ -68,6 +72,9 @@
   let pickerButton: HTMLButtonElement | undefined = $state();
   let pickerOpen = $state(false);
   let emojiPicker: EmojiPicker | undefined = $state();
+  let gifButton: HTMLButtonElement | undefined = $state();
+  let gifOpen = $state(false);
+  let gifPicker: GifPicker | undefined = $state();
   let face = $state(FACES[0]);
 
   const hasJpeg = $derived(pending.some((item) => item.file.type === "image/jpeg"));
@@ -163,6 +170,19 @@
       </button>
       <input class="sr-only" type="file" multiple tabindex="-1" aria-hidden="true" bind:this={picker} onchange={onpick} />
       <EditorField bind:this={editor} bind:value={draft} bind:pills bind:field {label} composer onsubmit={onsend} {onkey} {onfiles} />
+      {#if ongif}
+        <button
+          type="button"
+          class="icon gif-toggle ghost press"
+          class:open={gifOpen}
+          aria-label={text("gifs", "open_picker")}
+          use:tooltip={text("gifs", "open_picker")}
+          aria-expanded={gifOpen}
+          aria-haspopup="dialog"
+          bind:this={gifButton}
+          onclick={() => (gifOpen ? gifPicker?.dismiss() : (emojiPicker?.dismiss(), (gifOpen = true)))}
+        ><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><mask id="composer-gif-mask"><rect width="24" height="24" fill="white" /><text x="12" y="15.6" text-anchor="middle" font-size="9.5" font-weight="800" font-family="system-ui, sans-serif" letter-spacing="0.4" fill="black">GIF</text></mask><rect x="1.5" y="4.5" width="21" height="15" rx="4.5" fill="currentColor" mask="url(#composer-gif-mask)" /></svg></button>
+      {/if}
       <button
         type="button"
         class="icon emoji-button ghost press"
@@ -186,7 +206,11 @@
 </form>
 
 {#if pickerOpen && pickerButton}
-  <EmojiPicker bind:this={emojiPicker} anchor={pickerButton} oninsert={insertPicked} onclose={() => (pickerOpen = false)} />
+  <EmojiPicker bind:this={emojiPicker} anchor={pickerButton} oninsert={insertPicked} onclose={() => (pickerOpen = false)} ongif={ongif && (() => (gifOpen = true))} />
+{/if}
+
+{#if gifOpen && gifButton && ongif}
+  <GifPicker bind:this={gifPicker} anchor={gifButton} onpick={ongif} onclose={() => (gifOpen = false)} />
 {/if}
 
 <style>
@@ -403,6 +427,27 @@
 
   .metadata input {
     accent-color: var(--colours-accent);
+  }
+
+  .gif-toggle {
+    opacity: 0.55;
+    color: var(--colours-text-faint);
+    transition:
+      color var(--azure-duration-fast) var(--azure-ease-out),
+      transform var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .gif-toggle {
+    transition:
+      color var(--azure-duration-fast) var(--azure-ease-out),
+      opacity var(--azure-duration-fast) var(--azure-ease-out),
+      transform var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .gif-toggle:is(:hover, :focus-visible, .open) {
+    opacity: 1;
+    color: var(--colours-accent);
+    transform: scale(1.1);
   }
 
   .emoji-button {

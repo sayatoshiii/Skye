@@ -69,6 +69,9 @@
     type ReplyTarget,
   } from "../../scripts/stores/matrix";
   import EmojiPicker from "./EmojiPicker.svelte";
+  import GifPicker from "./GifPicker.svelte";
+  import { favouriteGifs, favouriteLinkGif, shareGifbox, gifFromContent, gifFromLink, isGifContent, isGifLink, toggleFavouriteGif, type GifFavourite } from "../../scripts/settings/gifs";
+  import { getLinkPreview } from "../../scripts/matrix/utilities/previews";
   import { quickEmoji, useEmoji } from "../../scripts/settings/emoji";
   import Avatar from "../ui/Avatar.svelte";
   import LinkPreview from "./media/LinkPreview.svelte";
@@ -203,6 +206,7 @@
   const QUICK_TOOLBAR = 3;
   let reactionPicker: EmojiPicker | undefined = $state();
   let reacting: { eventId: string; anchor: HTMLElement } | null = $state.raw(null);
+  let gifReply: { eventId: string; sender: string; anchor: HTMLElement } | null = $state.raw(null);
   const SEEN_LIMIT = 3;
   const TYPING_REFRESH = 4000;
 
@@ -1001,7 +1005,7 @@
       item.error = undefined;
       try {
         const prepared = await prepareAttachment(item.file, !settings?.keepImageMetadata);
-        const content = await uploadAttachment(active, prepared, roomEncrypted, (value) => (item.progress = value));
+        const content = await uploadAttachment(active, prepared, roomEncrypted, (value) => (item.progress = value), undefined, item.extra);
         await sendRoomMessage(content, reply, roomId);
         removePending(item.id);
       } catch {
@@ -1030,6 +1034,39 @@
 
     draft = "";
   };
+
+  const sendGif = async (gif: GifFavourite, reply?: ReplyTarget) => {
+    if (!room) return;
+    readFromNotice();
+    stuck = true;
+    if (isDetached) jumpToPresent();
+    if (gif.kind === "mxc") return void sendRoomMessage({ msgtype: gif.msgtype ?? "m.image", body: gif.body, info: gif.info, ...(gif.url ? { url: gif.url } : { file: gif.file }) }, reply).catch(() => undefined);
+    const from = gif.media ?? gif.full;
+    const blob = from ? await fetch(from).then((response) => (response.ok ? response.blob() : null)).catch(() => null) : null;
+    if (!blob || !/^(image|video)\//.test(blob.type)) return void sendMessage(gif.url, reply).catch(() => undefined);
+    shareGifbox(gif.postId);
+    const stem = (gif.title ?? (gif.url.split("/").pop() ?? "gif").split(/[?#]/)[0].replace(/\.\w+$/, "")).trim() || "gif";
+    await addFiles([new File([blob], `${stem}.${blob.type.split("/")[1]?.split(";")[0] ?? "gif"}`, { type: blob.type })]);
+    const item = pending.at(-1);
+    if (!item || item.error) return;
+    item.extra = blob.type.startsWith("video/") ? { "fi.mau.gif": true, "fi.mau.loop": true, "fi.mau.autoplay": true, "fi.mau.hide_controls": true, "fi.mau.no_audio": true } : undefined;
+    uploadPending([item], room.id, encrypted, reply);
+  };
+
+  const sendComposerGif = (gif: GifFavourite) => {
+    const reply = replying ? { eventId: replying.eventId, sender: replying.sender } : undefined;
+    replying = null;
+    sendGif(gif, reply);
+  };
+
+  let gifIds = $state.raw(new Set<string>());
+  $effect(() => favouriteGifs.subscribe((value) => (gifIds = new Set(value.map((item) => item.id)))));
+
+  const favouriteLink = (url: string, ts: number) =>
+    favouriteLinkGif(url, async () => {
+      const preview = $session ? await getLinkPreview($session, url, ts).catch(() => null) : null;
+      return gifFromLink(url, preview?.image, preview?.imageWidth, preview?.imageHeight);
+    });
 
   let pollOpen = $state(false);
 
@@ -1879,6 +1916,7 @@
       onmetadata={setKeepImageMetadata}
       onpoll={() => (pollOpen = true)}
       onlocation={shareLocation}
+      ongif={sendComposerGif}
     />
     {/if}
 
@@ -1938,7 +1976,13 @@
   {/if}
 
   {#if reacting}
-    <EmojiPicker bind:this={reactionPicker} anchor={reacting.anchor} oninsert={pickReaction} onclose={() => (reacting = null)} />
+    {@const target = reacting}
+    <EmojiPicker bind:this={reactionPicker} anchor={reacting.anchor} oninsert={pickReaction} onclose={() => (reacting = null)} ongif={() => (gifReply = { eventId: target.eventId, sender: findReply(target.eventId)?.sender ?? "", anchor: target.anchor })} />
+  {/if}
+
+  {#if gifReply}
+    {@const target = gifReply}
+    <GifPicker anchor={target.anchor} onpick={(gif) => sendGif(gif, { eventId: target.eventId, sender: target.sender })} onclose={() => (gifReply = null)} />
   {/if}
 
   {#if people}

@@ -15,10 +15,12 @@
     anchor,
     oninsert,
     onclose,
+    ongif,
   }: {
     anchor: HTMLElement;
     oninsert: (unicode: string, keepOpen: boolean) => void;
     onclose: () => void;
+    ongif?: () => void;
   } = $props();
 
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
@@ -241,6 +243,9 @@
       bind:this={search}
       bind:value={query}
     />
+    {#if ongif}
+      <button type="button" class="gif-button ghost press" aria-label={text("gifs", "open_picker")} use:tooltip={text("gifs", "open_picker")} onclick={() => (ongif(), exit.close())}><svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><mask id="picker-gif-mask"><rect width="24" height="24" fill="white" /><text x="12" y="15.6" text-anchor="middle" font-size="9.5" font-weight="800" font-family="system-ui, sans-serif" letter-spacing="0.4" fill="black">GIF</text></mask><rect x="1.5" y="4.5" width="21" height="15" rx="4.5" fill="currentColor" mask="url(#picker-gif-mask)" /></svg></button>
+    {/if}
     <div class="tone-wrap">
       <button type="button" class="tone-button ghost press" aria-label={text("emoji", "skin_tone")} aria-expanded={tones} onclick={() => (tones = !tones)}>
         <img src={src(TONES[tone])} alt="" draggable="false" />
@@ -395,6 +400,26 @@
 
   .tone-wrap {
     position: relative;
+  }
+
+  .gif-button {
+    height: 34px;
+    display: grid;
+    place-items: center;
+    width: 34px;
+    padding: 0;
+    border: 0;
+    border-radius: var(--azure-radius-sm);
+    color: var(--colours-text-faint);
+    background-color: transparent;
+    transition:
+      color var(--azure-duration-fast) var(--azure-ease-out),
+      background-color var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .gif-button:hover {
+    color: var(--colours-accent);
+    background-color: var(--colours-surface-hover);
   }
 
   .tone-button {
