@@ -160,7 +160,9 @@
   };
 
   const placeStrip = (index: number) => {
-    const size = Math.min(100 / Math.max(strip.length, 1), 25);
+    const fill = 100 / Math.max(strip.length, 1);
+    const wide = width ? ((height * (100 - STAGE)) / 100) * (16 / 9) / width * 100 : 25;
+    const size = Math.min(fill, Math.max(wide, 25));
     return { x: (100 - strip.length * size) / 2 + index * size, y: STAGE, w: size, h: 100 - STAGE };
   };
 
