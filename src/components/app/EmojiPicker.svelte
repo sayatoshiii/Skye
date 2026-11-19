@@ -386,7 +386,7 @@
     border-radius: var(--azure-radius-md);
     border: none;
     font: inherit;
-    font-size: max(16px, var(--text-md));
+    font-size: var(--text-md);
     color: var(--colours-text-strong);
     background-color: var(--colours-surface-hover);
     outline: none;
@@ -639,6 +639,12 @@
       from {
         translate: 0 100%;
       }
+    }
+  }
+
+  @media (pointer: coarse) {
+    .search {
+      font-size: max(16px, var(--text-md));
     }
   }
 </style>

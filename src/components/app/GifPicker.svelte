@@ -447,7 +447,7 @@
     border: none;
     background: none;
     font: inherit;
-    font-size: max(16px, var(--text-md));
+    font-size: var(--text-md);
     color: var(--colours-text-strong);
     outline: none;
   }
@@ -651,5 +651,11 @@
 
   .star.on path {
     fill: currentColor;
+  }
+
+  @media (pointer: coarse) {
+    .search {
+      font-size: max(16px, var(--text-md));
+    }
   }
 </style>
