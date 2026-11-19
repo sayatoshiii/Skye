@@ -429,25 +429,19 @@
     accent-color: var(--colours-accent);
   }
 
-  .gif-toggle {
-    opacity: 0.55;
-    color: var(--colours-text-faint);
-    transition:
-      color var(--azure-duration-fast) var(--azure-ease-out),
-      transform var(--azure-duration-md) var(--azure-ease-spring);
-  }
-
-  .gif-toggle {
+  .gif-toggle svg {
+    opacity: 0.45;
+    color: var(--colours-text-muted);
     transition:
       color var(--azure-duration-fast) var(--azure-ease-out),
       opacity var(--azure-duration-fast) var(--azure-ease-out),
       transform var(--azure-duration-md) var(--azure-ease-spring);
   }
 
-  .gif-toggle:is(:hover, :focus-visible, .open) {
+  .gif-toggle:is(:hover, :focus-visible, .open) svg {
     opacity: 1;
-    color: var(--colours-accent);
-    transform: scale(1.1);
+    color: var(--colours-text-strong);
+    transform: scale(1.14);
   }
 
   .emoji-button {
