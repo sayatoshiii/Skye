@@ -2731,6 +2731,7 @@
     padding: 0 var(--azure-spacing-md);
     border-radius: 8px;
     color: white;
+    border: 0;
     background-color: var(--colours-accent);
     transition: opacity 320ms cubic-bezier(0.32, 0.72, 0, 1), filter 320ms cubic-bezier(0.32, 0.72, 0, 1);
   }
