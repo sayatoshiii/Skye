@@ -24,7 +24,7 @@ fn unlock(window: &tauri::WebviewWindow) {
   let _ = window.with_webview(move |webview| {
     use webkit2gtk::{CacheModel, PermissionRequestExt, SettingsExt, WebContextExt, WebViewExt};
     let view = webview.inner();
-    view.context().map(|context| context.set_cache_model(CacheModel::DocumentViewer));
+    view.context().map(|context| context.set_cache_model(CacheModel::DocumentBrowser));
     WebViewExt::settings(&view).map(|settings| (settings.set_enable_page_cache(false), settings.set_enable_back_forward_navigation_gestures(false)));
     WebViewExt::settings(&view).map(|settings| (settings.set_enable_media_stream(true), settings.set_enable_webrtc(true), settings.set_enable_mediasource(true), settings.set_media_playback_requires_user_gesture(false)));
     view.connect_permission_request(|_, request| (request.allow(), true).1);
