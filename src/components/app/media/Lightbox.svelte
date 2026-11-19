@@ -37,7 +37,7 @@
   let x = $state(0);
   let y = $state(0);
   let gesturing = $state(false);
-  let image: HTMLImageElement | undefined = $state();
+  let image: HTMLImageElement | HTMLVideoElement | undefined = $state();
   let stage: HTMLDivElement | undefined = $state();
 
   $effect(() => {
@@ -189,15 +189,30 @@
         {onclick}
         {oncontextmenu}
       >
-        <img
-          bind:this={image}
-          src={link}
-          alt={item.name}
-          draggable="false"
-          data-native-menu
-          style:aspect-ratio={item.w && item.h ? `${item.w} / ${item.h}` : undefined}
-          style:transform={`translate3d(${x}px, ${y}px, 0) scale(${zoom})`}
-        />
+        {#if item.mimetype.startsWith("video/")}
+          <video
+            bind:this={image}
+            src={link}
+            aria-label={item.name}
+            autoplay
+            muted
+            loop
+            playsinline
+            disablepictureinpicture
+            style:aspect-ratio={item.w && item.h ? `${item.w} / ${item.h}` : undefined}
+            style:transform={`translate3d(${x}px, ${y}px, 0) scale(${zoom})`}
+          ></video>
+        {:else}
+          <img
+            bind:this={image}
+            src={link}
+            alt={item.name}
+            draggable="false"
+            data-native-menu
+            style:aspect-ratio={item.w && item.h ? `${item.w} / ${item.h}` : undefined}
+            style:transform={`translate3d(${x}px, ${y}px, 0) scale(${zoom})`}
+          />
+        {/if}
       </div>
     {:else}
       <span class="spinner" aria-hidden="true"></span>
@@ -310,7 +325,8 @@
     transition: none;
   }
 
-  img {
+  img,
+  video {
     position: relative;
     max-width: 100%;
     max-height: 100%;

@@ -100,17 +100,15 @@
   >
     {#if failed}
       <span class="state xs faint">{text("media", "load_failed")}</span>
-    {:else if kind === "image"}
+    {:else if kind === "image" || looping}
       <button type="button" class="open ghost" aria-label={text("media", "open").replace("{name}", name)} onclick={open}>
-        {#if link}<img src={link} alt={content.body ?? ""} draggable="false" />{/if}
+        {#if link && looping}<video src={link} autoplay muted loop playsinline disablepictureinpicture aria-label={name} onerror={() => (unplayable = true)}></video>{:else if link}<img src={link} alt={content.body ?? ""} draggable="false" />{/if}
       </button>
       {#if gif}
         <button type="button" class="gif-star ghost press" class:on={starred} aria-label={text("gifs", starred ? "unfavourite" : "favourite")} aria-pressed={starred} use:starburst={starred} use:tooltip={text("gifs", starred ? "unfavourite" : "favourite")} onclick={() => gif && toggleFavouriteGif(gif)}>
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.star} /></svg>
         </button>
       {/if}
-    {:else if looping}
-      {#if link}<video src={link} autoplay muted loop playsinline disablepictureinpicture aria-label={name} onerror={() => (unplayable = true)}></video>{/if}
     {:else if playing && link}
       <VideoPlayer {link} {name} size={Number(info.size) || undefined} width={Number(info.w) || undefined} height={Number(info.h) || undefined} {sender} {ts} onerror={() => (unplayable = true)} ondownload={downloading ? undefined : download} />
     {:else}
