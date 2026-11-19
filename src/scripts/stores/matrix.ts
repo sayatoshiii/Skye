@@ -189,7 +189,6 @@ let cryptoHandle: CryptoHandle | null = null;
 const timelines: Record<RoomId, TimelineHandle> = {};
 const KEPT_TIMELINES = 40;
 const KEPT_EVENTS = 150;
-const QUICK = 25;
 let unsubscribeTimeline: (() => void) | null = null;
 
 type ContextView = {
@@ -758,7 +757,7 @@ export const selectRoom = async (roomId: RoomId | null) => {
   const previous = get(currentRoomId);
   const saved = previous && previous !== roomId ? getScrollAnchor(previous) : undefined;
   const leaving = previous && previous !== roomId ? timelines[previous] : undefined;
-  leaving && setTimeout(() => leaving.trim(KEPT_EVENTS, saved && !saved.bottom ? saved.eventId : undefined), 1500);
+  leaving && setTimeout(() => get(currentRoomId) !== previous && leaving.trim(KEPT_EVENTS, saved && !saved.bottom ? saved.eventId : undefined), 1500);
   const markers = get(unreadMarkers);
   if (previous && previous !== roomId && markers[previous] && !markers[previous].armed)
     setMarker(previous, { ...markers[previous], armed: true });
@@ -785,12 +784,7 @@ export const selectRoom = async (roomId: RoomId | null) => {
   Object.keys(timelines).slice(0, -KEPT_TIMELINES).forEach((id) => (delete timelines[id], delete pinnedCache[id]));
   context = null;
   anchor = null;
-  const landing = getScrollAnchor(roomId);
-  const events = timeline.getEvents();
-  const still = () => get(currentRoomId) === roomId && !context;
-  const grow = (count: number): unknown =>
-    still() && (count >= Math.min(events.length, WINDOW) ? showLive(timeline) : (currentTimeline.set(events.slice(-count)), requestAnimationFrame(() => setTimeout(() => grow(count + QUICK)))));
-  !landing || landing.bottom ? (canLoadOlder.set(false), detached.set(false), canLoadNewer.set(false), grow(QUICK)) : showLive(timeline);
+  showLive(timeline);
   unsubscribeTimeline = timeline.on("change", () => context || showLive(timeline));
   loadMembers(roomId);
 
@@ -934,7 +928,7 @@ export const loadOlderMessages = () => {
 
   const timeline = getTimeline(roomId);
   const ready = topOf(timeline.getEvents()) > 0 ? Promise.resolve(true) : timeline.paginateBackwards().catch(() => false);
-  return ready.then(() => (moveWindow(timeline, -STEP), topOf(timeline.getEvents()) > 0 || timeline.canPaginate()));
+  return ready.then(() => get(currentRoomId) === roomId && !context && (moveWindow(timeline, -STEP), topOf(timeline.getEvents()) > 0 || timeline.canPaginate()));
 };
 
 export type ReplyTarget = { eventId: EventId; sender: UserId };
