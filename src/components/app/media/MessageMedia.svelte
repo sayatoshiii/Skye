@@ -123,6 +123,7 @@
         <span class="sm bold truncate">{name}</span>
         {#if Number(info.size) > 0}<span class="xs">{formatBytes(info.size)}</span>{/if}
       </span>
+      <button type="button" class="surface ghost" tabindex="-1" aria-hidden="true" onclick={play} disabled={playing}></button>
       <button type="button" class="play ghost press" aria-label={text("media", "play_video")} onclick={play} disabled={playing}>
         <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M8 5.5v13l11-6.5-11-6.5Z" /></svg>
       </button>
@@ -246,6 +247,15 @@
     inset: 0;
     display: grid;
     place-items: center;
+  }
+
+  .surface,
+  .surface:hover {
+    position: absolute;
+    inset: 0;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
   }
 
   .play {

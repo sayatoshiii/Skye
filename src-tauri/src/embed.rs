@@ -37,8 +37,8 @@ fn answer(mut stream: TcpStream) {
   let found = path.strip_prefix("/media/").and_then(|id| media().lock().ok()?.get(id).cloned());
   let _ = match found {
     Some((kind, bytes)) => match span(&head, bytes.len()) {
-      Some((from, to)) => write!(stream, "HTTP/1.1 206 Partial Content\r\nContent-Type: {kind}\r\nAccept-Ranges: bytes\r\nContent-Range: bytes {from}-{to}/{}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n", bytes.len(), to - from + 1).and_then(|_| stream.write_all(&bytes[from..=to])),
-      None => write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nAccept-Ranges: bytes\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n", bytes.len()).and_then(|_| stream.write_all(&bytes)),
+      Some((from, to)) => write!(stream, "HTTP/1.1 206 Partial Content\r\nContent-Type: {kind}\r\nAccept-Ranges: bytes\r\nCache-Control: private, max-age=31536000, immutable\r\nContent-Range: bytes {from}-{to}/{}\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n", bytes.len(), to - from + 1).and_then(|_| stream.write_all(&bytes[from..=to])),
+      None => write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: {kind}\r\nAccept-Ranges: bytes\r\nCache-Control: private, max-age=31536000, immutable\r\nContent-Length: {}\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n", bytes.len()).and_then(|_| stream.write_all(&bytes)),
     },
     None if path.starts_with("/media/") => write!(stream, "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"),
     None => write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n{PAGE}", PAGE.len()),
