@@ -2,7 +2,6 @@
   import { tooltip } from "../../scripts/misc/tooltip";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { ownProfile } from "../../scripts/stores/matrix";
-  import { settingsOpen } from "../../scripts/stores/settings";
   import { ownStatus, profileFields, serverPresence, setOwnStatus, statusMessage, type StatusMode } from "../../scripts/stores/presence";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import MessageMenu, { type MenuItem } from "../app/MessageMenu.svelte";
@@ -59,7 +58,6 @@
     ...(message
       ? [{ id: "clear", label: text("status", "clear_custom"), icon: MENU_ICONS.close, run: () => setOwnStatus({ mode: $ownStatus.mode }) }]
       : []),
-    { id: "settings", label: getLocalisedText(undefined, "settings", "open") as string, icon: MENU_ICONS.settings, run: () => settingsOpen.set(true) },
   ]);
 
   const open = (event: MouseEvent) => {
