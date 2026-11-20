@@ -23,6 +23,7 @@
     link = undefined;
     if (!current) return;
 
+    if (typeof current.source === "string") return void ((link = current.source), queueMicrotask(() => closeButton?.focus()));
     const handle = acquireMediaLink(current.source, current.mimetype);
     handle.link.then((value) => item === current && (link = value)).catch(() => undefined);
     queueMicrotask(() => closeButton?.focus());
@@ -127,8 +128,8 @@
   let menu: { x: number; y: number } | null = $state.raw(null);
 
   const menuItems = (current: LightboxItem): MenuItem[] => [
-    ...(canCopyMedia(current.mimetype)
-      ? [{ id: "copy", label: text("chat", "copy_image"), icon: MENU_ICONS.copy, run: () => void copyMedia(current.source, current.mimetype).then(() => toastKey("image_copied", { icon: "copy" }), () => undefined) }]
+    ...(typeof current.source !== "string" && canCopyMedia(current.mimetype)
+      ? [{ id: "copy", label: text("chat", "copy_image"), icon: MENU_ICONS.copy, run: () => void copyMedia(current.source as Exclude<LightboxItem["source"], string>, current.mimetype).then(() => toastKey("image_copied", { icon: "copy" }), () => undefined) }]
       : []),
     { id: "save", label: text("chat", "save"), icon: MENU_ICONS.save, run: () => void downloadMedia(current.source, current.name).then(() => toastKey("saved", { icon: "save", tone: "success" }), () => undefined) },
   ];
