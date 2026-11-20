@@ -362,6 +362,17 @@ const syncAudio = () => audioElements.forEach(applyOutput);
 deafened.subscribe(syncAudio);
 voicePrefs.subscribe(syncAudio);
 
+export const voicePing = writable<number | null>(null);
+
+export const measurePing = async () => {
+  const link = publishLink();
+  const sender = [...(link?.room.localParticipant.trackPublications.values() ?? [])].map((publication) => publication.track?.sender).find(Boolean);
+  const stats = sender ? await sender.getStats().catch(() => null) : null;
+  const pair = [...(stats?.values() ?? [])].find((entry) => entry.type === "candidate-pair" && entry.nominated && entry.currentRoundTripTime !== undefined);
+  const rtt = pair ? pair.currentRoundTripTime * 1000 : (link?.room as unknown as { engine?: { client?: { rtt?: number } } })?.engine?.client?.rtt;
+  voicePing.set(rtt ? Math.round(rtt) : null);
+};
+
 const publishLink = () => [...(live?.links.values() ?? [])].find((link) => link.publish);
 bridgePublisher(() => publishLink()?.room.localParticipant as never);
 

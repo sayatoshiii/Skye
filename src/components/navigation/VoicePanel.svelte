@@ -8,7 +8,7 @@
   import { rooms, session } from "../../scripts/stores/matrix";
   import { openJoined } from "../../scripts/stores/navigation.svelte";
   import { settingsOpen, settingsSection } from "../../scripts/stores/settings";
-  import { deafened, muted, pttHeld, toggleDeafen, toggleMute, voice, voicePrefs } from "../../scripts/stores/voice";
+  import { deafened, muted, pttHeld, toggleDeafen, toggleMute, measurePing, voice, voicePing, voicePrefs } from "../../scripts/stores/voice";
   import type { MenuItem } from "../app/MessageMenu.svelte";
   import Icon from "../settings/Icon.svelte";
   import { SETTINGS_ICONS } from "../settings/icons";
@@ -23,6 +23,13 @@
   const status = $derived(shown?.status === "connected" ? "connected" : (shown?.status ?? "connecting"));
   const quality = $derived(shown?.status === "connected" ? shown.quality : "unknown");
   const open = () => shown && openJoined(shown.roomId);
+
+  $effect(() => {
+    if (status !== "connected") return void voicePing.set(null);
+    measurePing();
+    const timer = setInterval(measurePing, 2000);
+    return () => clearInterval(timer);
+  });
   const settings = () => (settingsSection.set("voice"), settingsOpen.set(true));
 
   const items = (): MenuItem[] => [
@@ -47,9 +54,9 @@
     <section class="voice col gap-sm" aria-label={text("connected")} use:menu={items}>
       <div class="row-nw align-centre gap-sm">
         <button type="button" class="info ghost press col min-0 flex-max" onclick={open}>
-          <span class="state row-nw align-centre gap-xs sm bold" data-status={status} data-quality={quality} use:tooltip={text(`quality_${quality}`)}>
-            <span class="bars" aria-hidden="true"><Icon name="signal" size={16} /></span>
-            <span class="truncate">{text(status)}</span>
+          <span class="state row-nw align-centre gap-xs sm bold" data-status={status} data-quality={quality}>
+            <span class="bars" role="img" aria-label={$voicePing ? `${$voicePing}ms` : text(`quality_${quality}`)} use:tooltip={$voicePing ? `${$voicePing}ms` : text(`quality_${quality}`)}><Icon name="signal" size={16} /></span>
+            <span class="truncate" use:tooltip={text(`quality_${quality}`)}>{text(status)}</span>
           </span>
           <span class="where xs muted truncate">{room?.name ?? ""}{shown?.kind === "legacy" ? ` / ${text("legacy")}` : ""}</span>
         </button>
