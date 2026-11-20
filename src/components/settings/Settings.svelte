@@ -33,7 +33,7 @@
     { id: "account", group: "user", icon: "account", parts: ["info", "password", "removal"], view: AccountSection },
     { id: "devices", group: "user", icon: "laptop", parts: ["current", "others"], view: DevicesSection },
     { id: "privacy", group: "user", icon: "privacy", parts: ["encryption", "backup", "ignored"], view: PrivacySection },
-    { id: "appearance", group: "app", icon: "appearance", parts: ["theme", "accent", "motion"], view: AppearanceSection },
+    { id: "appearance", group: "app", icon: "appearance", parts: ["theme", "accent", "motion", "behaviour"], view: AppearanceSection },
     { id: "notifications", group: "app", icon: "notifications", parts: ["browser", "synced"], view: NotificationsSection },
     { id: "voice", group: "app", icon: "mic", parts: ["input", "output", "camera", "talk"], view: VoiceSection },
   ];

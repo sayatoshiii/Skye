@@ -351,6 +351,8 @@
         "hide_redacted": "Hide deleted messages",
         "hide_redacted_hint": "Hide deleted message indicators from your chats",
         "gifs_as_links": "Send GIFs as links",
+        "quick_opens_chat": "Open chat after a quick message",
+        "quick_opens_chat_hint": "Jump to the conversation when you message someone from their profile card",
         "gifs_as_links_hint": "Share GIFs from the picker as embedded links instead of uploading the file",
         "animations_system": "Your system asks for reduced motion, so animations stay off",
         "copy_hex": "Copy colour code",
@@ -520,6 +522,7 @@
         "failed": "Couldn't deactivate your account. Check your password."
       },
       "parts": {
+        "behaviour": "Behaviour",
         "name": "Display name",
         "avatar": "Avatar",
         "banner": "Banner",

@@ -255,10 +255,10 @@
     <label class="search-box row-nw align-centre gap-sm">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13ZM20 20l-4.6-4.6" /></svg>
       <input class="search flex-max" type="search" placeholder={text("search")} aria-label={text("search")} bind:this={search} bind:value={query} />
-      <button type="button" class="as-links ghost press" class:on={$mediaSettings.gifsAsLinks} aria-pressed={$mediaSettings.gifsAsLinks} aria-label={text($mediaSettings.gifsAsLinks ? "as_links" : "as_files")} use:tooltip={text($mediaSettings.gifsAsLinks ? "as_links" : "as_files")} onclick={() => setGifsAsLinks(!$mediaSettings.gifsAsLinks)}>
-        {#key $mediaSettings.gifsAsLinks}
+      <button type="button" class="as-links ghost press" class:on={$mediaSettings.gifLinks} aria-pressed={$mediaSettings.gifLinks} aria-label={text($mediaSettings.gifLinks ? "as_links" : "as_files")} use:tooltip={text($mediaSettings.gifLinks ? "as_links" : "as_files")} onclick={() => setGifsAsLinks(!$mediaSettings.gifLinks)}>
+        {#key $mediaSettings.gifLinks}
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" in:swap>
-            {#if $mediaSettings.gifsAsLinks}
+            {#if $mediaSettings.gifLinks}
               <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M10 14a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 0 0-6.4-6.4l-1 1M14 10a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 0 0 6.4 6.4l1-1" />
             {:else}
               <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8zM14 3v5h5M12 18v-6M9.5 14.5 12 12l2.5 2.5" />
