@@ -110,10 +110,16 @@
   const live = $derived(link.includes("/live/"));
   let base = $state(0);
   const edge = () => base + (video?.buffered.length ? video.buffered.end(video.buffered.length - 1) : 0);
-  const goto = (time: number) => {
+  let pending: number | null = null;
+  let restart: ReturnType<typeof setTimeout> | undefined;
+  const reload = () => video && pending !== null && ((base = pending), (pending = null), (video.src = `${link}?t=${base.toFixed(2)}`), video.play().catch(() => undefined));
+  const goto = (time: number, now = !scrubbing) => {
     if (!video) return;
-    live && (time < base || time > edge() + 0.5) ? ((time = total ? Math.min(time, Math.max(0, total - 1)) : time), (base = time), (waiting = true), (video.src = `${link}?t=${time.toFixed(2)}`), video.play().catch(() => undefined)) : (video.currentTime = time - base);
-    current = time;
+    const end = total && time >= total - 0.25;
+    const far = live && (time < base || time > edge() + 0.5);
+    clearTimeout(restart);
+    end && live ? ((pending = null), video.pause(), (ended = true), (paused = true)) : far ? ((pending = Math.min(time, Math.max(0, total - 0.5))), (waiting = true), now && (restart = setTimeout(reload, 180))) : ((pending = null), (video.currentTime = Math.min(time, total || time) - base));
+    current = end ? total : time;
   };
 
   $effect(() => {
@@ -194,6 +200,7 @@
 
   const onscrubend = (event: PointerEvent) => {
     scrubbing = false;
+    pending !== null && reload();
     if (event.pointerType !== "mouse") hover = null;
     wake();
   };
@@ -286,7 +293,7 @@
     ondblclick={toggleFullscreen}
     onloadedmetadata={() => video && !live && Number.isFinite(video.duration) && (total = video.duration)}
     ondurationchange={() => video && !live && Number.isFinite(video.duration) && (total = video.duration)}
-    ontimeupdate={() => video && ((current = base + video.currentTime), !video.paused && (waiting = false))}
+    ontimeupdate={() => video && pending === null && ((current = base + video.currentTime), !video.paused && (waiting = false))}
     onprogress={onbuffer}
     onplay={() => {
       paused = false;
