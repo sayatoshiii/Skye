@@ -171,24 +171,28 @@ const stream = async (blob: Blob, mimetype: string) => {
   return info.duration ? link.replace("/media/", "/live/") : (info.error === "gstreamer" && gstreamerMissing.set(true), unserve(link), URL.createObjectURL(blob));
 };
 
-const playable = async (blob: Blob, mimetype: string, live = false) => {
+const playable = async (blob: Blob, mimetype: string, live = false, urgent = false) => {
   const link = URL.createObjectURL(blob);
-  return !chromium() || !/^(video|audio)\//.test(mimetype) || (await plays(link, mimetype)) ? link : (URL.revokeObjectURL(link), live ? stream(blob, mimetype) : serve(blob, mimetype, true));
+  return !chromium() || !/^(video|audio)\//.test(mimetype) || (await plays(link, mimetype)) ? link : (URL.revokeObjectURL(link), live ? stream(blob, mimetype) : serve(blob, mimetype, true, urgent));
 };
 
-const serve = async (blob: Blob, mimetype: string, convert = false) => {
+const converted = new Set<string>();
+
+const serve = async (blob: Blob, mimetype: string, convert = false, urgent = false) => {
   const { invoke } = await import("@tauri-apps/api/core");
   const [port, id] = await Promise.all([embedPort, invoke<string>("media_put", new Uint8Array(await blob.arrayBuffer()), { headers: { "x-type": mimetype } })]);
-  const ready = convert ? await invoke("media_transcode", { id }).then(() => true, (error) => (String(error) === "gstreamer" && gstreamerMissing.set(true), false)) : true;
-  return port && ready ? `http://localhost:${port}/media/${id}` : (unserve(`/${id}`), URL.createObjectURL(blob));
+  const ready = convert ? await invoke("media_transcode", { id, urgent }).then(() => true, (error) => (String(error) === "gstreamer" && gstreamerMissing.set(true), false)) : true;
+  const link = port && ready ? `http://localhost:${port}/media/${id}` : (unserve(`/${id}`), URL.createObjectURL(blob));
+  convert && !urgent && !link.startsWith("blob:") && converted.add(link);
+  return link;
 };
 
 const unserve = (link: string) => import("@tauri-apps/api/core").then(({ invoke }) => invoke("media_drop", { id: link.split("/").pop() }));
 
 const KEEP_LIVE = 5 * 60_000;
 
-export const acquireMediaLink = (source: MediaSource, mimetype: string, live = false) =>
-  hold(`${getSourceKey(source)}:${mimetype}${live ? ":live" : ""}`, () => getMediaBlob(source, mimetype).then((blob) => (served(mimetype) ? serve(blob, mimetype) : playable(blob, mimetype, live))));
+export const acquireMediaLink = (source: MediaSource, mimetype: string, live = false, urgent = false) =>
+  hold(`${getSourceKey(source)}:${mimetype}${live ? ":live" : ""}`, () => getMediaBlob(source, mimetype).then((blob) => (served(mimetype) ? serve(blob, mimetype) : playable(blob, mimetype, live, urgent))));
 
 export const acquireRemoteVideo = (url: string) =>
   hold(`remote:${url}`, () => (chromium() ? fetch(url).then((response) => response.blob()).then((blob) => playable(blob, blob.type.startsWith("video/") ? blob.type : "video/mp4")) : Promise.resolve(url)));
@@ -218,7 +222,7 @@ const hold = (key: string, make: () => Promise<string>) => {
         entry.link.then((link) => (link.startsWith("blob:") ? URL.revokeObjectURL(link) : unserve(link))).catch(() => undefined);
       };
       if (--entry.count > 0 || linkCache[key] !== entry) return;
-      entry.link.then((link) => (link.startsWith("blob:") ? drop() : setTimeout(drop, KEEP_LIVE)), drop);
+      entry.link.then((link) => (converted.has(link) ? undefined : link.startsWith("blob:") ? drop() : setTimeout(drop, KEEP_LIVE)), drop);
     },
   };
 };

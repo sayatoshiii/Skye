@@ -24,7 +24,7 @@
     if (!current) return;
 
     if (typeof current.source === "string") return void ((link = current.source), queueMicrotask(() => closeButton?.focus()));
-    const handle = acquireMediaLink(current.source, current.mimetype);
+    const handle = acquireMediaLink(current.source, current.mimetype, false, current.mimetype.startsWith("video/"));
     handle.link.then((value) => item === current && (link = value)).catch(() => undefined);
     queueMicrotask(() => closeButton?.focus());
     return handle.release;

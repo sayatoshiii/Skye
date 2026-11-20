@@ -127,7 +127,8 @@ fn tune(element: &gstreamer::Element) {
       element.set_property_from_str("deadline", "1");
       element.set_property("cpu-used", 8i32);
       element.set_property("row-mt", true);
-      element.set_property("lag-in-frames", 0i32);
+      element.set_property_from_str("end-usage", "cq");
+      element.set_property("cq-level", 30i32);
       element.set_property("threads", std::thread::available_parallelism().map(|cores| cores.get() as i32).unwrap_or(4).min(16));
       element.set_property("target-bitrate", 4_000_000i32);
     }
@@ -288,7 +289,9 @@ fn transcode(_: &str, _: &[u8]) -> Result<Vec<u8>, String> {
 }
 
 #[tauri::command]
-pub async fn media_transcode(id: String) -> Result<(), String> {
+pub async fn media_transcode(id: String, urgent: Option<bool>) -> Result<(), String> {
+  static POOL: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(2);
+  let _turn = match urgent.unwrap_or(false) { true => None, false => Some(POOL.acquire().await.map_err(|error| error.to_string())?) };
   let input = media().lock().map_err(|error| error.to_string())?.get(&id).map(|(_, bytes)| bytes.clone()).ok_or("missing")?;
   let output = tauri::async_runtime::spawn_blocking({
     let id = id.clone();
