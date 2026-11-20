@@ -696,7 +696,7 @@
   }
 
   .tiles {
-    --avatar: clamp(44px, calc(min(100cqw, 100cqh) * 0.42), 128px);
+    --avatar: clamp(24px, min(42cqw, 42cqh, calc(100cqh - 60px)), 128px);
     position: relative;
     height: 188px;
     min-height: 0;
