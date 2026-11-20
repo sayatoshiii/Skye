@@ -197,7 +197,7 @@
 {/if}
 
 <style>
-  :global(.confirm:has(.poll-form)) {
+  :global(.confirm-layer .confirm:has(.poll-form)) {
     width: min(100%, 820px);
     max-height: calc(100dvh - 2 * var(--azure-spacing-lg));
     overflow-y: auto;
