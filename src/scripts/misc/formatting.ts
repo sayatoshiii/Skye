@@ -174,7 +174,7 @@ const decorate = (root: DocumentFragment | HTMLElement, options: RenderOptions) 
 
     anchor.classList.add("mention");
     anchor.dataset.userId = userId;
-    anchor.textContent = `@${options.resolveName?.(userId) ?? anchor.textContent?.replace(/^@/, "") ?? userId}`;
+    anchor.textContent = `@${(options.resolveName?.(userId) ?? anchor.textContent ?? userId).replace(/^@+/, "")}`;
     if (userId === options.ownUserId) {
       anchor.classList.add("me");
       mentionsMe = true;
