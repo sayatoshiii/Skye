@@ -7,6 +7,7 @@
   import { embedPort, wrapEmbed } from "../../../scripts/misc/native";
   import { mediaSettings, setAlwaysAllowEmbed, type MediaSettings } from "../../../scripts/settings/media";
   import { session } from "../../../scripts/stores/matrix";
+  import { lightbox } from "../../../scripts/stores/lightbox";
   import { favouriteGifs, gifFromGifbox, gifFromLink, gifboxReady, isGifbox, isGifLink, resolveGifbox, toggleFavouriteGif, type Gifbox } from "../../../scripts/settings/gifs";
   import { MENU_ICONS } from "../../../scripts/misc/icons";
   import { tooltip } from "../../../scripts/misc/tooltip";
@@ -63,6 +64,7 @@
     {#if box}
       <div class="card gifbox" style:aspect-ratio="{box.w} / {box.h}">
         <video src={box.video} poster={box.image} onplaying={(event) => event.currentTarget.removeAttribute("poster")} autoplay muted loop playsinline disablepictureinpicture aria-label={box.title ?? "GIF"}></video>
+        <button type="button" class="gif-open ghost" aria-label={box.title ?? "GIF"} onclick={() => box && lightbox.set({ source: box.video, mimetype: "video/mp4", name: `${box.title ?? "gif"}.mp4`, w: box.w, h: box.h })}></button>
         <button type="button" class="gif-star ghost press" class:on={starred} aria-label={text("gifs", starred ? "unfavourite" : "favourite")} aria-pressed={starred} use:starburst={starred} use:tooltip={text("gifs", starred ? "unfavourite" : "favourite")} onclick={favourite}>
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.star} /></svg>
         </button>
@@ -195,7 +197,16 @@
 
   .card.gifbox {
     width: min(100%, 320px);
-    border-left-width: 1px;
+    border: 0;
+  }
+
+  .gif-open {
+    position: absolute;
+    inset: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: zoom-in;
   }
 
   .card.gifbox video {
