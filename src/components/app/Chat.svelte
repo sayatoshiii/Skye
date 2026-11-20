@@ -2678,7 +2678,7 @@
   }
 
   .beginning p {
-    margin: var(--azure-spacing-sm) 0 0;
+    margin: var(--azure-spacing-md) 0 0;
   }
 
   .predecessor {
