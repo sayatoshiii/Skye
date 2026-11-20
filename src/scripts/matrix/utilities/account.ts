@@ -13,6 +13,46 @@ export type Device = {
   display_name?: string;
   last_seen_ip?: string;
   last_seen_ts?: number;
+  last_seen_user_agent?: string;
+  "org.matrix.msc3852.last_seen_user_agent"?: string;
+};
+
+export type DeviceKind = "mobile" | "desktop" | "web" | "unknown";
+export type ClientInfo = { name?: string; version?: string; url?: string };
+
+export const clientInfo = (session: Session, deviceId: string) =>
+  sessionRequest<ClientInfo>(session, { endpoint: `user/${encodeURIComponent(session.userId)}/account_data/io.element.matrix_client_information.${encodeURIComponent(deviceId)}`, method: "GET" }).catch(() => null);
+
+export const deviceKind = (device: Device, client: ClientInfo | null): DeviceKind => {
+  const hint = [device.last_seen_user_agent, device["org.matrix.msc3852.last_seen_user_agent"], client?.name, device.display_name].join(" ").toLowerCase();
+  return /android|iphone|ipad|\bios\b|mobile|element x on (iphone|ipad|android)/.test(hint)
+    ? "mobile"
+    : /electron|tauri/.test(hint)
+      ? "desktop"
+      : client?.url || /firefox|chrome|chromium|safari|edge|opera|browser|\bweb\b|mozilla/.test(hint)
+        ? "web"
+        : /desktop|nheko|fractal|for linux|for windows|for mac|on mac|macos|linux|windows/.test(hint)
+          ? "desktop"
+          : "unknown";
+};
+
+export type AccountManagement = { uri: string; actions: string[] };
+
+const metadata = (session: Session, path: string) =>
+  sessionRequest<{ account_management_uri?: string; account_management_actions_supported?: string[] }>(session, { base: `${session.homeserver}/_matrix/client/${path}`, endpoint: "auth_metadata", method: "GET" });
+
+export const accountManagement = (session: Session): Promise<AccountManagement | null> =>
+  metadata(session, "v1/")
+    .catch(() => metadata(session, "unstable/org.matrix.msc2965/"))
+    .then((value) => (value.account_management_uri ? { uri: value.account_management_uri, actions: value.account_management_actions_supported ?? [] } : null))
+    .catch(() => null);
+
+export const manageLink = (manage: AccountManagement, wanted: string[], deviceId?: string) => {
+  const action = wanted.find((name) => manage.actions.includes(name));
+  const url = new URL(manage.uri);
+  action && url.searchParams.set("action", action);
+  action && deviceId && url.searchParams.set("device_id", deviceId);
+  return url.toString();
 };
 
 
