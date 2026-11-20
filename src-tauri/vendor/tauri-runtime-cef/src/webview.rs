@@ -508,6 +508,7 @@ pub(crate) struct AppWebview {
   pub(crate) devtools_observer_registration: Arc<Mutex<Option<cef::Registration>>>,
   /// Whether a DevTools window may be opened for this webview. The DevTools *protocol*
   /// stays available either way — the runtime's own startup rides on it.
+  #[allow(dead_code)]
   pub(crate) devtools_enabled: bool,
   pub(crate) bounds_rate: Option<BoundsRate>,
   pub(crate) offscreen: Option<crate::OffscreenView>,
