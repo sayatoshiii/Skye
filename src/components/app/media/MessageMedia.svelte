@@ -71,7 +71,7 @@
     if (preview || (kind === "image" && link)) return;
     if (kind === "image") return useThumbnail && thumbnail ? acquire(thumbnail, thumbnailType, (value) => (link = value)) : acquire(source, mimetype, (value) => (link = value));
     if (kind === "audio") return acquire(source, mimetype, (value) => (link = value));
-    if (looping) return acquire(source, playType, (value) => (link = value));
+    if (looping) return (thumbnail && !poster && acquire(thumbnail, thumbnailType, (value) => (poster = value)), acquire(source, playType, (value) => (link = value)));
     if (framePreview) return acquire(source, playType, (value) => ((link = value), value.includes("/live/") && !poster && (poster = value.replace("/live/", "/thumb/"))), true);
     if (kind === "video" && thumbnail && !poster) acquire(thumbnail, thumbnailType, (value) => (poster = value));
   };
@@ -103,7 +103,7 @@
       <span class="state xs faint">{text("media", "load_failed")}</span>
     {:else if kind === "image" || looping}
       <button type="button" class="open ghost" aria-label={text("media", "open").replace("{name}", name)} onclick={open}>
-        {#if link && looping}<video src={link} autoplay muted loop playsinline disablepictureinpicture aria-label={name} onerror={() => (unplayable = true)}></video>{:else if link}<img src={link} alt={content.body ?? ""} draggable="false" />{/if}
+        {#if link && looping}<video src={link} {poster} autoplay muted loop playsinline disablepictureinpicture aria-label={name} onerror={() => (unplayable = true)}></video>{:else if looping && poster}<img src={poster} alt={content.body ?? ""} draggable="false" />{:else if link}<img src={link} alt={content.body ?? ""} draggable="false" />{/if}
       </button>
       {#if gif}
         <button type="button" class="gif-star ghost press" class:on={starred} aria-label={text("gifs", starred ? "unfavourite" : "favourite")} aria-pressed={starred} use:starburst={starred} use:tooltip={text("gifs", starred ? "unfavourite" : "favourite")} onclick={() => gif && toggleFavouriteGif(gif)}>

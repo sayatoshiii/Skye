@@ -127,10 +127,10 @@ fn tune(element: &gstreamer::Element) {
       element.set_property_from_str("deadline", "1");
       element.set_property("cpu-used", 8i32);
       element.set_property("row-mt", true);
+      element.set_property("lag-in-frames", 0i32);
       element.set_property("threads", std::thread::available_parallelism().map(|cores| cores.get() as i32).unwrap_or(4).min(16));
       element.set_property("target-bitrate", 4_000_000i32);
     }
-    "webmmux" => element.set_property("streamable", true),
     "appsink" => (element.set_property("sync", false), element.set_property("max-buffers", 8u32)).1,
     _ => {}
   }
