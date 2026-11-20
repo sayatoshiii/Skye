@@ -1,5 +1,5 @@
 <script lang="ts" module>
-  import { acquireMediaLink, getWideMediaLink, isMxc } from "../../scripts/matrix/utilities/media";
+  import { acquireMediaLink, getWideMediaLink, isMxc, remoteVideo } from "../../scripts/matrix/utilities/media";
   import type { GifFavourite } from "../../scripts/settings/gifs";
 
   export const onscreen = (node: HTMLVideoElement) => {
@@ -221,7 +221,7 @@
   >
     {#if gif.kind === "link" && gif.video}
       <span class="still" style:background-image={gif.image ? `url("${gif.image}")` : undefined}>
-        <video src={gif.video} poster={gif.image} onplaying={(event) => event.currentTarget.removeAttribute("poster")} muted loop playsinline disablepictureinpicture preload="auto" aria-hidden="true" use:onscreen onloadeddata={ready} onerror={broken}></video>
+        <video use:remoteVideo={gif.video} poster={gif.image} onplaying={(event) => event.currentTarget.removeAttribute("poster")} muted loop playsinline disablepictureinpicture preload="auto" aria-hidden="true" use:onscreen onloadeddata={ready} onerror={broken}></video>
       </span>
     {:else if isVideoGif(gif)}
       <video muted loop playsinline disablepictureinpicture preload="auto" aria-hidden="true" use:gifSource={gif} use:onscreen onloadeddata={ready} onerror={broken}></video>
@@ -284,7 +284,7 @@
       {#if painted}
         <div class="categories">
           <button type="button" class="category favourites ghost press" onclick={() => open("favourites")}>
-            {#if favourites[0]}{@const cover = favourites[0]}{#if cover.kind === "link" && cover.image}<img src={cover.image} alt="" draggable="false" />{:else if cover.kind === "link" && !cover.media && cover.video}<video src={cover.video} autoplay muted loop playsinline disablepictureinpicture></video>{:else if isVideoGif(cover)}<video autoplay muted loop playsinline disablepictureinpicture use:gifSource={cover}></video>{:else}<img alt="" draggable="false" use:gifSource={cover} />{/if}{/if}
+            {#if favourites[0]}{@const cover = favourites[0]}{#if cover.kind === "link" && cover.image}<img src={cover.image} alt="" draggable="false" />{:else if cover.kind === "link" && !cover.media && cover.video}<video use:remoteVideo={cover.video} autoplay muted loop playsinline disablepictureinpicture></video>{:else if isVideoGif(cover)}<video autoplay muted loop playsinline disablepictureinpicture use:gifSource={cover}></video>{:else}<img alt="" draggable="false" use:gifSource={cover} />{/if}{/if}
             <span class="label row-nw align-centre gap-xs sm bold"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.star} /></svg>{text("favourites")}</span>
           </button>
           <button type="button" class="category ghost press" onclick={() => open("featured")}>

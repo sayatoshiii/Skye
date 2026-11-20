@@ -1,6 +1,6 @@
 <script lang="ts">
   import { getLocalisedText } from "../../../scripts/accessibility/language/translation";
-  import { getWideMediaLink } from "../../../scripts/matrix/utilities/media";
+  import { getWideMediaLink, remoteVideo } from "../../../scripts/matrix/utilities/media";
   import { getLinkPreview, type LinkPreview } from "../../../scripts/matrix/utilities/previews";
   import { EMBED_ALLOW, EMBED_SANDBOX, findEmbed } from "../../../scripts/misc/embeds";
   import { nearViewport } from "../../../scripts/misc/lazy";
@@ -63,7 +63,7 @@
   <div class="preview" data-link={url} class:portrait={embed?.portrait} class:hidden={!embed && !preview && !box} use:nearViewport={onvisible}>
     {#if box}
       <div class="card gifbox" style:aspect-ratio="{box.w} / {box.h}">
-        <video src={box.video} poster={box.image} onplaying={(event) => event.currentTarget.removeAttribute("poster")} autoplay muted loop playsinline disablepictureinpicture aria-label={box.title ?? "GIF"}></video>
+        <video use:remoteVideo={box.video} poster={box.image} onplaying={(event) => event.currentTarget.removeAttribute("poster")} autoplay muted loop playsinline disablepictureinpicture aria-label={box.title ?? "GIF"}></video>
         <button type="button" class="gif-open ghost" aria-label={box.title ?? "GIF"} onclick={() => box && lightbox.set({ source: box.video, mimetype: "video/mp4", name: `${box.title ?? "gif"}.mp4`, w: box.w, h: box.h })}></button>
         <button type="button" class="gif-star ghost press" class:on={starred} aria-label={text("gifs", starred ? "unfavourite" : "favourite")} aria-pressed={starred} use:starburst={starred} use:tooltip={text("gifs", starred ? "unfavourite" : "favourite")} onclick={favourite}>
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.star} /></svg>
