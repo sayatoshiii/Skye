@@ -151,6 +151,7 @@ const ACTIVE_WINDOW = 120_000;
 const lastSeen = new Map<UserId, number>();
 const activeUsers = writable<Set<UserId>>(new Set());
 const seenUsers = writable<Set<UserId>>(new Set());
+export const voiceUsers = writable<Set<UserId>>(new Set());
 let activityTimer: ReturnType<typeof setTimeout> | undefined;
 
 const refreshActivity = () => {
@@ -359,10 +360,10 @@ export const presenceKindOf = (
 };
 
 export const presenceKinds = derived(
-  [presenceDetails, ownStatus, session, serverPresence, unsupportedUsers, activeUsers, seenUsers],
-  ([$details, $own, $session, $server, $unsupported, $active, $seen]) =>
+  [presenceDetails, ownStatus, session, serverPresence, unsupportedUsers, activeUsers, seenUsers, voiceUsers],
+  ([$details, $own, $session, $server, $unsupported, $active, $seen, $voice]) =>
     (userId: UserId | undefined) =>
-      presenceKindOf(userId, userId ? $details[userId] : undefined, $own, $session?.userId, $server, $unsupported, !!userId && $active.has(userId), !!userId && $seen.has(userId)),
+      presenceKindOf(userId, userId ? $details[userId] : undefined, $own, $session?.userId, $server, $unsupported, !!userId && ($active.has(userId) || $voice.has(userId)), !!userId && $seen.has(userId)),
 );
 
 export const statusTextOf = derived([presenceDetails, ownStatus, session, profileStatuses], ([$details, $own, $session, $profiles]) => (userId: UserId | undefined) => {
