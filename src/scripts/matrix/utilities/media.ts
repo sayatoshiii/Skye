@@ -187,12 +187,21 @@ const unserve = (link: string) => import("@tauri-apps/api/core").then(({ invoke 
 
 const KEEP_LIVE = 5 * 60_000;
 
-export const acquireMediaLink = (source: MediaSource, mimetype: string, live = false) => {
-  const key = `${getSourceKey(source)}:${mimetype}${live ? ":live" : ""}`;
-  const entry = (linkCache[key] ??= {
-    count: 0,
-    link: getMediaBlob(source, mimetype).then((blob) => (served(mimetype) ? serve(blob, mimetype) : playable(blob, mimetype, live))),
-  });
+export const acquireMediaLink = (source: MediaSource, mimetype: string, live = false) =>
+  hold(`${getSourceKey(source)}:${mimetype}${live ? ":live" : ""}`, () => getMediaBlob(source, mimetype).then((blob) => (served(mimetype) ? serve(blob, mimetype) : playable(blob, mimetype, live))));
+
+export const acquireRemoteVideo = (url: string) =>
+  hold(`remote:${url}`, () => (chromium() ? fetch(url).then((response) => response.blob()).then((blob) => playable(blob, blob.type.startsWith("video/") ? blob.type : "video/mp4")) : Promise.resolve(url)));
+
+export const remoteVideo = (node: HTMLVideoElement, url: string) => {
+  let handle = acquireRemoteVideo(url);
+  const apply = (current: typeof handle) => current.link.then((link) => void (handle === current && node.isConnected && ((node.src = link), node.autoplay && node.play().catch(() => undefined)))).catch(() => node.dispatchEvent(new Event("error")));
+  apply(handle);
+  return { update: (next: string) => (handle.release(), (handle = acquireRemoteVideo(next)), apply(handle)), destroy: () => handle.release() };
+};
+
+const hold = (key: string, make: () => Promise<string>) => {
+  const entry = (linkCache[key] ??= { count: 0, link: make() });
 
   entry.count++;
   entry.link.catch(() => {
