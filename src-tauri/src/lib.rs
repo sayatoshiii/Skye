@@ -17,6 +17,9 @@ mod screen_win;
 #[cfg(target_os = "linux")]
 mod screen_pw;
 
+#[cfg(target_os = "linux")]
+mod location;
+
 #[cfg(any(target_os = "linux", target_os = "macos", windows))]
 mod ptt;
 
@@ -131,7 +134,7 @@ fn tray(_: &tauri::App) -> tauri::Result<()> { Ok(()) }
 
 #[cfg(target_os = "linux")]
 fn engine(builder: tauri::Builder) -> tauri::Builder {
-  builder.invoke_handler(tauri::generate_handler![screen_pw::screen_apps, screen_pw::screen_audio_capture, screen_pw::screen_audio_release, ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_transcode, embed::media_drop, files::save_download, files::copy_image, leave])
+  builder.invoke_handler(tauri::generate_handler![screen_pw::screen_apps, screen_pw::screen_audio_capture, screen_pw::screen_audio_release, location::location_current, ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_transcode, embed::media_drop, files::save_download, files::copy_image, leave])
 }
 
 #[cfg(windows)]
