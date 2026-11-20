@@ -2,7 +2,7 @@
   import { getLocalisedText } from "../../../scripts/accessibility/language/translation";
   import { formatBytes, isInline, sanitiseFilename, type MediaKind } from "../../../scripts/matrix/utilities/attachments";
   import { downloadMedia } from "../../../scripts/matrix/utilities/download";
-  import { acquireMediaLink, isMxc, seededLink, type MediaSource } from "../../../scripts/matrix/utilities/media";
+  import { acquireMediaLink, gstreamerMissing, isMxc, seededLink, type MediaSource } from "../../../scripts/matrix/utilities/media";
   import { nearViewport } from "../../../scripts/misc/lazy";
   import { MEDIA } from "../../../scripts/settings/config";
   import { lightbox } from "../../../scripts/stores/lightbox";
@@ -51,8 +51,8 @@
   let downloading = $state(false);
   const releases: (() => void)[] = [];
 
-  const acquire = (from: MediaSource, type: string, apply: (value: string) => void) => {
-    const handle = acquireMediaLink(from, type);
+  const acquire = (from: MediaSource, type: string, apply: (value: string) => void, live = false) => {
+    const handle = acquireMediaLink(from, type, live);
     releases.push(handle.release);
     handle.link.then(apply).catch(() => (failed = true));
   };
@@ -71,13 +71,14 @@
     if (preview || (kind === "image" && link)) return;
     if (kind === "image") return useThumbnail && thumbnail ? acquire(thumbnail, thumbnailType, (value) => (link = value)) : acquire(source, mimetype, (value) => (link = value));
     if (kind === "audio") return acquire(source, mimetype, (value) => (link = value));
-    if (looping || framePreview) return acquire(source, playType, (value) => (link = value));
+    if (looping) return acquire(source, playType, (value) => (link = value));
+    if (framePreview) return acquire(source, playType, (value) => ((link = value), value.includes("/live/") && !poster && (poster = value.replace("/live/", "/thumb/"))), true);
     if (kind === "video" && thumbnail && !poster) acquire(thumbnail, thumbnailType, (value) => (poster = value));
   };
 
   const play = () => {
     playing = true;
-    if (!link) acquire(source, playType, (value) => (link = value));
+    if (!link) acquire(source, playType, (value) => (link = value), true);
   };
 
   const open = () => lightbox.set({ source, mimetype, name, w: info.w, h: info.h });
@@ -145,7 +146,7 @@
       {#if oncancel}
         {@render track()}
       {:else}
-      <span class="xs faint">{formatBytes(info.size)}{kind !== "file" && !inline ? ` · ${text("media", "unsafe_type")}` : ""}</span>
+      <span class="xs faint">{formatBytes(info.size)}{kind !== "file" && !inline ? ` · ${text("media", unplayable && $gstreamerMissing ? "no_gstreamer" : "unsafe_type")}` : ""}</span>
       {/if}
     </span>
     {#if oncancel}
