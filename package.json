@@ -10,11 +10,12 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "tauri": "tauri",
-    "desktop": "tauri dev",
-    "desktop:build": "tauri build",
-    "android": "tauri android dev",
-    "ios": "tauri ios dev"
+    "tauri": "cargo tauri",
+    "cli": "cargo install tauri-cli@3.0.0-alpha.6 --locked --force --config 'patch.crates-io.tauri-bundler.path=\"src-tauri/vendor/tauri-bundler\"'",
+    "desktop": "cargo tauri dev",
+    "desktop:build": "cargo tauri build",
+    "android": "cargo tauri android dev",
+    "ios": "cargo tauri ios dev"
   },
   "dependencies": {
     "@astrojs/svelte": "^8.0.4",
