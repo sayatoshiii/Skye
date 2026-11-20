@@ -19,6 +19,7 @@ struct Node {
   pid: u32,
   class: String,
   binary: String,
+  client: u32,
 }
 
 struct Port {
@@ -31,7 +32,9 @@ struct Port {
 struct Graph {
   nodes: HashMap<u32, Node>,
   ports: HashMap<u32, Port>,
-  links: HashMap<u32, Vec<pw::link::Link>>,
+  links: HashMap<(u32, u32), pw::link::Link>,
+  bound: HashMap<u32, (pw::node::Node, pw::node::NodeListener)>,
+  clients: HashMap<u32, u32>,
   ours: Option<u32>,
 }
 
@@ -42,20 +45,26 @@ fn parent(pid: u32) -> Option<u32> {
 
 fn own(pid: u32) -> bool {
   let me = std::process::id();
-  std::iter::successors(Some(pid), |&pid| parent(pid).filter(|&next| next > 1)).take(16).any(|pid| pid == me)
+  let name = |pid: u32| std::fs::read_link(format!("/proc/{pid}/exe")).ok().and_then(|path| path.file_name().map(|name| name.to_string_lossy().trim_end_matches(" (deleted)").to_owned()));
+  let skye = std::env::current_exe().ok().and_then(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()));
+  pid > 1 && (std::iter::successors(Some(pid), |&pid| parent(pid).filter(|&next| next > 1)).take(16).any(|pid| pid == me) || (skye.is_some() && name(pid) == skye))
 }
 
 fn node(props: &spa::utils::dict::DictRef) -> Node {
   let get = |key: &str| props.get(key).unwrap_or_default().to_owned();
-  Node { app: [get("application.name"), get("node.name")].into_iter().find(|name| !name.is_empty()).unwrap_or_default(), pid: get("application.process.id").parse().unwrap_or_default(), class: get("media.class"), binary: get("application.process.binary") }
+  Node { app: [get("application.name"), get("node.name")].into_iter().find(|name| !name.is_empty()).unwrap_or_default(), pid: get("application.process.id").parse().unwrap_or_default(), class: get("media.class"), binary: get("application.process.binary"), client: get("client.id").parse().unwrap_or_default() }
 }
 
 fn port(props: &spa::utils::dict::DictRef) -> Option<Port> {
   Some(Port { node: props.get("node.id")?.parse().ok()?, out: props.get("port.direction") == Some("out"), channel: props.get("audio.channel").unwrap_or("MONO").to_owned() })
 }
 
-fn shared(app: &Node, apps: &[String]) -> bool {
-  app.class == OUTPUT && !own(app.pid) && app.binary != "skye" && (apps.iter().any(|name| name == EVERYTHING) || apps.contains(&app.app))
+fn shared(app: &Node, apps: &[String], clients: &HashMap<u32, u32>) -> bool {
+  app.class == OUTPUT && !own(app.pid) && !clients.get(&app.client).is_some_and(|&pid| own(pid)) && app.binary != "skye" && (apps.iter().any(|name| name == EVERYTHING) || apps.contains(&app.app))
+}
+
+fn client(graph: &mut Graph, global: &pw::registry::GlobalObject<&spa::utils::dict::DictRef>) {
+  (global.type_ == pw::types::ObjectType::Client).then(|| global.props.and_then(|props| props.get("pipewire.sec.pid")?.parse().ok()).map(|pid| graph.clients.insert(global.id, pid)));
 }
 
 fn pairs(graph: &Graph, ours: u32, app: u32) -> Vec<(u32, u32)> {
@@ -70,14 +79,24 @@ fn pairs(graph: &Graph, ours: u32, app: u32) -> Vec<(u32, u32)> {
 
 fn relink(graph: &mut Graph, core: &pw::core::CoreRc, apps: &[String]) {
   let Some(ours) = graph.ours else { return };
-  let wanted: Vec<u32> = graph.nodes.iter().filter(|(id, app)| shared(app, apps) && !graph.links.contains_key(id)).map(|(id, _)| *id).collect();
-  wanted.into_iter().for_each(|app| {
-    let made: Vec<pw::link::Link> = pairs(graph, ours, app)
-      .into_iter()
-      .filter_map(|(out, input)| core.create_object::<pw::link::Link>("link-factory", &pw::properties::properties! { "link.output.node" => app.to_string(), "link.output.port" => out.to_string(), "link.input.node" => ours.to_string(), "link.input.port" => input.to_string(), "object.linger" => "false" }).ok())
-      .collect();
-    (!made.is_empty()).then(|| graph.links.insert(app, made));
+  let wanted: Vec<(u32, u32, u32)> = graph.nodes.iter().filter(|(_, app)| shared(app, apps, &graph.clients)).flat_map(|(id, _)| pairs(graph, ours, *id).into_iter().map(move |(out, input)| (*id, out, input))).filter(|(_, out, input)| !graph.links.contains_key(&(*out, *input))).collect();
+  wanted.into_iter().for_each(|(app, out, input)| {
+    core
+      .create_object::<pw::link::Link>("link-factory", &pw::properties::properties! { "link.output.node" => app.to_string(), "link.output.port" => out.to_string(), "link.input.node" => ours.to_string(), "link.input.port" => input.to_string(), "object.linger" => "false" })
+      .map(|link| graph.links.insert((out, input), link))
+      .ok();
   });
+}
+
+fn watch(graph: &Rc<RefCell<Graph>>, registry: &pw::registry::RegistryRc, global: &pw::registry::GlobalObject<&spa::utils::dict::DictRef>, then: impl Fn(&mut Graph) + 'static) {
+  let Ok(bound) = registry.bind::<pw::node::Node, _>(global) else { return };
+  let (store, id) = (graph.clone(), global.id);
+  let listener = bound.add_listener_local().info(move |info| info.props().map(|props| { let mut graph = store.borrow_mut(); graph.nodes.insert(id, node(props)); then(&mut graph); }).unwrap_or_default()).register();
+  graph.borrow_mut().bound.insert(id, (bound, listener));
+}
+
+fn output(global: &pw::registry::GlobalObject<&spa::utils::dict::DictRef>) -> bool {
+  global.type_ == pw::types::ObjectType::Node && global.props.and_then(|props| props.get("media.class")) == Some(OUTPUT)
 }
 
 fn format() -> Vec<u8> {
@@ -124,23 +143,23 @@ fn run(apps: Vec<String>, channel: Channel<InvokeResponseBody>, stop: pw::channe
   let values = format();
   let mut params = [spa::pod::Pod::from_bytes(&values).ok_or(pw::Error::CreationFailed)?];
   stream.connect(spa::utils::Direction::Input, None, pw::stream::StreamFlags::MAP_BUFFERS, &mut params)?;
-  let (added, removed, linker) = (graph.clone(), graph.clone(), core.clone());
+  let (added, removed, linker, binder) = (graph.clone(), graph.clone(), core.clone(), registry.clone());
   let _registry = registry
     .add_listener_local()
     .global(move |global| {
-      let mut graph = added.borrow_mut();
-      match global.type_ {
-        pw::types::ObjectType::Node => global.props.map(|props| graph.nodes.insert(global.id, node(props))).map(drop),
-        pw::types::ObjectType::Port => global.props.and_then(port).map(|port| graph.ports.insert(global.id, port)).map(drop),
-        _ => None,
-      };
-      relink(&mut graph, &linker, &apps);
+      let (core, picked) = (linker.clone(), apps.clone());
+      output(global).then(|| watch(&added, &binder, global, move |graph| relink(graph, &core, &picked)));
+      (global.type_ == pw::types::ObjectType::Port).then(|| global.props.and_then(port).map(|port| added.borrow_mut().ports.insert(global.id, port)));
+      client(&mut added.borrow_mut(), global);
+      relink(&mut added.borrow_mut(), &linker, &apps);
     })
     .global_remove(move |id| {
       let mut graph = removed.borrow_mut();
       graph.nodes.remove(&id);
       graph.ports.remove(&id);
-      graph.links.remove(&id);
+      graph.bound.remove(&id);
+      graph.clients.remove(&id);
+      graph.links.retain(|(out, input), _| *out != id && *input != id);
     })
     .register();
   let quitter = mainloop.clone();
@@ -159,19 +178,32 @@ fn names() -> Result<Vec<String>, pw::Error> {
   let context = pw::context::ContextRc::new(&mainloop, None)?;
   let core = context.connect_rc(None)?;
   let registry = core.get_registry_rc()?;
-  let found = Rc::new(RefCell::new(Vec::<Node>::new()));
-  let store = found.clone();
-  let _registry = registry.add_listener_local().global(move |global| (global.type_ == pw::types::ObjectType::Node).then(|| global.props.map(|props| store.borrow_mut().push(node(props)))).flatten().unwrap_or_default()).register();
-  let pending = core.sync(0)?;
-  let quitter = mainloop.clone();
-  let _core = core.add_listener_local().done(move |id, seq| (id == pw::core::PW_ID_CORE && seq == pending).then(|| quitter.quit()).unwrap_or_default()).register();
+  let graph = Rc::new(RefCell::new(Graph::default()));
+  let (store, binder) = (graph.clone(), registry.clone());
+  let _registry = registry
+    .add_listener_local()
+    .global(move |global| {
+      client(&mut store.borrow_mut(), global);
+      output(global).then(|| watch(&store, &binder, global, |_| ()));
+    })
+    .register();
+  let pending = Rc::new(std::cell::Cell::new((core.sync(0)?, false)));
+  let (quitter, again, waiting) = (mainloop.clone(), core.clone(), pending.clone());
+  let _core = core
+    .add_listener_local()
+    .done(move |id, seq| match (id == pw::core::PW_ID_CORE && waiting.get().0 == seq, waiting.get().1) {
+      (true, false) => again.sync(0).map(|next| waiting.set((next, true))).unwrap_or_else(|_| quitter.quit()),
+      (true, true) => quitter.quit(),
+      _ => {}
+    })
+    .register();
   let timer = mainloop.loop_().add_timer({
     let quitter = mainloop.clone();
     move |_| quitter.quit()
   });
   let _ = timer.update_timer(Some(Duration::from_secs(2)), None);
   mainloop.run();
-  let mut names: Vec<String> = found.borrow().iter().filter(|app| shared(app, &[EVERYTHING.to_owned()]) && !app.app.is_empty()).map(|app| app.app.clone()).collect();
+  let mut names: Vec<String> = graph.borrow().nodes.values().filter(|app| shared(app, &[EVERYTHING.to_owned()], &graph.borrow().clients) && !app.app.is_empty()).map(|app| app.app.clone()).collect();
   names.sort();
   names.dedup();
   Ok(names)
