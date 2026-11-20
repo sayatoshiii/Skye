@@ -975,6 +975,8 @@ const withThread = (content: Record<string, any>, reply?: ReplyTarget, thread?: 
 export const sendMessage = (body: string, reply?: ReplyTarget, pills: Pill[] = [], thread?: ThreadTarget, msgtype = "m.text") =>
   getTimeline(requireRoom()).sendEvent("m.room.message", withThread({ ...textContent(body, pills), msgtype }, reply, thread));
 
+export const sendText = (roomId: RoomId, body: string) => getTimeline(roomId).sendEvent("m.room.message", textContent(body, []));
+
 export const sendRoomMessage = (
   content: Record<string, any>,
   reply?: ReplyTarget,
