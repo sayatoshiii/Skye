@@ -176,13 +176,14 @@ fn sink(holder: &gstreamer::Element, property: &str) -> Option<gstreamer::Elemen
 }
 
 #[cfg(target_os = "linux")]
-fn pump(from: gstreamer::Element, to: gstreamer::Element, start: u64) {
+fn pump(from: gstreamer::Element, to: gstreamer::Element) {
   use gstreamer::prelude::*;
   std::thread::spawn(move || {
     std::iter::from_fn(|| from.emit_by_name::<Option<gstreamer::Sample>>("pull-sample", &[]))
       .try_for_each(|sample| {
         let mut buffer = sample.buffer_owned().ok_or(())?;
-        let shifted = |time: Option<gstreamer::ClockTime>| time.map(|time| gstreamer::ClockTime::from_nseconds(time.nseconds().saturating_sub(start)));
+        let segment = sample.segment().and_then(|segment| segment.downcast_ref::<gstreamer::ClockTime>().cloned());
+        let shifted = |time: Option<gstreamer::ClockTime>| time.and_then(|time| segment.as_ref().map_or(Some(time), |segment| segment.to_running_time(time)));
         let writable = buffer.make_mut();
         let (pts, dts) = (shifted(writable.pts()), shifted(writable.dts()));
         writable.set_pts(pts);
@@ -231,9 +232,8 @@ fn live(stream: &mut TcpStream, id: &str, start: f64) -> Result<(), String> {
   let encode = encode.upcast::<gstreamer::Element>();
   let _encoding = Halt(encode.clone());
   encode.set_state(gstreamer::State::Playing).map_err(|error| fail(&error))?;
-  let base = (start * 1e9) as u64;
-  pump(video.clone(), named_element(&encode, "pictures")?, base);
-  sound.is_some().then(|| named_element(&encode, "sounds").map(|sounds| pump(audio.clone(), sounds, base))).transpose()?;
+  pump(video.clone(), named_element(&encode, "pictures")?);
+  sound.is_some().then(|| named_element(&encode, "sounds").map(|sounds| pump(audio.clone(), sounds))).transpose()?;
   decode.set_state(gstreamer::State::Playing).map_err(|error| fail(&error))?;
   let sent = write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: video/webm\r\nCache-Control: no-store\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n").map_err(|error| fail(&error)).and_then(|_| {
     std::iter::from_fn(|| out.emit_by_name::<Option<gstreamer::Sample>>("pull-sample", &[]))
