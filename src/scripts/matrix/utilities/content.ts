@@ -211,12 +211,12 @@ export const pollStartContent = (question: string, answers: string[], maxSelecti
 
 export const geoUri = (geo: Geo) => `geo:${geo.lat.toFixed(6)},${geo.long.toFixed(6)}${geo.uncertainty ? `;u=${Math.round(geo.uncertainty)}` : ""}`;
 
-export const locationContent = (geo: Geo, body: string) => ({
+export const locationContent = (geo: Geo, body: string, self = true) => ({
   msgtype: "m.location",
   body: `${body} ${geoUri(geo)}`,
   geo_uri: geoUri(geo),
   "org.matrix.msc3488.location": { uri: geoUri(geo), description: body },
-  "org.matrix.msc3488.asset": { type: "m.self" },
+  "org.matrix.msc3488.asset": { type: self ? "m.self" : "m.pin" },
   "org.matrix.msc3488.ts": Date.now(),
   "org.matrix.msc1767.text": `${body} ${geoUri(geo)}`,
 });

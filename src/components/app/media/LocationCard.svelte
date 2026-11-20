@@ -4,12 +4,29 @@
   import { entityText, menu } from "../../../scripts/misc/entitymenu.svelte";
   import { MENU_ICONS } from "../../../scripts/misc/icons";
   import { copied } from "../../../scripts/stores/toast";
+  import { nearViewport } from "../../../scripts/misc/lazy";
+  import MapView from "../../ui/MapView.svelte";
+  import ConfirmDialog from "../../ui/ConfirmDialog.svelte";
+  import { placeAt } from "../../../scripts/misc/geocode";
 
   let { location, live, label }: { location: GeoLocation | null; live?: boolean; label?: string } = $props();
 
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
 
-  const title = $derived(location?.description ?? label ?? text("location", "shared"));
+  let seen = $state(false);
+  let viewing = $state(false);
+  let viewer: ConfirmDialog | undefined = $state();
+
+  let guess = $state<string | null>(null);
+  const vague = $derived(!location?.description || /^(pinned location|location|shared location|geo:)|^-?\d+(\.\d+)?,\s*-?\d/i.test(location.description.trim()));
+
+  $effect(() => {
+    const spot = location;
+    guess = null;
+    seen && spot && vague && placeAt(spot.lat, spot.long).then((name) => location === spot && (guess = name));
+  });
+
+  const title = $derived(guess ?? location?.description ?? label ?? text("location", "shared"));
 
   const open = (geo: GeoLocation) => window.open(osmLink(geo), "_blank", "noopener,noreferrer");
 
@@ -25,6 +42,11 @@
 </script>
 
 <div class="location col">
+  {#if location}
+    <button type="button" class="preview ghost" aria-label={text("location", "view")} onclick={() => (viewing = true)} use:menu={items} use:nearViewport={() => (seen = true)}>
+      {#if seen}<MapView centre={location} pin={location} zoom={15} />{/if}
+    </button>
+  {/if}
   <div class="row-nw align-centre gap-md">
     <span class="glyph row centre" class:pulse={live}>
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.location} /></svg>
@@ -51,7 +73,30 @@
   {/if}
 </div>
 
+{#if viewing && location}
+  <ConfirmDialog bind:this={viewer} title={title} cancelLabel={text("status", "close")} tone="primary" onclose={() => (viewing = false)}>
+    <div class="viewer col gap-sm">
+      <div class="big"><MapView centre={location} pin={location} zoom={16} interactive /></div>
+      <span class="xs faint selectable" use:menu={items}>{formatCoordinates(location)}{location.uncertainty ? ` · ${text("location", "accuracy").replace("{metres}", String(Math.round(location.uncertainty)))}` : ""}</span>
+    </div>
+    {#snippet actions()}
+      <button type="button" class="dialog-button ghost press sm bold primary" onclick={() => open(location!)} use:menu={items}>{text("location", "open_osm")}</button>
+    {/snippet}
+  </ConfirmDialog>
+{/if}
+
 <style>
+  :global(.confirm-layer .confirm:has(.viewer)) {
+    width: min(100%, 880px);
+  }
+
+  .big {
+    height: min(62vh, 560px);
+    overflow: hidden;
+    border-radius: var(--azure-radius-md);
+    border: 1px solid var(--colours-outline-hairline);
+  }
+
   .location {
     width: min(100%, 380px);
     margin-top: var(--azure-spacing-sm);
@@ -60,6 +105,25 @@
     border-radius: var(--azure-radius-md);
     border: 1px solid var(--colours-outline-hairline);
     background-color: var(--colours-surface);
+  }
+
+  .preview {
+    display: block;
+    height: 170px;
+    margin: calc(var(--azure-spacing-md) * -1) calc(var(--azure-spacing-md) * -1) var(--azure-spacing-xs);
+    padding: 0;
+    overflow: hidden;
+    border-radius: var(--azure-radius-md) var(--azure-radius-md) 0 0;
+    background-color: #1b1d22;
+    cursor: pointer;
+  }
+
+  .preview :global(.map) {
+    transition: filter 280ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .preview:hover :global(.map) {
+    filter: brightness(1.08);
   }
 
   .glyph {

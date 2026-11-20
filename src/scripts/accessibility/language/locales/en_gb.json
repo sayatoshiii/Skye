@@ -787,7 +787,15 @@
       "locating": "Finding your location…",
       "denied": "Location access was not allowed.",
       "unavailable": "Your location could not be found.",
-      "copy_geo": "Copy geo URI"
+      "copy_geo": "Copy geo URI",
+      "current": "Current location",
+      "current_hint": "Share where you are right now",
+      "search": "Search for an address or place",
+      "no_results": "Nothing found for that search",
+      "pinned": "Pinned location",
+      "tap_map": "Or tap anywhere on the map to drop a pin",
+      "share": "Share location",
+      "view": "View on map"
     },
     "room_settings": {
       "title": "Roles",
