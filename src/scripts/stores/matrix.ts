@@ -1,7 +1,7 @@
 import { getScrollAnchor } from "./scroll";
 import type { PasswordPrompt } from "../matrix/utilities/auth";
 import { markdownToContent } from "../misc/formatting";
-import { mentionsOf, pillMarkdown, type Pill } from "../misc/mentions";
+import { mentionsOf, mentionsUser, pillMarkdown, type Pill } from "../misc/mentions";
 import { derived, get, writable } from "svelte/store";
 import { isMatrixError } from "../api/client";
 import {
@@ -327,6 +327,11 @@ export const markUnread = (roomId: RoomId, eventId?: EventId) => {
   if (!target) return false;
   unreadDivider.set(null);
   setMarker(roomId, { eventId: target, armed: false });
+  const self = get(session)?.userId;
+  const events = timelines[roomId]?.getEvents() ?? [];
+  const names = [get(rooms)[roomId]?.members[self ?? ""]?.displayName ?? ""];
+  const from = events.findIndex((event) => event.event_id === target);
+  self && from >= 0 && events.slice(from).filter((event) => isVisible(event) && event.sender !== self && mentionsUser(event.content ?? {}, self, names)).forEach((event) => addLocalMention(roomId, event.event_id));
   return true;
 };
 
