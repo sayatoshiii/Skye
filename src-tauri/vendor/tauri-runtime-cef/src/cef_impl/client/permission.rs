@@ -70,6 +70,7 @@ const DESKTOP_VIDEO_CAPTURE: u32 =
 
 /// The bits a `getDisplayMedia()` request sets. Never granted from here; see
 /// [`grants_desktop_capture`].
+#[allow(dead_code)]
 const DESKTOP_CAPTURE: u32 = DESKTOP_AUDIO_CAPTURE | DESKTOP_VIDEO_CAPTURE;
 
 /// Media capture permissions granted to Alloy style browsers. Desktop capture is

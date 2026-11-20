@@ -101,13 +101,22 @@ fn leave(app: tauri::AppHandle) {
   app.exit(0);
 }
 
+#[cfg(target_os = "linux")]
+fn label(builder: tauri::tray::TrayIconBuilder<tauri::DynRuntime>) -> tauri::tray::TrayIconBuilder<tauri::DynRuntime> {
+  builder.title("Skye")
+}
+
+#[cfg(all(desktop, not(target_os = "linux")))]
+fn label(builder: tauri::tray::TrayIconBuilder<tauri::DynRuntime>) -> tauri::tray::TrayIconBuilder<tauri::DynRuntime> {
+  builder.tooltip("Skye")
+}
+
 #[cfg(desktop)]
 fn tray(app: &tauri::App) -> tauri::Result<()> {
   use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
   use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
   let menu = Menu::with_items(app, &[&MenuItem::with_id(app, "show", "Open Skye", true, None::<&str>)?, &PredefinedMenuItem::separator(app)?, &MenuItem::with_id(app, "quit", "Quit Skye", true, None::<&str>)?])?;
-  TrayIconBuilder::with_id("skye")
-    .tooltip("Skye")
+  label(TrayIconBuilder::with_id("skye"))
     .icon(app.default_window_icon().cloned().ok_or(tauri::Error::InvalidIcon(std::io::Error::other("missing icon")))?)
     .menu(&menu)
     .show_menu_on_left_click(false)
@@ -158,8 +167,23 @@ fn runtime() -> tauri_runtime_cef::Cef {
 #[cfg(not(target_os = "linux"))]
 fn runtime() -> tauri_runtime_wry::Wry { tauri_runtime_wry::Wry::default() }
 
+#[cfg(target_os = "linux")]
+fn handoff(identifier: &str) {
+  let name = format!("{identifier}.SingleInstance");
+  let path = format!("/{}", name.replace('.', "/").replace('-', "_"));
+  let argv: Vec<String> = std::env::args_os().map(|arg| arg.to_string_lossy().into_owned()).collect();
+  let cwd = std::env::current_dir().unwrap_or_default().to_string_lossy().into_owned();
+  let answered = zbus::blocking::Connection::session().and_then(|bus| bus.call_method(Some(name.as_str()), path.as_str(), Some("org.SingleInstance.DBus"), "ExecuteCallback", &(argv, cwd))).is_ok();
+  answered.then(|| std::process::exit(0));
+}
+
+#[cfg(not(target_os = "linux"))]
+fn handoff(_: &str) {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+  let context = tauri::generate_context!();
+  handoff(&context.config().identifier);
   audio();
   embed::serve();
   engine(single(tauri::Builder::default().runtime(runtime())))
@@ -167,7 +191,7 @@ pub fn run() {
     .plugin(tauri_plugin_notification::init())
     .setup(|app| Ok((unlock(&window(app)?), tray(app)?).0))
     .on_window_event(|window, event| match event { tauri::WindowEvent::CloseRequested { api, .. } if cfg!(desktop) => (api.prevent_close(), window.hide()).1.unwrap_or_default(), _ => {} })
-    .build(tauri::generate_context!())
+    .build(context)
     .expect("skye failed to start")
     .run(|_app, event| match event { #[cfg(target_os = "macos")] tauri::RunEvent::Reopen { .. } => reveal(_app), _ => {} });
 }
