@@ -146,7 +146,11 @@
       removeEventListener("popstate", onpopstate);
     };
   });
+
+  const unfull = (event: KeyboardEvent) => event.key === "Escape" && document.fullscreenElement && (event.preventDefault(), event.stopPropagation(), document.exitFullscreen().catch(() => undefined));
 </script>
+
+<svelte:window onkeydowncapture={unfull} />
 
 <Loading visible={!routed} />
 <RestoreHistory />
