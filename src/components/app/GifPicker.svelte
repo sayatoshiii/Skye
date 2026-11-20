@@ -331,11 +331,10 @@
     {/if}
     {#if remote && !failed}<div class="sentinel" class:busy={loading} bind:this={sentinel}></div>{/if}
   </div>
+  {#if gifMenu}
+    <MessageMenu items={gifItems(gifMenu.gif)} x={gifMenu.x} y={gifMenu.y} label={text("actions")} onclose={() => (gifMenu = null)} />
+  {/if}
 </div>
-
-{#if gifMenu}
-  <MessageMenu items={gifItems(gifMenu.gif)} x={gifMenu.x} y={gifMenu.y} label={text("actions")} onclose={() => (gifMenu = null)} />
-{/if}
 
 <style>
   .gif-picker {

@@ -331,11 +331,10 @@
       </div>
     {/if}
   </div>
+  {#if emojiMenu}
+    <MessageMenu items={emojiItems(emojiMenu.entry, emojiMenu.section)} x={emojiMenu.x} y={emojiMenu.y} label={text("emoji", "emoji_actions")} onclose={() => (emojiMenu = null)} />
+  {/if}
 </div>
-
-{#if emojiMenu}
-  <MessageMenu items={emojiItems(emojiMenu.entry, emojiMenu.section)} x={emojiMenu.x} y={emojiMenu.y} label={text("emoji", "emoji_actions")} onclose={() => (emojiMenu = null)} />
-{/if}
 
 <style>
   .emoji-picker {
