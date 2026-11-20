@@ -99,6 +99,19 @@
     ids.filter((userId) => !summary?.members[userId]?.avatarUrl && !(userId in fetched)).forEach((userId) => ((fetched[userId] = null), fetchProfile(userId).then((profile) => (fetched[userId] = profile))));
   });
   let spotlight = $state<string | null>(null);
+  let peek = $state<{ id: string; x: number; value: number } | null>(null);
+
+  const KNOB = 16;
+  const peekAt = (id: string, event: PointerEvent) => {
+    const input = event.currentTarget as HTMLInputElement;
+    const rect = input.getBoundingClientRect();
+    const span = rect.width - KNOB;
+    const current = Number(input.value);
+    const knob = KNOB / 2 + (current / 200) * span;
+    const x = Math.min(Math.max(event.clientX - rect.left, KNOB / 2), rect.width - KNOB / 2);
+    const near = !("clientX" in event) || Math.abs(x - knob) < KNOB;
+    peek = { id, x: (near ? knob : x) + input.offsetLeft, value: near ? current : Math.round(((x - KNOB / 2) / span) * 40) * 5 };
+  };
   const focused = $derived(tiles.some((tile) => tile.id === spotlight) ? spotlight : null);
   const strip = $derived(focused ? tiles.filter((tile) => tile.id !== focused) : tiles);
 
@@ -292,7 +305,8 @@
                   {#if !self}
                     <label class="screen-volume row-nw align-centre gap-xs" use:menu={() => volumeItems(tile.userId).filter((item) => item.id === "voice-stream-volume")}>
                       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.volume} /></svg>
-                      <input type="range" min="0" max="200" step="5" aria-label={text("stream_volume")} value={Math.round(($userVolumes[tile.userId]?.stream ?? 1) * 100)} oninput={(event) => setStreamVolume(tile.userId, Number(event.currentTarget.value) / 100)} />
+                      <input type="range" min="0" max="200" step="5" aria-label={text("stream_volume")} value={Math.round(($userVolumes[tile.userId]?.stream ?? 1) * 100)} oninput={(event) => (setStreamVolume(tile.userId, Number(event.currentTarget.value) / 100), peekAt(tile.id, event as unknown as PointerEvent))} onpointermove={(event) => peekAt(tile.id, event)} onpointerleave={() => (peek = null)} />
+                      <span class="peek xs bold" class:shown={peek?.id === tile.id} style:left="{peek?.id === tile.id ? peek.x : 0}px" aria-hidden="true">{peek?.id === tile.id ? peek.value : 0}%</span>
                     </label>
                   {/if}
                   {#if pipSupported}
@@ -500,6 +514,8 @@
     padding: 0;
     border-radius: 50%;
     background: rgb(255 255 255 / 0.14);
+    backdrop-filter: blur(20px) saturate(1.6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
     color: white;
     transition: background-color 280ms cubic-bezier(0.32, 0.72, 0, 1);
   }
@@ -513,6 +529,36 @@
     height: 40px;
     border-radius: 20px;
     background: rgb(255 255 255 / 0.14);
+    backdrop-filter: blur(20px) saturate(1.6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
+  }
+
+  .screen-volume {
+    position: relative;
+  }
+
+  .peek {
+    position: absolute;
+    bottom: calc(100% + 8px);
+    translate: -50% 4px;
+    padding: 4px 8px;
+    border-radius: 8px;
+    color: white;
+    background: rgb(0 0 0 / 0.55);
+    backdrop-filter: blur(20px) saturate(1.6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.6);
+    white-space: nowrap;
+    pointer-events: none;
+    opacity: 0;
+    transition:
+      opacity 220ms cubic-bezier(0.32, 0.72, 0, 1),
+      translate 320ms cubic-bezier(0.32, 0.72, 0, 1),
+      left 120ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .peek.shown {
+    opacity: 1;
+    translate: -50% 0;
   }
 
   .screen-volume input {
