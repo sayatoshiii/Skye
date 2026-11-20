@@ -1138,11 +1138,11 @@
     readFromNotice();
     stuck = true;
     if (isDetached) jumpToPresent();
-    const reuse = gif.kind === "mxc" ? gif : settings?.gifsAsLinks ? null : gif.sent;
+    const reuse = gif.kind === "mxc" ? gif : settings?.gifLinks ? null : gif.sent;
     if (reuse) return void sendRoomMessage({ msgtype: reuse.msgtype ?? "m.image", body: reuse.body, info: reuse.info, ...(reuse.url ? { url: reuse.url } : { file: reuse.file }) }, reply).catch(() => undefined);
     if (gif.kind !== "link") return;
     const linked = () => (isGifbox(gif.url) && gif.video && gif.full && gif.postId && seedGifbox(gif.url, { video: gif.video, full: gif.full, gif: gif.media, postId: gif.postId, image: gif.image, title: gif.title, w: gif.w ?? 1, h: gif.h ?? 1 }), shareGifbox(gif.postId), void sendMessage(gif.url, reply).catch(() => undefined));
-    if (settings?.gifsAsLinks) return linked();
+    if (settings?.gifLinks) return linked();
     const from = gif.media ?? gif.full;
     const blob = from ? await fetch(from).then((response) => (response.ok ? response.blob() : null)).catch(() => null) : null;
     if (!blob || !/^(image|video)\//.test(blob.type)) return linked();

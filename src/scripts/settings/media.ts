@@ -7,7 +7,8 @@ export type MediaSettings = {
   keepImageMetadata: boolean;
   hideRedacted: boolean;
   showCallEvents: boolean;
-  gifsAsLinks: boolean;
+  gifLinks: boolean;
+  quickOpensChat: boolean;
 };
 
 const defaults = (): MediaSettings => ({
@@ -16,7 +17,8 @@ const defaults = (): MediaSettings => ({
   keepImageMetadata: false,
   hideRedacted: false,
   showCallEvents: false,
-  gifsAsLinks: false,
+  gifLinks: true,
+  quickOpensChat: true,
 });
 
 const load = (): MediaSettings => {
@@ -67,6 +69,9 @@ export const setShowCallEvents = (show: boolean) =>
   patch(() => ({ showCallEvents: show }));
 
 export const setGifsAsLinks = (links: boolean) =>
-  patch(() => ({ gifsAsLinks: links }));
+  patch(() => ({ gifLinks: links }));
+
+export const setQuickOpensChat = (open: boolean) =>
+  patch(() => ({ quickOpensChat: open }));
 
 export const getMediaSettings = () => get(mediaSettings);

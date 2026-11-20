@@ -5,7 +5,7 @@
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { tooltip } from "../../scripts/misc/tooltip";
   import { accentPresets, getAccent, getAccentPreset, isHexColour, setAccent, type AccentPreset } from "../../scripts/settings/accent";
-  import { mediaSettings, setGifsAsLinks, setHideRedacted, setShowCallEvents } from "../../scripts/settings/media";
+  import { mediaSettings, setGifsAsLinks, setHideRedacted, setQuickOpensChat, setShowCallEvents } from "../../scripts/settings/media";
   import { getMotionChoice, setMotionChoice, systemReducesMotion } from "../../scripts/settings/motion";
   import { copied } from "../../scripts/stores/toast";
   import type { MenuItem } from "../app/MessageMenu.svelte";
@@ -110,13 +110,13 @@
   </div>
 </section>
 
-<section class="set-section" data-part="redacted">
+<section class="set-section" data-part="behaviour">
   <div class="split">
     <div class="head col">
-      <h3 class="set-heading title">{look("hide_redacted")}</h3>
-      <p class="set-hint">{look("hide_redacted_hint")}</p>
+      <h3 class="set-heading title">{look("quick_opens_chat")}</h3>
+      <p class="set-hint">{look("quick_opens_chat_hint")}</p>
     </div>
-    <Toggle checked={$mediaSettings.hideRedacted} label={look("hide_redacted")} onchange={setHideRedacted} />
+    <Toggle checked={$mediaSettings.quickOpensChat} label={look("quick_opens_chat")} onchange={setQuickOpensChat} />
   </div>
 </section>
 
@@ -126,7 +126,17 @@
       <h3 class="set-heading title">{look("gifs_as_links")}</h3>
       <p class="set-hint">{look("gifs_as_links_hint")}</p>
     </div>
-    <Toggle checked={$mediaSettings.gifsAsLinks} label={look("gifs_as_links")} onchange={setGifsAsLinks} />
+    <Toggle checked={$mediaSettings.gifLinks} label={look("gifs_as_links")} onchange={setGifsAsLinks} />
+  </div>
+</section>
+
+<section class="set-section" data-part="redacted">
+  <div class="split">
+    <div class="head col">
+      <h3 class="set-heading title">{look("hide_redacted")}</h3>
+      <p class="set-hint">{look("hide_redacted_hint")}</p>
+    </div>
+    <Toggle checked={$mediaSettings.hideRedacted} label={look("hide_redacted")} onchange={setHideRedacted} />
   </div>
 </section>
 
