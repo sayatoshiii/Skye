@@ -768,6 +768,7 @@
       "fullscreen": "Full screen",
       "exit_fullscreen": "Exit full screen",
       "unsafe_type": "Shown as a file for safety.",
+      "no_gstreamer": "Can't play this here. Install GStreamer to watch it.",
       "play_embed": "Play",
       "embed_note": "Playing loads content from {provider}.",
       "always_allow": "Always allow {provider}",

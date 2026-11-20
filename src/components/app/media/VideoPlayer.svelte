@@ -100,18 +100,30 @@
     if (!video) return;
     if (ended) {
       ended = false;
-      video.currentTime = 0;
+      goto(0);
       return void video.play().catch(() => undefined);
     }
     if (video.paused) video.play().catch(() => undefined);
     else video.pause();
   };
 
+  const live = $derived(link.includes("/live/"));
+  let base = $state(0);
+  const edge = () => base + (video?.buffered.length ? video.buffered.end(video.buffered.length - 1) : 0);
+  const goto = (time: number) => {
+    if (!video) return;
+    live && (time < base || time > edge() + 0.5) ? ((time = total ? Math.min(time, Math.max(0, total - 1)) : time), (base = time), (waiting = true), (video.src = `${link}?t=${time.toFixed(2)}`), video.play().catch(() => undefined)) : (video.currentTime = time - base);
+    current = time;
+  };
+
+  $effect(() => {
+    live && fetch(link.replace("/live/", "/info/")).then((response) => response.json()).then(({ duration }) => duration > 0 && !total && (total = duration)).catch(() => undefined);
+  });
+
   const seekBy = (seconds: number) => {
     if (!video || !total) return;
-    video.currentTime = Math.max(0, Math.min(total, video.currentTime + seconds));
+    goto(Math.max(0, Math.min(total, current + seconds)));
     ended = video.ended;
-    current = video.currentTime;
     wake();
   };
 
@@ -137,8 +149,13 @@
       : (wrapper?.requestFullscreen?.() ?? Promise.reject()).catch(fallback);
   const syncFullscreen = () => (fullscreen = !!wrapper && shownFull() === wrapper);
 
-  let retried = false;
-  const recover = () => (total && video && !retried ? ((retried = true), video.load(), (video.currentTime = Math.min(current, total)), video.play().catch(() => undefined)) : onerror());
+  let retried = 0;
+  const recover = () =>
+    !video || !total || retried > 2
+      ? onerror()
+      : live
+        ? ((retried += 1), (base = Math.min(current, Math.max(0, total - 1))), (waiting = true), (video.src = `${link}?t=${base.toFixed(2)}`), video.play().catch(() => undefined))
+        : ((retried += 1), video.load(), (video.currentTime = Math.max(0, Math.min(current, total))), video.play().catch(() => undefined));
 
   const menuItems = (): MenuItem[] => [
     { id: "video-play", label: entityText(paused || ended ? "play" : "pause"), icon: paused || ended ? MENU_ICONS.play : MENU_ICONS.pause, run: toggle },
@@ -149,15 +166,14 @@
 
   const onbuffer = () => {
     if (!video || !video.buffered.length || !total) return;
-    buffered = Math.min(1, video.buffered.end(video.buffered.length - 1) / total);
+    buffered = Math.min(1, edge() / total);
   };
 
   const scrubTo = (event: PointerEvent, bar: HTMLElement) => {
     if (!video || !total) return;
     const rect = bar.getBoundingClientRect();
-    video.currentTime = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) * total;
+    goto(Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)) * total);
     ended = false;
-    current = video.currentTime;
   };
 
   const onscrubstart = (event: PointerEvent) => {
@@ -268,9 +284,9 @@
     onclick={(event) => event.preventDefault()}
     onpointerup={onsurface}
     ondblclick={toggleFullscreen}
-    onloadedmetadata={() => video && Number.isFinite(video.duration) && (total = video.duration)}
-    ondurationchange={() => video && Number.isFinite(video.duration) && (total = video.duration)}
-    ontimeupdate={() => video && ((current = video.currentTime), !video.paused && (waiting = false))}
+    onloadedmetadata={() => video && !live && Number.isFinite(video.duration) && (total = video.duration)}
+    ondurationchange={() => video && !live && Number.isFinite(video.duration) && (total = video.duration)}
+    ontimeupdate={() => video && ((current = base + video.currentTime), !video.paused && (waiting = false))}
     onprogress={onbuffer}
     onplay={() => {
       paused = false;
@@ -287,7 +303,7 @@
     onwaiting={() => (waiting = true)}
     oncanplay={() => (waiting = false)}
     onseeked={() => (waiting = false)}
-    onplaying={() => (waiting = false)}
+    onplaying={() => ((waiting = false), (retried = 0))}
     onerror={recover}
   ></video>
 
@@ -321,7 +337,7 @@
     </button>
   </div>
 
-  <div class="bar col" onpointermove={wake} role="presentation">
+  <div class="bar col" onpointermove={wake} onpointerup={(event) => !(event.target as Element).closest(".seek, button, input") && onsurface(event)} role="presentation">
     <div class="info col min-0">
       <span class="title bold truncate">{name}</span>
       {#if meta}<span class="meta xs truncate">{meta}</span>{/if}
