@@ -38,6 +38,7 @@ import {
 } from "../matrix/utilities/rtc";
 import { decryptPreview, redactRoomEvent, registerLiveSyncHook, registerSyncHook, registerToDeviceHook, rooms, sendEncryptedToDevice, sendRoomEvent, session } from "./matrix";
 import { toast, toastKey } from "./toast";
+import { voiceUsers } from "./presence";
 import { native } from "../misc/native";
 import { askShare, bridgePublisher, screenShared, shareAudio } from "./nativescreen";
 import { NativeRoom, webInput, nativeDevices, nativeLevels, nativeTuning, nativeVoice, nativeVoices } from "./nativeroom";
@@ -151,6 +152,8 @@ callMembers.subscribe((all) =>
       ),
     ),
 );
+
+callMembers.subscribe((all) => voiceUsers.set(new Set(Object.values(all).flat().map((member) => member.userId))));
 
 export const memberIdentities = derived([callMembers, identityHashes], ([$members, $hashes]) =>
   Object.fromEntries(
