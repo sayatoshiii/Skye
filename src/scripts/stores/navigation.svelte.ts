@@ -265,6 +265,10 @@ export const openRoomMenu = (roomId: string, x: number, y: number) => {
 
 export const hasDirect = (userId: string) => !!getPrimaryDirect(userId, getEntities());
 
+export const handoff = $state<{ value: { roomId: string; files: File[]; text: string } | null }>({ value: null });
+
+export const directRoomOf = (userId: string) => getPrimaryDirect(userId, getEntities())?.id;
+
 export const userMenu = $state<{
   request: { userId: string; x: number; y: number; roomId?: string } | null;
   confirm: { kind: "direct" | "kick" | "ban"; userId: string; roomId?: string } | null;

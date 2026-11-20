@@ -98,7 +98,7 @@
   import PollDialog from "./PollDialog.svelte";
   import { BEACON, CALL_MEMBER, BEACON_INFO, LOCATION_KEYS, POLL_END, POLL_START, formatCoordinates, getLocation, getPoll, locationContent, osmLink, pollEndContent, pollStartContent, relatedTo, type GeoLocation } from "../../scripts/matrix/utilities/content";
   import { SYSTEM_ICONS, SYSTEM_TYPES, describeSystem, type MemberVerb, type SystemLine } from "../../scripts/matrix/utilities/system";
-  import { navigation, openJoined, openRoom, openRoomMenu, openRoomSettings, openUserMenu, roomSettings } from "../../scripts/stores/navigation.svelte";
+  import { handoff, navigation, openJoined, openRoom, openRoomMenu, openRoomSettings, openUserMenu, roomSettings } from "../../scripts/stores/navigation.svelte";
   import { openFullProfile, openMiniProfile } from "../../scripts/stores/profile";
   import { getScrollAnchor, persistScrollAnchors, setScrollAnchor, type ScrollAnchor } from "../../scripts/stores/scroll";
 
@@ -258,6 +258,11 @@
     const value = draft;
     const marks = pills;
     untrack(() => draftRoom && (stash(draftRoom, value, marks), clearTimeout(saving), (saving = setTimeout(keepDrafts, 400))));
+  });
+  $effect(() => {
+    const given = handoff.value;
+    if (!given || $currentRoom?.roomId !== given.roomId) return;
+    untrack(() => ((handoff.value = null), given.text.trim() && (draft = given.text), addFiles(given.files)));
   });
   let stagedFor = $state<string | null>(null);
   let chatOpen = $state(false);
