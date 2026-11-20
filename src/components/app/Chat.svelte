@@ -94,6 +94,7 @@
   import { usermenu } from "../../scripts/misc/usermenu";
   import { entityText, menu as entityMenu } from "../../scripts/misc/entitymenu.svelte";
   import LocationCard from "./media/LocationCard.svelte";
+  import LocationDialog from "./LocationDialog.svelte";
   import Poll from "./media/Poll.svelte";
   import PollDialog from "./PollDialog.svelte";
   import { BEACON, CALL_MEMBER, BEACON_INFO, LOCATION_KEYS, POLL_END, POLL_START, formatCoordinates, getLocation, getPoll, locationContent, osmLink, pollEndContent, pollStartContent, relatedTo, type GeoLocation } from "../../scripts/matrix/utilities/content";
@@ -1176,18 +1177,15 @@
   const createPoll = (question: string, answers: string[], disclosed: boolean, multiple: boolean, duration: number) =>
     sendRoomEvent(POLL_START[1], pollStartContent(question, answers, multiple ? answers.length : 1, disclosed, duration ? Date.now() + duration : undefined)).then(() => (stuck = true));
 
-  const shareLocation = () => {
+  let locating = $state(false);
+
+  const shareLocation = () => (locating = true);
+
+  const sendLocation = (location: GeoLocation, self: boolean) => {
     const roomId = room?.id;
-    if (!roomId || !("geolocation" in navigator)) return void toast(text("location", "unavailable"), { icon: "location", tone: "danger" });
-    toast(text("location", "locating"), { icon: "location" });
-    navigator.geolocation.getCurrentPosition(
-      ({ coords }) => {
-        stuck = true;
-        sendRoomMessage(locationContent({ lat: coords.latitude, long: coords.longitude, uncertainty: coords.accuracy }, text("location", "my_location")), undefined, roomId).catch(() => undefined);
-      },
-      (error) => toast(text("location", error.code === error.PERMISSION_DENIED ? "denied" : "unavailable"), { icon: "location", tone: "danger" }),
-      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
-    );
+    if (!roomId) return;
+    stuck = true;
+    sendRoomMessage(locationContent(location, location.description ?? text("location", self ? "my_location" : "pinned"), self), undefined, roomId).catch(() => undefined);
   };
 
   const retry = (txnId?: string) => {
@@ -2071,6 +2069,10 @@
       onlocation={shareLocation}
       ongif={sendComposerGif}
     />
+    {/if}
+
+    {#if locating}
+      <LocationDialog onsend={sendLocation} onclose={() => (locating = false)} />
     {/if}
 
     {#if dragDepth > 0}
