@@ -9,7 +9,7 @@ const USER_LINK = /^https:\/\/matrix\.to\/#\/(@[^/?]+)\/?$/;
 const ROOM_LINK = /^https:\/\/matrix\.to\/#\/([#!][^/?]+)\/?(?:\?(.*))?$/;
 
 export const pillText = (target: MentionTarget) =>
-  target.kind === "everyone" ? "@room" : `${target.kind === "room" ? "#" : "@"}${target.label}`;
+  target.kind === "everyone" ? "@room" : `${target.kind === "room" ? "#" : "@"}${target.label.replace(/^[@#]+/, "")}`;
 
 export const mentionLink = (target: MentionTarget) =>
   target.kind === "user" ? `https://matrix.to/#/${target.id}` : toMatrixTo(target.id, target.via);

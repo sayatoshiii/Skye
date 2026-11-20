@@ -1601,7 +1601,7 @@
     {#if room}
       {#if room.isDirect && room.directUserId}
         <h2 class="name md bold truncate">
-          <button type="button" class="name-button ghost truncate" aria-label={text("user_profile", "open").replace("{name}", room.name)} onclick={() => room.directUserId && openFullProfile(room.directUserId, room.id)} oncontextmenu={(event) => { event.preventDefault(); openRoomMenu(room.id, event.clientX, event.clientY); }}><span class="faint">@</span><EmojiText text={room.name} fade={false} /></button>
+          <button type="button" class="name-button ghost truncate" aria-label={text("user_profile", "open").replace("{name}", room.name)} onclick={() => room.directUserId && openFullProfile(room.directUserId, room.id)} oncontextmenu={(event) => { event.preventDefault(); openRoomMenu(room.id, event.clientX, event.clientY); }}><span class="faint">@</span><EmojiText text={room.name.replace(/^@/, "")} fade={false} /></button>
         </h2>
       {:else}
         {@const roomId = room.id}
@@ -1618,7 +1618,7 @@
               event.preventDefault();
               openRoomMenu(roomId, event.clientX, event.clientY);
             }}
-          >{#if room.isDirect}<span class="faint">@</span>{:else}<svg class="room-hash" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16" /></svg>{/if}<EmojiText text={room.name} fade={false} /></button>
+          >{#if room.isDirect}<span class="faint">@</span>{:else}<svg class="room-hash" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16" /></svg>{/if}<EmojiText text={room.isDirect ? room.name.replace(/^@/, "") : room.name} fade={false} /></button>
         </h2>
       {/if}
       {#if room.topic}
