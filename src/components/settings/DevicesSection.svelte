@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
-  import { deleteDevice, deleteDevices, listDevices, renameDevice, type Device } from "../../scripts/matrix/utilities/account";
+  import { accountManagement, clientInfo, deleteDevice, deleteDevices, deviceKind, listDevices, manageLink, renameDevice, type AccountManagement, type ClientInfo, type Device } from "../../scripts/matrix/utilities/account";
   import type { Session } from "../../scripts/matrix/types";
   import { entityText, menu } from "../../scripts/misc/entitymenu.svelte";
   import { MENU_ICONS } from "../../scripts/misc/icons";
@@ -28,10 +28,24 @@
 
   $effect(() => session.subscribe((value) => (active = value)));
 
+  let manage = $state.raw<AccountManagement | null>(null);
+  let clients = $state.raw<Record<string, ClientInfo | null>>({});
+
   const load = async () => {
     failed = false;
-    devices = active ? await listDevices(active).catch(() => ((failed = true), null)) : null;
+    const current = active;
+    if (!current) return void (devices = null);
+    accountManagement(current).then((value) => (manage = value));
+    devices = await listDevices(current).catch(() => ((failed = true), null));
+    devices?.forEach((device) => clientInfo(current, device.device_id).then((info) => (clients = { ...clients, [device.device_id]: info })));
   };
+
+  const KIND_ICONS = { mobile: "phone", desktop: "monitor", web: "globe", unknown: "laptop" } as const;
+  const iconOf = (device: Device) => KIND_ICONS[deviceKind(device, clients[device.device_id] ?? null)];
+  const external = (wanted: string[], deviceId?: string) => manage && void window.open(manageLink(manage, wanted, deviceId), "_blank", "noopener,noreferrer");
+  const startRename = (device: Device) => ((editing = device.device_id), (draft = device.display_name ?? ""));
+  const askRemove = (target: Device | "others") =>
+    manage ? external(target === "others" ? ["org.matrix.devices_list", "org.matrix.sessions_list"] : ["org.matrix.device_delete", "org.matrix.session_end", "org.matrix.device_view", "org.matrix.session_view"], target === "others" ? undefined : target.device_id) : (removing = target);
 
   onMount(() => void load());
 
@@ -47,13 +61,9 @@
     { id: "device-rename", label: dev("rename"), icon: MENU_ICONS.edit, run: () => startRename(device) },
     { id: "device-name", label: entityText("copy_name"), icon: MENU_ICONS.copy, run: () => copied(nameOf(device)) },
     { id: "device-id", label: entityText("copy_device_id"), icon: MENU_ICONS.id, run: () => copied(device.device_id, "id_copied", "id") },
-    ...(isCurrent(device) ? [] : [{ id: "device-signout", label: dev("sign_out"), icon: MENU_ICONS.leave, danger: true, separated: true, run: () => (removing = device) }]),
+    ...(isCurrent(device) ? [] : [{ id: "device-signout", label: dev("sign_out"), icon: MENU_ICONS.leave, danger: true, separated: true, run: () => askRemove(device) }]),
   ];
 
-  const startRename = (device: Device) => {
-    editing = device.device_id;
-    draft = device.display_name ?? "";
-  };
 
   const saveRename = async (event: SubmitEvent, device: Device) => {
     event.preventDefault();
@@ -118,7 +128,7 @@
 {/snippet}
 
 {#snippet info(device: Device)}
-  <span class="set-tile device-icon"><Icon name="laptop" size={22} /></span>
+  <span class="set-tile device-icon"><Icon name={iconOf(device)} size={22} /></span>
   <span class="col min-0 flex-max">
     <span class="row-nw align-centre gap-sm min-0">
       <span class="set-title truncate device-name">{nameOf(device)}</span>
@@ -152,6 +162,10 @@
     </section>
   {/if}
 
+  {#if manage}
+    <p class="set-hint managed">{dev("managed")}</p>
+  {/if}
+
   <section class="set-section" data-part="others">
     <h3 class="set-heading">{dev("others")}</h3>
     {#if others.length}
@@ -165,7 +179,7 @@
                 {@render info(device)}
                 <span class="row-nw gap-xs actions">
                   <button type="button" class="set-button ghost press" onclick={() => startRename(device)}>{dev("rename")}</button>
-                  <button type="button" class="set-button outline-danger ghost press" onclick={() => (removing = device)}>{dev("sign_out")}</button>
+                  <button type="button" class="set-button outline-danger ghost press" onclick={() => askRemove(device)}>{dev("sign_out")}</button>
                 </span>
               </div>
             {/if}
@@ -173,7 +187,7 @@
         {/each}
       </ul>
       <div class="row-nw">
-        <button type="button" class="set-button danger ghost press" onclick={() => (removing = "others")}>{dev("sign_out_all")}</button>
+        <button type="button" class="set-button danger ghost press" onclick={() => askRemove("others")}>{dev("sign_out_all")}</button>
       </div>
     {:else}
       <p class="set-hint">{dev("none_other")}</p>

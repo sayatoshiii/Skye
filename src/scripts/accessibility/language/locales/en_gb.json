@@ -397,6 +397,7 @@
         "keyword_copy": "Copy keyword"
       },
       "devices": {
+        "managed": "Your homeserver manages devices on its own account page, so signing out opens there.",
         "title": "Devices",
         "current": "This device",
         "unnamed": "Unnamed device",
