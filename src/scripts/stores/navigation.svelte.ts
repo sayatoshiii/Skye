@@ -287,3 +287,7 @@ export const messageUser = (userId: string) => {
 export const roomSettings = $state<{ roomId: string | null }>({ roomId: null });
 
 export const openRoomSettings = (roomId: string) => (roomSettings.roomId = roomId);
+
+export const switcher = $state({ open: false, nonce: 0 });
+
+export const openSwitcher = () => ((switcher.open = true), switcher.nonce++);

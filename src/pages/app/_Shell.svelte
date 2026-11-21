@@ -4,6 +4,7 @@
   import Chat from "../../components/app/Chat.svelte";
   import IncomingCall from "../../components/app/IncomingCall.svelte";
   import MiniPlayer from "../../components/app/MiniPlayer.svelte";
+  import QuickSwitcher from "../../components/app/QuickSwitcher.svelte";
   import VoicePanel from "../../components/navigation/VoicePanel.svelte";
   import Lightbox from "../../components/app/media/Lightbox.svelte";
   import RestoreHistory from "../../components/app/RestoreHistory.svelte";
@@ -206,6 +207,7 @@
 </div>
 
 <MiniPlayer />
+<QuickSwitcher />
 <Lightbox />
 <MiniProfile />
 <FullProfile />

@@ -9,7 +9,7 @@
   import { toEntity } from "../../scripts/stores/entities";
   import { dismissNotificationPrompt, enableNotifications, formatCount, notificationPrompt } from "../../scripts/stores/unread";
   import { directMessages, markAsRead, markUnread, rooms, session, spaces } from "../../scripts/stores/matrix";
-  import { HOME, navigateAwayFrom, navigation, openBrowse, openRoom, openRoomMenu, openRoomSettings, openSpaceMenu, roomMenu } from "../../scripts/stores/navigation.svelte";
+  import { HOME, navigateAwayFrom, navigation, openBrowse, openRoom, openRoomMenu, openRoomSettings, openSpaceMenu, openSwitcher, roomMenu } from "../../scripts/stores/navigation.svelte";
   import { hiddenRooms, setRoomsHidden } from "../../scripts/stores/hidden";
   import { serverNameFromUserId } from "../../scripts/matrix/discovery";
   import { toMatrixTo } from "../../scripts/matrix/utilities/links";
@@ -266,6 +266,7 @@
     openRoom(navigation.spaceId, roomId);
     onpick?.();
   };
+  const SHORTCUT = /Mac|iPhone|iPad/.test(navigator.platform) ? "⌘K" : "Ctrl K";
 </script>
 
 <section class="channels col min-0">
@@ -289,7 +290,11 @@
         <svg class="title-chevron" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" /></svg>
       </button>
     {:else}
-      <h1 class="title bold md truncate">{text("navigation", "home")}</h1>
+      <h1 class="sr-only">{text("navigation", "home")}</h1>
+      <button type="button" class="finder ghost row-nw align-centre gap-sm sm flex-max min-0" onclick={openSwitcher}>
+        <span class="truncate flex-max">{text("switcher", "find")}</span>
+        <kbd class="xs">{SHORTCUT}</kbd>
+      </button>
     {/if}
   </header>
 
@@ -449,6 +454,49 @@
 {/if}
 
 <style>
+  .finder {
+    height: 30px;
+    padding: 0 6px 0 10px;
+    border-radius: 9px;
+    background-color: var(--colours-background);
+    box-shadow: inset 0 0 0 1px transparent;
+    color: var(--colours-text-faint);
+    text-align: left;
+    transition:
+      color 260ms cubic-bezier(0.32, 0.72, 0, 1),
+      background-color 260ms cubic-bezier(0.32, 0.72, 0, 1),
+      box-shadow 260ms cubic-bezier(0.32, 0.72, 0, 1),
+      scale 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .finder:hover {
+    color: var(--colours-text-muted);
+    background-color: color-mix(in oklab, var(--colours-background) 70%, var(--colours-surface-hover));
+    box-shadow: inset 0 0 0 1px var(--colours-outline-hairline);
+  }
+
+  .finder:active {
+    scale: 0.97;
+    transition-duration: 120ms;
+  }
+
+  .finder:hover kbd {
+    color: var(--colours-text-strong);
+    background-color: color-mix(in oklab, var(--colours-surface-hover) 70%, var(--colours-text-faint));
+  }
+
+  .finder kbd {
+    flex: none;
+    transition:
+      color 260ms cubic-bezier(0.32, 0.72, 0, 1),
+      background-color 260ms cubic-bezier(0.32, 0.72, 0, 1);
+    padding: 1px 6px;
+    border-radius: 4px;
+    font-family: inherit;
+    background-color: var(--colours-surface-hover);
+    color: var(--colours-text-muted);
+  }
+
   svg.hash {
     flex: none;
     transition: color 320ms cubic-bezier(0.32, 0.72, 0, 1);
