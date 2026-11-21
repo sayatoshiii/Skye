@@ -9,6 +9,7 @@ export type MediaSettings = {
   showCallEvents: boolean;
   gifLinks: boolean;
   quickOpensChat: boolean;
+  friendlyHearts: boolean;
 };
 
 const defaults = (): MediaSettings => ({
@@ -19,6 +20,7 @@ const defaults = (): MediaSettings => ({
   showCallEvents: false,
   gifLinks: true,
   quickOpensChat: true,
+  friendlyHearts: true,
 });
 
 const load = (): MediaSettings => {
@@ -73,5 +75,8 @@ export const setGifsAsLinks = (links: boolean) =>
 
 export const setQuickOpensChat = (open: boolean) =>
   patch(() => ({ quickOpensChat: open }));
+
+export const setFriendlyHearts = (on: boolean) =>
+  patch(() => ({ friendlyHearts: on }));
 
 export const getMediaSettings = () => get(mediaSettings);

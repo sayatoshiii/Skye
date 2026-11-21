@@ -1393,6 +1393,7 @@
     if (message.kind === "poll" && !message.local && ownUserId && (message.sender === ownUserId || mayModerate(ownUserId)) && !pollEnded(message))
       add("end-poll", text("chat", "end_poll"), MENU_ICONS.end, (event) => ask("end_poll", message.eventId, event), true);
 
+    if (message.plain && isFriendly(message.body)) add("hearts", text("chat", $heartsOn ? "hearts_off" : "hearts_on"), MENU_ICONS.heart, () => setFriendlyHearts(!$heartsOn));
     if (message.plain) add("copy", text("chat", "copy_text"), MENU_ICONS.copy, () => copy(editableText(message)));
     if (!message.local && $currentRoom) {
       add("link", text("chat", "copy_link"), MENU_ICONS.link, () => copy(`https://matrix.to/#/${encodeURIComponent($currentRoom!.roomId)}/${encodeURIComponent(message.eventId)}`, "link_copied", "link"));
@@ -1801,6 +1802,7 @@
       </div>
     {/if}
     {#key room.id}
+    <FriendlyHearts messages={timelineMessages} {timeline} />
     <div class="timeline-mask col flex-max min-0">
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_noninteractive_element_interactions -->
     <ol class="timeline col flex-max min-0 travel-{travel || 'idle'}" bind:this={timeline} onanimationend={(event) => event.target === timeline && travel.startsWith("in") && (travel = "")} {onscroll} onclick={onmentionclick} onwheel={unpin} ontouchstart={unpin} onkeydown={unpin} onpointerdown={unpin}>

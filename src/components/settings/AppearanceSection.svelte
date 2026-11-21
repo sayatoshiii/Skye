@@ -5,7 +5,7 @@
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { tooltip } from "../../scripts/misc/tooltip";
   import { accentPresets, getAccent, getAccentPreset, isHexColour, setAccent, type AccentPreset } from "../../scripts/settings/accent";
-  import { mediaSettings, setGifsAsLinks, setHideRedacted, setQuickOpensChat, setShowCallEvents } from "../../scripts/settings/media";
+  import { mediaSettings, setFriendlyHearts, setGifsAsLinks, setHideRedacted, setQuickOpensChat, setShowCallEvents } from "../../scripts/settings/media";
   import { getMotionChoice, setMotionChoice, systemReducesMotion } from "../../scripts/settings/motion";
   import { copied } from "../../scripts/stores/toast";
   import type { MenuItem } from "../app/MessageMenu.svelte";
@@ -147,6 +147,16 @@
       <p class="set-hint">{look("show_call_events_hint")}</p>
     </div>
     <Toggle checked={$mediaSettings.showCallEvents} label={look("show_call_events")} onchange={setShowCallEvents} />
+  </div>
+</section>
+
+<section class="set-section" data-part="hearts">
+  <div class="split">
+    <div class="head col">
+      <h3 class="set-heading title">{look("friendly_hearts")}</h3>
+      <p class="set-hint">{look("friendly_hearts_hint")}</p>
+    </div>
+    <Toggle checked={$mediaSettings.friendlyHearts} label={look("friendly_hearts")} onchange={setFriendlyHearts} />
   </div>
 </section>
 

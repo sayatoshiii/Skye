@@ -293,6 +293,8 @@
       "no_messages": "No messages yet. Say hello!",
       "redacted": "Message deleted",
       "hide_redacted": "Hide deleted messages",
+      "hearts_off": "Turn off Friendly Hearts",
+      "hearts_on": "Turn on Friendly Hearts",
       "encrypted": "Encrypted message that Skye cannot read yet.",
       "unsupported": "Skye cannot show this message yet ({type}).",
       "edited": "(edited)",
@@ -442,7 +444,9 @@
         "animations_system": "Your system asks for reduced motion, so animations stay off",
         "copy_hex": "Copy colour code",
         "show_call_events": "Show call activity",
-        "show_call_events_hint": "Show when people join or leave calls in your chats"
+        "show_call_events_hint": "Show when people join or leave calls in your chats",
+        "friendly_hearts": "Friendly Hearts",
+        "friendly_hearts_hint": "Little hearts float up when someone says thanks or sends some love"
       },
       "notify": {
         "desktop": "Desktop notifications",
