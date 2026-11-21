@@ -678,7 +678,7 @@ const openLink = async (current: Live, focus: LiveKitFocus, publish: boolean, se
     .on(kit.RoomEvent.ConnectionQualityChanged, (quality, participant) => publish && participant.isLocal && patch({ quality: QUALITY[quality] ?? "unknown" }))
     .on(kit.RoomEvent.Reconnecting, () => publish && patch({ status: "reconnecting" }))
     .on(kit.RoomEvent.Reconnected, () => publish && patch({ status: "connected" }))
-    .on(kit.RoomEvent.Disconnected, () => live === current && current.links.get(key) === link && (publish ? disconnect() : closeLink(current, key)))
+    .on(kit.RoomEvent.Disconnected, () => live === current && current.links.get(key) === link && (publish ? rejoin(current) : closeLink(current, key)))
     .on(kit.RoomEvent.TrackSubscribed, (track: RemoteTrack, _publication, participant: Participant) => (track.kind === "audio" && userOfIdentity(participant.identity) !== get(session)?.userId && track.attach(), media()))
     .on(kit.RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => (track.detach().forEach((element) => element.remove()), media()))
     .on(kit.RoomEvent.TrackMuted, media)
@@ -772,7 +772,16 @@ export const ringRoom = (roomId: RoomId) => {
   ]).then((results) => (entry.ids = results.flatMap((result) => (result.status === "fulfilled" && typeof result.value === "string" ? [result.value] : []))));
 };
 
-export const joinVoice = async (roomId: RoomId) => {
+const rejoin = async (current: Live, attempt = 0): Promise<void> => {
+  const startedAt = get(voice)?.startedAt;
+  const direct = !!get(rooms)[current.roomId]?.isDirect;
+  const others = (get(callMembers)[current.roomId] ?? []).some((member) => member.userId !== get(session)?.userId);
+  if ((direct && !others) || attempt > 5) return disconnect();
+  await joinVoice(current.roomId, startedAt);
+  !get(voice) && (await new Promise((done) => setTimeout(done, 2000 * 2 ** attempt)), !get(voice) && (await rejoin(current, attempt + 1)));
+};
+
+export const joinVoice = async (roomId: RoomId, startedAt = Date.now()) => {
   const active = get(session);
   const summary = get(rooms)[roomId];
   const focus = await voiceFocus(roomId);
@@ -783,7 +792,7 @@ export const joinVoice = async (roomId: RoomId) => {
   incomingCall.set(null);
   micBlocked.set(false);
   const encrypted = !!summary.encryption;
-  voice.set({ kind: "rtc", roomId, status: "connecting", quality: "unknown", encrypted, startedAt: Date.now() });
+  voice.set({ kind: "rtc", roomId, status: "connecting", quality: "unknown", encrypted, startedAt });
   const current: Live = { roomId, encrypted, focus, links: new Map(), keyIndex: 0, key: crypto.getRandomValues(new Uint8Array(16)), received: new Map(), known: new Set(), timers: [], delayId: null, stop: [] };
   live = current;
   try {
