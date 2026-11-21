@@ -97,7 +97,7 @@
   import { formatAgo } from "../../scripts/misc/time";
   import PeopleDialog, { type PeopleRow } from "./PeopleDialog.svelte";
   import { usermenu } from "../../scripts/misc/usermenu";
-  import { entityText, menu as entityMenu } from "../../scripts/misc/entitymenu.svelte";
+  import { entityText, menu as entityMenu, openEntityMenu } from "../../scripts/misc/entitymenu.svelte";
   import LocationCard from "./media/LocationCard.svelte";
   import LocationDialog from "./LocationDialog.svelte";
   import Poll from "./media/Poll.svelte";
@@ -204,6 +204,30 @@
   let swipe: { id: string; dx: number } | null = $state(null);
   let swiped: { id: string; size: number } | null = $state.raw(null);
   let pinsOpen = $state(false);
+  let headerWidth = $state(0);
+  const SLOT = 48;
+  const foldable = $derived(["settings", "threads", "pins", ...($currentRoom?.isDirect ? ["call"] : []), "members"]);
+  const folded = $derived.by(() => {
+    if (!headerWidth) return new Set<string>();
+    const free = headerWidth - (innerWidth < 768 ? 48 + 44 : 148) - 120 - 32;
+    const fits = free >= foldable.length * SLOT ? foldable.length : Math.max(0, Math.floor((free - SLOT) / SLOT));
+    return new Set(foldable.slice(0, foldable.length - fits));
+  });
+  const fold = $derived(folded.size);
+  const moreItems = (roomId: string): MenuItem[] => ([
+    ...(folded.has("members") ? [{ id: "more-members", label: text("navigation", "open_members"), icon: MENU_ICONS.profile, run: () => onmembers?.() }] : []),
+    ...(folded.has("call") ? [{ id: "more-call", label: text("voice", $voice?.roomId === roomId ? "disconnect" : "call"), icon: $voice?.roomId === roomId ? SETTINGS_ICONS.hangup : SETTINGS_ICONS.call, danger: $voice?.roomId === roomId, run: () => void ($voice?.roomId === roomId ? leaveCall() : placeCall(roomId)) }] : []),
+  ] as MenuItem[]).concat(([
+    { id: "more-pins", label: pinnedIds.length ? `${text("chat", "pins")} (${pinnedIds.length})` : text("chat", "pins"), icon: MENU_ICONS.pin, run: () => (pinsOpen = true) },
+    { id: "more-threads", label: text("chat", "threads"), icon: MENU_ICONS.thread, run: () => (threadView = threadView ? null : { rootId: null }) },
+    { id: "more-settings", label: text("chat", "room_settings"), icon: MENU_ICONS.settings, separated: true, run: () => openRoomSettings(roomId) },
+  ] as MenuItem[]).filter((item) => folded.has(item.id.replace("more-", ""))));
+  let chatWidth = $state(0);
+  let searchQuery: SearchQuery = $state({ term: "", ...emptyFilters() });
+  let searchShown: SearchQuery | null = $state.raw(null);
+  let filtersOpen = $state(false);
+  let searchInput: HTMLInputElement | undefined = $state();
+  let headerEl: HTMLElement | undefined = $state();
   let threadView: { rootId: string | null } | null = $state(null);
   let threadClosing = $state(false);
   let pinsButton: HTMLButtonElement | undefined = $state();
@@ -1615,7 +1639,7 @@
   };
 
 
-  const roomLabel = $derived(room ? `${room.isDirect ? "" : "#"}${room.name}` : "");
+  const roomLabel = $derived(room ? `${room.isDirect || room.name.startsWith("#") ? "" : "#"}${room.name}` : "");
 </script>
 
 <svelte:window onkeydown={onwindowkey} />
@@ -1637,7 +1661,7 @@
   {ondrop}
   aria-label={roomLabel}
 >
-  <header class="header row-nw align-centre gap-sm hairline-b" bind:offsetHeight={headerSpace}>
+  <header class="header row-nw align-centre gap-sm hairline-b" bind:offsetHeight={headerSpace} bind:clientWidth={headerWidth} bind:this={headerEl}>
     <button class="icon ghost press mobile-only" aria-label={text("navigation", "open_channels")} onclick={onchannels}>
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
         <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M4 7h16M4 12h16M4 17h16" />
@@ -1677,6 +1701,7 @@
       {@const inCall = $voice?.roomId === callId}
       <button
         class="icon ghost press call-button"
+        class:folded={folded.has("call")}
         class:active={inCall}
         aria-label={text("voice", inCall ? "disconnect" : "call")}
         use:tooltip={text("voice", inCall ? "disconnect" : "call")}
@@ -1689,6 +1714,7 @@
     {#if room}
       <button
         class="icon pins-button ghost press"
+        class:folded={folded.has("pins")}
         class:active={pinsOpen}
         aria-label={pinnedIds.length ? text("chat", "pins_count").replace("{count}", String(pinnedIds.length)) : text("chat", "pins")}
         aria-haspopup="dialog"
@@ -1705,6 +1731,7 @@
     {#if room}
       <button
         class="icon ghost press"
+        class:folded={folded.has("threads")}
         class:active={!!threadView}
         aria-label={text("chat", "threads")}
         aria-expanded={!!threadView}
@@ -1719,6 +1746,7 @@
       {@const settingsId = room.id}
       <button
         class="icon ghost press"
+        class:folded={folded.has("settings")}
         aria-label={text("chat", "room_settings")}
         aria-haspopup="dialog"
         use:tooltip={text("chat", "room_settings")}
@@ -1728,31 +1756,48 @@
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.settings} /></svg>
       </button>
     {/if}
-    <button class="icon ghost press" aria-label={text("navigation", "open_members")} use:tooltip={text("navigation", "open_members")} onclick={onmembers}>
+    <button class="icon ghost press" class:folded={folded.has("members")} aria-label={text("navigation", "open_members")} use:tooltip={text("navigation", "open_members")} onclick={onmembers}>
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
         <path fill="currentColor" d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Zm7 0a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM2 19c0-3.3 3.1-6 7-6s7 2.7 7 6v1H2v-1Zm15.5 1H22v-1c0-2.6-2.2-4.6-5-5 1.2 1.3 1.9 3 2 4.9V20h-1.5Z" />
       </svg>
     </button>
+    {#if room}
+      {@const moreId = room.id}
+      <button
+        class="icon more-button ghost press"
+        class:shown={fold > 0}
+        aria-label={text("chat", "more")}
+        aria-haspopup="menu"
+        onclick={(event) => {
+          const box = event.currentTarget.getBoundingClientRect();
+          openEntityMenu(moreItems(moreId), box.right - 220, box.bottom + 6);
+        }}
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="5" cy="12" r="2" fill="currentColor" /><circle cx="12" cy="12" r="2" fill="currentColor" /><circle cx="19" cy="12" r="2" fill="currentColor" /></svg>
+        {#if pinnedIds.length}<span class="more-dot" aria-hidden="true"></span>{/if}
+      </button>
+      <SearchField roomName={roomLabel} members={searchMembers} bind:query={searchQuery} bind:input={searchInput} onsubmit={runSearch} onfilters={() => (filtersOpen = true)} onclear={() => (searchShown = null)} />
+    {/if}
   </header>
 
   {#if room}
     <CallStage roomId={room.id} bind:active={stageActive} bind:chatOpen bind:staged={() => staged, (value) => (stagedFor = value ? room.id : null)} />
     {#if lockedOut && dismissedRoom !== room.id}
-      <div class="decrypt-banner row-nw align-centre gap-sm sm" role="status">
-        <span class="banner-text row-nw align-centre gap-sm min-0">
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z" />
-          </svg>
-          <span class="muted min-0">{text("encryption", "banner")}</span>
+      <div class="decrypt-banner row-nw align-centre gap-md" role="status" transition:fly={{ y: -8, duration: 360, easing: cubicOut, opacity: 0 }}>
+        <span class="banner-icon row centre" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="18" height="18"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M7 11V8a5 5 0 0 1 10 0v3M6 11h12a1 1 0 0 1 1 1v7a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1v-7a1 1 0 0 1 1-1z" /></svg>
         </span>
-        <span class="banner-controls row-nw align-centre gap-xs">
-        <button type="button" class="banner-action ghost press bold" onclick={() => restoreOpen.set(true)}>{text("encryption", "banner_action")}</button>
-        <button type="button" class="banner-close ghost press" aria-label={text("encryption", "dismiss")} onclick={() => (dismissedRoom = room.id)}>
-          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-            <path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" />
-          </svg>
+        <span class="col min-0 flex-max banner-copy">
+          <span class="sm bold banner-title">{text("encryption", "banner_title")}</span>
+          <span class="xs muted">{text("encryption", "banner")}</span>
+        </span>
+        <span class="banner-buttons row-nw align-centre gap-sm">
+          <button type="button" class="banner-later ghost sm bold" onclick={() => (dismissedRoom = room.id)}>{text("encryption", "banner_later")}</button>
+          <button type="button" class="banner-action ghost sm bold" onclick={() => restoreOpen.set(true)}>{text("encryption", "banner_action")}</button>
+        </span>
+        <button type="button" class="banner-close ghost" aria-label={text("encryption", "dismiss")} onclick={() => (dismissedRoom = room.id)}>
+          <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
         </button>
-        </span>
       </div>
     {/if}
     {#key room.id}
@@ -2609,56 +2654,66 @@
   }
 
   .decrypt-banner {
+    position: relative;
     flex: none;
-    flex-wrap: wrap;
-    row-gap: var(--azure-spacing-xs);
     margin: var(--azure-spacing-sm) var(--azure-spacing-md) 0;
-    padding: var(--azure-spacing-sm) var(--azure-spacing-sm) var(--azure-spacing-sm) var(--azure-spacing-md);
+    padding: 10px 10px 10px 10px;
+    border-radius: 16px;
+    border: 1px solid color-mix(in oklab, var(--colours-accent) 18%, var(--colours-outline-hairline));
+    background-color: color-mix(in oklab, var(--colours-accent) 7%, var(--colours-foreground));
+    box-shadow: 0 10px 28px -18px var(--colours-accent-glow);
+  }
+
+  .banner-icon {
+    width: 36px;
+    height: 36px;
+    flex: none;
+    border-radius: 11px;
     color: var(--colours-accent);
-    background-color: var(--colours-accent-faint);
-    border: 1px solid color-mix(in oklab, var(--colours-accent) 22%, transparent);
-    border-radius: var(--azure-radius-md);
-    box-shadow: 0 0 24px -12px var(--colours-accent-glow);
-    animation: banner-in var(--azure-duration-md) var(--azure-ease-out);
+    background-color: color-mix(in oklab, var(--colours-accent) 16%, transparent);
   }
 
-  .banner-text {
-    flex: 1 1 200px;
+  .banner-copy {
+    gap: 1px;
   }
 
-  .banner-text svg {
-    flex: none;
-  }
-
-  .banner-controls {
-    flex: none;
-    margin-left: auto;
+  .banner-title {
+    color: var(--colours-text-strong);
   }
 
   .banner-action {
     flex: none;
-    min-height: 32px;
-    padding: 0 var(--azure-spacing-md);
-    color: var(--colours-accent);
-    background: none;
-    text-underline-offset: 3px;
-    transition: color var(--azure-duration-fast) var(--azure-ease-out);
+    height: 32px;
+    padding: 0 14px;
+    border-radius: 999px;
+    color: white;
+    background-color: var(--colours-accent);
+    transition:
+      background-color 240ms cubic-bezier(0.32, 0.72, 0, 1),
+      scale 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
   }
 
   .banner-action:hover,
   .banner-action:focus-visible {
-    color: var(--colours-accent-strong);
-    text-decoration: underline;
+    background-color: var(--colours-accent-strong);
+  }
+
+  .banner-action:active {
+    scale: 0.95;
+    transition-duration: 120ms;
   }
 
   .banner-close {
     flex: none;
     display: grid;
     place-items: center;
-    width: 32px;
-    height: 32px;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
     color: var(--colours-text-muted);
-    border-radius: var(--azure-radius-sm);
+    transition:
+      background-color 200ms cubic-bezier(0.32, 0.72, 0, 1),
+      color 200ms cubic-bezier(0.32, 0.72, 0, 1);
   }
 
   .banner-close:hover {
@@ -2673,15 +2728,45 @@
     }
   }
 
+  .banner-buttons {
+    flex: none;
+  }
+
+  .banner-later {
+    display: none;
+    height: 36px;
+    padding: 0 14px;
+    border-radius: 999px;
+    color: var(--colours-text);
+    background-color: var(--colours-surface-hover);
+    transition:
+      background-color 240ms cubic-bezier(0.32, 0.72, 0, 1),
+      scale 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .banner-later:active {
+    scale: 0.95;
+    transition-duration: 120ms;
+  }
+
   @media (max-width: 767px) {
-    .banner-action,
-    .banner-close {
-      min-height: var(--azure-touch);
+    .decrypt-banner {
+      flex-wrap: wrap;
+      row-gap: 10px;
+    }
+
+    .banner-buttons {
+      width: 100%;
+    }
+
+    .banner-buttons > button {
+      display: block;
+      flex: 1;
+      height: 38px;
     }
 
     .banner-close {
-      width: var(--azure-touch);
-      height: var(--azure-touch);
+      display: none;
     }
   }
 
@@ -2715,6 +2800,29 @@
     place-items: center;
     border-radius: var(--azure-radius-sm);
     color: var(--colours-text-muted);
+  }
+
+  .more-button {
+    display: none;
+    position: relative;
+  }
+
+  .more-dot {
+    position: absolute;
+    top: 9px;
+    right: 8px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: var(--colours-accent);
+  }
+
+  .icon.folded {
+    display: none;
+  }
+
+  .more-button.shown {
+    display: grid;
   }
 
   .icon:hover {
@@ -3156,7 +3264,7 @@
     }
 
     .icon {
-      width: var(--azure-touch);
+      width: 40px;
       height: var(--azure-touch);
     }
 

@@ -769,8 +769,10 @@
       ]
     },
     "encryption": {
+      "banner_title": "Missing message keys",
       "banner": "Some messages can't be decrypted on this device.",
       "banner_action": "Restore history",
+      "banner_later": "Not now",
       "dismiss": "Dismiss",
       "title": "Restore message history",
       "description": "Unlock your encrypted messages from server-side key backup using your Security Key or Security Phrase.",

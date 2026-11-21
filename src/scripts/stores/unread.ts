@@ -53,7 +53,7 @@ const pageTitle = derived([titleCount, rooms, currentRoomId, spaces], ([$count, 
   const name = room.name || room.directUserId || room.roomId;
   if (room.isDirect) return `${prefix}Skye · @${name.replace(/^@/, "")}`;
   const space = $spaces.find((tree) => getSpaceRoomIds(tree).includes(room.roomId));
-  return `${prefix}Skye · #${name}${space ? ` (${space.space.name})` : ""}`;
+  return `${prefix}Skye · ${name.startsWith("#") ? "" : "#"}${name}${space ? ` (${space.space.name})` : ""}`;
 });
 
 if (typeof document !== "undefined") pageTitle.subscribe((title) => (document.title = title));
