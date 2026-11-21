@@ -1,6 +1,5 @@
 ---
 import Profile from "../../components/navigation/Profile.svelte";
-import SignOut from "../../components/navigation/SignOut.svelte";
 import SettingsButton from "../../components/settings/SettingsButton.svelte";
 import App from "../../layouts/App.astro";
 import Shell from "./_Shell.svelte";
@@ -20,7 +19,6 @@ import EntityMenu from "../../components/app/EntityMenu.svelte";
     <div slot="footer" class="row-nw align-centre justify-between gap-sm">
       <Profile client:only="svelte" />
       <div class="row-nw align-centre gap-xs">
-        <SignOut client:only="svelte" />
         <SettingsButton client:only="svelte" />
       </div>
     </div>
