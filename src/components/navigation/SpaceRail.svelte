@@ -135,7 +135,7 @@
 </script>
 
 <nav class="rail col align-centre gap-sm" aria-label={getLocalisedText(undefined, "navigation", "spaces")}>
-  {#if !$synced}<Skeleton kind="rail" count={6} />{/if}
+  {#if !$synced && !entries.length}<Skeleton kind="rail" count={6} />{/if}
   {#each entries as space, index (space.id)}
     {@const active = navigation.spaceId === space.id}
     {@const flags = spaceState[space.id]}

@@ -430,8 +430,18 @@ const applyEphemeral = (join: Record<RoomId, { ephemeral?: { events: { type: str
   });
 };
 
+const PROFILE_KEY = "skye.profile";
+
 const loadProfile = async (active: Session) => {
-  ownProfile.set({ userId: active.userId });
+  const cached = (() => {
+    try {
+      const value = JSON.parse(localStorage.getItem(PROFILE_KEY) ?? "null") as Profile | null;
+      return value?.userId === active.userId ? value : null;
+    } catch {
+      return null;
+    }
+  })();
+  cached && ownProfile.set(cached);
 
   const profile = await sessionRequest<{
     displayname?: string;
@@ -441,12 +451,11 @@ const loadProfile = async (active: Session) => {
     method: "GET",
   }).catch(() => null);
 
-  if (profile)
-    ownProfile.set({
-      userId: active.userId,
-      displayName: profile.displayname,
-      avatarUrl: profile.avatar_url,
-    });
+  const next = profile ? { userId: active.userId, displayName: profile.displayname, avatarUrl: profile.avatar_url } : (cached ?? { userId: active.userId });
+  ownProfile.set(next);
+  try {
+    profile && localStorage.setItem(PROFILE_KEY, JSON.stringify(next));
+  } catch {}
 };
 
 export const loadMembers = async (roomId: RoomId) => {

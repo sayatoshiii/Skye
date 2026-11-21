@@ -10,6 +10,14 @@
   import EmojiText from "../ui/EmojiText.svelte";
   import PresenceDot from "../ui/PresenceDot.svelte";
   import { selfSpeaking } from "../../scripts/stores/voice";
+  import { blur, fade } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
+
+  let settled = $state(false);
+  $effect(() => {
+    const timer = setTimeout(() => (settled = true), 4000);
+    return () => clearTimeout(timer);
+  });
 
   const text = (...path: string[]) =>
     getLocalisedText(undefined, ...path) as string;
@@ -72,7 +80,14 @@
 </script>
 
 <section class="profile row-nw min-0">
+  {#if !$ownProfile?.displayName && !$ownProfile?.avatarUrl && !settled}
+    <div class="ghost-row row-nw gap-md align-centre flex-max" aria-hidden="true" out:fade={{ duration: 180 }}>
+      <span class="bone circle"></span>
+      <span class="col gap-xs flex-max"><span class="bone line" style:width="58%"></span><span class="bone line" style:width="38%"></span></span>
+    </div>
+  {:else}
   <button
+    in:blur={{ amount: 6, duration: 360, easing: cubicOut }}
     type="button"
     class="trigger ghost press row-nw gap-md align-centre min-0 flex-max"
     aria-haspopup="menu"
@@ -94,6 +109,7 @@
       </span>
     </span>
   </button>
+  {/if}
 </section>
 
 {#if menu}
@@ -105,6 +121,39 @@
 {/if}
 
 <style>
+  .ghost-row {
+    padding: 4px 6px;
+    min-height: 44px;
+  }
+
+  .bone {
+    display: block;
+    flex: none;
+    border-radius: var(--azure-radius-pill);
+    background: linear-gradient(90deg, var(--colours-surface-hover) 20%, color-mix(in oklab, var(--colours-text-faint) 22%, transparent) 50%, var(--colours-surface-hover) 80%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s linear infinite;
+  }
+
+  .bone.circle {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+  }
+
+  .bone.line {
+    height: 9px;
+  }
+
+  @keyframes shimmer {
+    from {
+      background-position: 100% 0;
+    }
+    to {
+      background-position: -100% 0;
+    }
+  }
+
   .ring {
     display: grid;
     border-radius: 50%;

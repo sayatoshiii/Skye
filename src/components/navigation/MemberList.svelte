@@ -115,6 +115,25 @@
     });
   });
   const rows = $derived(shown.flatMap((group) => (group.visible.length ? [{ key: group.id, name: group.name, count: group.members.length, member: null }, ...group.visible.map((member) => ({ key: member.userId, name: "", count: 0, member }))] : [])));
+  const lift = (node: HTMLElement, { duration }: { duration: number }) => {
+    const { top, left, width, height } = node.getBoundingClientRect();
+    const parent = (node.offsetParent ?? node.parentElement)!.getBoundingClientRect();
+    Object.assign(node.style, { position: "absolute", top: `${top - parent.top}px`, left: `${left - parent.left}px`, width: `${width}px`, height: `${height}px` });
+    return { duration, easing: cubicOut, css: (t: number) => `opacity: ${t}; filter: blur(${(1 - t) * 6}px)` };
+  };
+
+  let calm = $state(false);
+  let settle: ReturnType<typeof setTimeout> | undefined;
+  $effect(() => {
+    void room?.roomId;
+    calm = false;
+  });
+  $effect(() => {
+    void rows.length;
+    clearTimeout(settle);
+    !calm && (settle = setTimeout(() => (calm = true), 900));
+    return () => clearTimeout(settle);
+  });
 </script>
 
 <aside class="members col" aria-label={getLocalisedText(undefined, "navigation", "members")}>
@@ -129,9 +148,9 @@
     </header>
   {/if}
   {#key room?.roomId}
-  <ul class="col">
+  <ul class="col" in:blur={{ amount: 6, duration: 360, easing: cubicOut }}>
     {#each rows as row (row.key)}
-      <li class={row.member ? "member-row" : "heading-row"} animate:flip={{ duration: 380, easing: cubicOut }} in:blur|global={{ amount: 6, duration: 320, easing: cubicOut }} out:blur={{ amount: 6, duration: 200, easing: cubicOut }}>
+      <li class={row.member ? "member-row" : "heading-row"} animate:flip={{ duration: calm ? 380 : 0, easing: cubicOut }} in:blur={{ amount: 6, duration: calm ? 320 : 0, easing: cubicOut }} out:lift={{ duration: calm ? 200 : 0 }}>
         {#if row.member}
           {@const member = row.member}
           <button type="button" class="member item press ghost row-nw align-centre gap-md" class:offline={member.presence === "offline"} use:tooltip={member.userId} use:usermenu={{ userId: member.userId, roomId: room?.roomId }} data-profile-trigger aria-label={text("user_profile", "open").replace("{name}", member.displayName)} onclick={(event) => room && openMiniProfile(member.userId, event.currentTarget, "left", room.roomId)}>
@@ -211,6 +230,7 @@
   }
 
   ul {
+    position: relative;
     list-style: none;
     margin: 0;
     padding: 0;

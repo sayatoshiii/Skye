@@ -339,7 +339,7 @@
         </ul>
       </div>
     {/if}
-    {#if !$synced}
+    {#if !$synced && empty}
       <Skeleton kind="rooms" count={10} />
     {:else if empty}
       <p class="empty sm faint">{text("navigation", tree ? "empty_space" : "empty_home")}</p>
