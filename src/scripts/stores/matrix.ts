@@ -17,8 +17,10 @@ import {
 } from "../matrix/rooms";
 import { DeviceId as WasmDeviceId, UserId as WasmUserId } from "@matrix-org/matrix-sdk-crypto-wasm";
 import { clearSession, loadSession, SIGNOUT_REASON_KEY, logout, sessionRequest } from "../matrix/session";
+import { clearSnapshot, readSnapshot, writeSnapshot } from "../matrix/cache";
 import {
   clearSyncToken,
+  FILTER_KEY,
   createSync,
   type SyncHandle,
   type SyncOptions,
@@ -530,6 +532,7 @@ const resetLockedStore = async (reason?: string) => {
   stopMatrix();
   await Promise.all([logout(active), clearCryptoStore(active)]);
   clearSyncToken();
+  clearSnapshot();
   sessionExpired.set(true);
   resettingStore = false;
 };
@@ -677,9 +680,20 @@ export const startMatrix = (
   roomStore.on("change", (next) => rooms.set(next));
   loadMarkers(activeSession.userId);
 
-  sync = createSync({ ...options, crypto, session: activeSession, presence: () => syncPresence });
-  sync.on("state", (state) => syncState.set(state));
-  sync.on("error", (error) => {
+  const account = new Map<string, { type: string; content?: Record<string, unknown> }>();
+  let fresh = false;
+  let saving: ReturnType<typeof setTimeout> | undefined;
+  const save = () => {
+    const since = sync?.getSinceToken();
+    clearTimeout(saving);
+    since && roomStore && writeSnapshot(activeSession.userId, { filter: FILTER_KEY, since, rooms: roomStore.getRooms(), account: [...account.values()] });
+  };
+  addEventListener("pagehide", save);
+  const cached = options.since ? null : readSnapshot(activeSession.userId, FILTER_KEY);
+  const handle = createSync({ ...options, crypto, session: activeSession, presence: () => syncPresence });
+  sync = handle;
+  handle.on("state", (state) => syncState.set(state));
+  handle.on("error", (error) => {
     if (!isMatrixError(error, "M_UNKNOWN_TOKEN")) return;
     const softLogout = error.body.soft_logout === true;
     stopCrypto().then(() =>
@@ -687,10 +701,15 @@ export const startMatrix = (
     );
     clearSession();
     clearSyncToken();
+    clearSnapshot(activeSession.userId);
     sessionExpired.set(true);
   });
-  sync.on("sync", (response) => {
-    const live = get(synced);
+  handle.on("sync", (response) => {
+    const live = fresh;
+    fresh = true;
+    response.account_data?.events.forEach((event) => account.set(event.type, event));
+    clearTimeout(saving);
+    saving = setTimeout(save, live ? 5000 : 500);
     const safely = (run: () => void) => {
       try {
         run();
@@ -707,17 +726,22 @@ export const startMatrix = (
     safely(() => applyEphemeral(response.rooms?.join ?? {}));
     const accountData = response.account_data?.events ?? [];
     accountDataHooks.forEach((hook) => safely(() => hook(accountData)));
-    if (!get(synced)) queueMicrotask(() => promptVerification(activeSession));
+    if (!live) queueMicrotask(() => promptVerification(activeSession));
     synced.set(true);
   });
-  sync.on("room_timeline", ({ roomId, events, limited, prevBatch }) => {
+  handle.on("room_timeline", ({ roomId, events, limited, prevBatch }) => {
     const timeline =
       timelines[roomId] ??
       (roomId === get(currentRoomId) ? getTimeline(roomId) : undefined);
     const pending = timeline?.appendLive(events, limited, prevBatch);
     if (get(unreadMarkers)[roomId]) pending?.then(() => refreshLocalUnread(roomId));
   });
-  sync.start();
+  const begin = (snapshot: Awaited<typeof cached>) => {
+    if (sync !== handle) return;
+    snapshot && (roomStore?.hydrate(snapshot.rooms), snapshot.account.forEach((event) => account.set(event.type, event)), roomStore?.applySync({ next_batch: snapshot.since, account_data: { events: snapshot.account } } as never), accountDataHooks.forEach((hook) => hook(snapshot.account)), synced.set(true));
+    handle.start(snapshot?.since);
+  };
+  cached ? cached.then(begin, () => begin(null)) : begin(null);
   loadProfile(activeSession);
 
   return sync;
@@ -752,6 +776,7 @@ export const signOut = async () => {
   const active = get(session) ?? loadSession();
   stopMatrix();
   clearSyncToken();
+  clearSnapshot();
   await stopCrypto();
   await Promise.all([logout(active), clearCryptoStore(active)]);
 };

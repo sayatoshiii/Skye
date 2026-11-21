@@ -317,8 +317,11 @@ export const createRoomStore = (ownUserId: UserId) => {
     emitter.emit("change", { ...rooms });
   };
 
+  const hydrate = (cached: Record<RoomId, RoomSummary>) => Object.assign(rooms, cached);
+
   return {
     applySync,
+    hydrate,
     markRead,
     setPinned,
     on: emitter.on,

@@ -6,7 +6,6 @@
   import MiniPlayer from "../../components/app/MiniPlayer.svelte";
   import VoicePanel from "../../components/navigation/VoicePanel.svelte";
   import Lightbox from "../../components/app/media/Lightbox.svelte";
-  import Loading from "../../components/app/Loading.svelte";
   import RestoreHistory from "../../components/app/RestoreHistory.svelte";
   import ChannelList from "../../components/navigation/ChannelList.svelte";
   import MemberList from "../../components/navigation/MemberList.svelte";
@@ -152,7 +151,6 @@
 
 <svelte:window onkeydowncapture={unfull} />
 
-<Loading visible={!routed} />
 <RestoreHistory />
 
 <div

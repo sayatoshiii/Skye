@@ -30,7 +30,7 @@ export type SyncOptions = {
 
 const CRYPTO_TIMEOUT = 10000;
 const SINCE_KEY = "sync_since";
-const FILTER_KEY = "sync_filter_id_v3";
+export const FILTER_KEY = "sync_filter_id_v3";
 
 const readStorage = (key: string) =>
   typeof localStorage === "undefined" ? null : localStorage.getItem(key);
@@ -177,8 +177,9 @@ export const createSync = ({
     if (state !== "error") setState("stopped");
   };
 
-  const start = () => {
+  const start = (resume?: string) => {
     if (controller) return;
+    resume && (token = resume);
 
     controller = new AbortController();
     loop(controller.signal).finally(() => (controller = null));

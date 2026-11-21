@@ -19,6 +19,8 @@
   import ConfirmDialog from "../ui/ConfirmDialog.svelte";
   import BadgeCut from "../ui/BadgeCut.svelte";
   import { spaceUnread, unreadDirects, type SpaceUnread } from "../../scripts/stores/unread";
+  import Skeleton from "../ui/Skeleton.svelte";
+  import { synced } from "../../scripts/stores/matrix";
 
   const text = (...path: string[]) => getLocalisedText(undefined, ...path) as string;
 
@@ -133,6 +135,7 @@
 </script>
 
 <nav class="rail col align-centre gap-sm" aria-label={getLocalisedText(undefined, "navigation", "spaces")}>
+  {#if !$synced}<Skeleton kind="rail" count={6} />{/if}
   {#each entries as space, index (space.id)}
     {@const active = navigation.spaceId === space.id}
     {@const flags = spaceState[space.id]}

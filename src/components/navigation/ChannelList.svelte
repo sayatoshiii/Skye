@@ -30,6 +30,8 @@
   import { callMembers, joinable, joinVoice, voice } from "../../scripts/stores/voice";
   import { placeCall } from "../../scripts/stores/calls";
   import VoiceMembers from "./VoiceMembers.svelte";
+  import Skeleton from "../ui/Skeleton.svelte";
+  import { synced } from "../../scripts/stores/matrix";
 
   let { onpick }: { onpick?: () => void } = $props();
 
@@ -332,7 +334,9 @@
         </ul>
       </div>
     {/if}
-    {#if empty}
+    {#if !$synced}
+      <Skeleton kind="rooms" count={10} />
+    {:else if empty}
       <p class="empty sm faint">{text("navigation", tree ? "empty_space" : "empty_home")}</p>
     {/if}
     {#each categories as category (category.id)}

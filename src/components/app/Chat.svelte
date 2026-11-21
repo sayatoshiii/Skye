@@ -34,6 +34,7 @@
   import { visibleTimeline } from "../../scripts/stores/ignored";
   import {
     canLoadOlder,
+    synced,
     currentRoom,
     discardMessage,
     editRoomMessage,
@@ -101,6 +102,7 @@
   import { SYSTEM_ICONS, SYSTEM_TYPES, describeSystem, type MemberVerb, type SystemLine } from "../../scripts/matrix/utilities/system";
   import { handoff, navigation, openJoined, openRoom, openRoomMenu, openRoomSettings, openUserMenu, roomSettings } from "../../scripts/stores/navigation.svelte";
   import { openFullProfile, openMiniProfile } from "../../scripts/stores/profile";
+  import Skeleton from "../ui/Skeleton.svelte";
   import { getScrollAnchor, persistScrollAnchors, setScrollAnchor, type ScrollAnchor } from "../../scripts/stores/scroll";
 
   let {
@@ -2081,6 +2083,8 @@
         <span class="md bold">{text("media", "drop")}</span>
       </div>
     {/if}
+  {:else if !$synced}
+    <div class="flex-max min-0"><Skeleton kind="messages" count={7} /></div>
   {:else}
     <div class="empty col centre flex-max glow">
       <p class="muted md">{text("chat", "empty")}</p>
