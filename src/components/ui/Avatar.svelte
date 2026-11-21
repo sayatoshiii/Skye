@@ -7,7 +7,8 @@
     url,
     size = "40px",
     radius = "25%",
-  }: { name?: string; url?: string; size?: string; radius?: string } =
+    fade = false,
+  }: { name?: string; url?: string; size?: string; radius?: string; fade?: boolean } =
     $props();
 
   let failed = $state(false);
@@ -57,7 +58,10 @@
 </script>
 
 <span class="avatar" use:swap={url} bind:this={element} style:--size={size} style:--radius={radius}>
-  {#if resolved && !failed}
+  {#if resolved && !failed && fade}
+    <span aria-hidden="true">{initials}</span>
+    <img class="fade" src={resolved} alt="" onload={(event) => event.currentTarget.classList.add("loaded")} onerror={() => (failed = true)} />
+  {:else if resolved && !failed}
     <img src={resolved} alt="" decoding="sync" onerror={() => (failed = true)} />
   {:else}
     <span aria-hidden="true">{initials}</span>
@@ -91,5 +95,25 @@
     width: 100%;
     height: 100%;
     object-fit: cover;
+  }
+
+  .avatar > * {
+    grid-area: 1 / 1;
+  }
+
+  .fade {
+    opacity: 0;
+    filter: blur(6px);
+    scale: 1.06;
+    transition:
+      opacity 420ms cubic-bezier(0.32, 0.72, 0, 1),
+      filter 420ms cubic-bezier(0.32, 0.72, 0, 1),
+      scale 420ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .fade:global(.loaded) {
+    opacity: 1;
+    filter: none;
+    scale: 1;
   }
 </style>

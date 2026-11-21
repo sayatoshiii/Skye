@@ -10,6 +10,9 @@
   import Avatar from "../ui/Avatar.svelte";
   import { openMiniProfile } from "../../scripts/stores/profile";
   import { usermenu } from "../../scripts/misc/usermenu";
+  import { flip } from "svelte/animate";
+  import { blur } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
 
   let { onclose }: { onclose?: () => void } = $props();
 
@@ -111,6 +114,7 @@
       return { ...group, visible };
     });
   });
+  const rows = $derived(shown.flatMap((group) => (group.visible.length ? [{ key: group.id, name: group.name, count: group.members.length, member: null }, ...group.visible.map((member) => ({ key: member.userId, name: "", count: 0, member }))] : [])));
 </script>
 
 <aside class="members col" aria-label={getLocalisedText(undefined, "navigation", "members")}>
@@ -125,23 +129,25 @@
     </header>
   {/if}
   {#key room?.roomId}
-  {#each shown as group (group.id)}
-    <h2 class="heading xs bold">{group.name} — {group.members.length}</h2>
-    <ul class="col gap-xs">
-      {#each group.visible as member (member.userId)}
-        <li class="member-row">
-        <button type="button" class="member item press ghost row-nw align-centre gap-md" class:offline={member.presence === "offline"} use:tooltip={member.userId} use:usermenu={{ userId: member.userId, roomId: room?.roomId }} data-profile-trigger aria-label={text("user_profile", "open").replace("{name}", member.displayName)} onclick={(event) => room && openMiniProfile(member.userId, event.currentTarget, "left", room.roomId)}>
-          <PresenceDot userId={member.userId} size={32}>
-            <Avatar name={member.displayName} url={member.avatar} size="32px" radius="50%" />
-          </PresenceDot>
-          <span class="md truncate" class:admin={member.powerLevel >= 100 && !room?.isDirect}
-            class:moderator={member.powerLevel >= 50 && member.powerLevel < 100 && !room?.isDirect} style:color={member.role?.color}><EmojiText text={member.displayName} /></span>
-          {#if roleIcon(member.role)}<span class="role-icon" aria-hidden="true"><Avatar name={member.role?.name ?? ""} url={roleIcon(member.role)} size="16px" radius="4px" /></span>{/if}
-        </button>
-        </li>
-      {/each}
-    </ul>
-  {/each}
+  <ul class="col">
+    {#each rows as row (row.key)}
+      <li class={row.member ? "member-row" : "heading-row"} animate:flip={{ duration: 380, easing: cubicOut }} in:blur|global={{ amount: 6, duration: 320, easing: cubicOut }} out:blur={{ amount: 6, duration: 200, easing: cubicOut }}>
+        {#if row.member}
+          {@const member = row.member}
+          <button type="button" class="member item press ghost row-nw align-centre gap-md" class:offline={member.presence === "offline"} use:tooltip={member.userId} use:usermenu={{ userId: member.userId, roomId: room?.roomId }} data-profile-trigger aria-label={text("user_profile", "open").replace("{name}", member.displayName)} onclick={(event) => room && openMiniProfile(member.userId, event.currentTarget, "left", room.roomId)}>
+            <PresenceDot userId={member.userId} size={32}>
+              <Avatar name={member.displayName} url={member.avatar} size="32px" radius="50%" fade />
+            </PresenceDot>
+            <span class="md truncate" class:admin={member.powerLevel >= 100 && !room?.isDirect}
+              class:moderator={member.powerLevel >= 50 && member.powerLevel < 100 && !room?.isDirect} style:color={member.role?.color}><EmojiText text={member.displayName} /></span>
+            {#if roleIcon(member.role)}<span class="role-icon" aria-hidden="true"><Avatar name={member.role?.name ?? ""} url={roleIcon(member.role)} size="16px" radius="4px" /></span>{/if}
+          </button>
+        {:else}
+          <h2 class="heading xs bold">{row.name} — {row.count}</h2>
+        {/if}
+      </li>
+    {/each}
+  </ul>
   {/key}
   {#if limit < members.length}
     <div class="sentinel" bind:this={sentinel}></div>
@@ -198,6 +204,10 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--colours-text-faint);
+  }
+
+  .member-row + .member-row {
+    margin-top: var(--azure-spacing-xs);
   }
 
   ul {
