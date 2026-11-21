@@ -8,6 +8,7 @@
   import { placeAt, searchPlaces } from "../../scripts/misc/geocode";
   import ConfirmDialog from "../ui/ConfirmDialog.svelte";
   import MapView from "../ui/MapView.svelte";
+  import LoadingDots from "../ui/LoadingDots.svelte";
 
   let { onsend, onclose }: { onsend: (location: GeoLocation, self: boolean) => void; onclose: () => void } = $props();
 
@@ -97,7 +98,7 @@
     <form class="search row-nw align-centre gap-sm" onsubmit={search}>
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14Zm9 16-4-4" /></svg>
       <input class="flex-max min-0" type="search" bind:value={query} placeholder={text("search")} aria-label={text("search")} oninput={() => (results = [], (failed = null))} />
-      {#if searching}<span class="spinner" aria-hidden="true"></span>{/if}
+      {#if searching}<LoadingDots />{/if}
     </form>
 
     {#if results.length}
@@ -197,20 +198,7 @@
     font-size: var(--text-md);
   }
 
-  .spinner {
-    width: 14px;
-    height: 14px;
-    border-radius: 50%;
-    border: 2px solid currentColor;
-    border-right-color: transparent;
-    animation: spin 700ms linear infinite;
-  }
 
-  @keyframes spin {
-    to {
-      rotate: 1turn;
-    }
-  }
 
   .results {
     margin: calc(var(--azure-spacing-sm) * -1) 0 0;

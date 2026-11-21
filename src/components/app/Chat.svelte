@@ -82,6 +82,10 @@
   import MessageMedia from "./media/MessageMedia.svelte";
   import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
   import PinnedMessages from "./PinnedMessages.svelte";
+  import SearchField, { type SearchMember } from "./SearchField.svelte";
+  import SearchPanel from "./SearchPanel.svelte";
+  import SearchFilters from "./SearchFilters.svelte";
+  import { emptyFilters, isBlank, type SearchQuery } from "../../scripts/matrix/search";
   import ThreadPanel from "./ThreadPanel.svelte";
   import CallStage from "./CallStage.svelte";
   import { placeCall, leaveCall } from "../../scripts/stores/calls";
@@ -322,6 +326,9 @@
       editing = null;
       menu = null;
       pinsOpen = false;
+      searchQuery = { term: "", ...emptyFilters() };
+      searchShown = null;
+      filtersOpen = false;
       threadView = null;
       reacting = null;
       unseenAfter = null;
@@ -343,6 +350,14 @@
   };
 
   const resolveName = (userId: string) => getSender(userId).name;
+  const searchMembers: SearchMember[] = $derived(
+    Object.entries({ ...($joinedMembers[$currentRoom?.roomId ?? ""] ?? {}), ...($currentRoom?.members ?? {}) })
+      .filter(([, member]) => !member?.membership || member.membership === "join")
+      .map(([id, member]) => ({ id, name: member?.displayName ?? id, avatar: member?.avatarUrl }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  );
+  const runSearch = () => (searchShown = isBlank(searchQuery) ? null : $state.snapshot(searchQuery) as SearchQuery);
+  const applyFilters = (filters: ReturnType<typeof emptyFilters>) => ((searchQuery = { ...searchQuery, ...filters }), runSearch());
 
   const SYSTEM_KINDS = ["system", "members"];
 
@@ -1514,7 +1529,14 @@
     event.key === "Escape" && (event.target as HTMLElement).matches?.("button, a, [role=button], [role=treeitem]") && !(event.target as HTMLElement).closest(".chat, [role=dialog], [role=menu]") && (event.target as HTMLElement).blur();
     const field = (event.target as HTMLElement).closest?.("input, textarea, [contenteditable]");
     const composerEmpty = event.target === composer && !draft;
-    const busy = !!(menu || pinsOpen || threadView || confirming || editing || replying);
+    const busy = !!(menu || pinsOpen || searchShown || filtersOpen || threadView || confirming || editing || replying);
+
+    if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "f") {
+      event.preventDefault();
+      searchInput?.focus();
+      searchInput?.select();
+      return;
+    }
 
     if (event.key === "End" && (!field || composerEmpty) && showPresent) {
       event.preventDefault();
@@ -1586,10 +1608,14 @@
 
 <section
   class="chat col min-0"
-  class:threaded={!!threadView && !threadClosing}
+  class:threaded={(!!threadView && !threadClosing) || !!searchShown}
+  class:searching={!!searchShown && !(threadView && !threadClosing)}
   class:staged
   class:chat-open={chatOpen}
   style:--header-space="{headerSpace}px"
+  style:--pull="{Math.min(420, chatWidth * 0.45)}px"
+  style:--search-room="{Math.max(220, headerWidth - 200)}px"
+  bind:clientWidth={chatWidth}
   style:--composer-space="{dockHeight + 35}px"
   {ondragenter}
   {ondragover}
@@ -2105,6 +2131,25 @@
     />
   {/if}
 
+  {#if searchShown && room}
+    <SearchPanel
+      roomId={room.id}
+      {encrypted}
+      query={searchShown}
+      pinned={pinnedIds}
+      anchor={headerEl}
+      {ownUserId}
+      {getSender}
+      onjump={jumpToMessage}
+      onfilters={() => (filtersOpen = true)}
+      onclose={() => (searchShown = null)}
+    />
+  {/if}
+
+  {#if filtersOpen && room}
+    <SearchFilters filters={searchQuery} members={searchMembers} onapply={applyFilters} onclose={() => (filtersOpen = false)} />
+  {/if}
+
   {#if threadView && room}
     {#key room.id}
       <ThreadPanel
@@ -2526,6 +2571,14 @@
 
     .chat.threaded {
       padding-right: var(--thread-width);
+    }
+
+    .chat > .header {
+      transition: margin-right var(--azure-duration-glide) cubic-bezier(0.32, 0.72, 0, 1);
+    }
+
+    .chat.searching > .header {
+      margin-right: calc(var(--pull) * -1);
     }
 
     .chat.threaded > .present-wrap,
