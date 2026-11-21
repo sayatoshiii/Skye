@@ -20,8 +20,15 @@
 
   const shown = $derived(last);
   const room = $derived(shown && $rooms[shown.roomId] ? toEntity($rooms[shown.roomId], $session?.userId) : null);
-  const status = $derived(shown?.status === "connected" ? "connected" : (shown?.status ?? "connecting"));
-  const quality = $derived(shown?.status === "connected" ? shown.quality : "unknown");
+  let settled = $state(false);
+  const inCall = $derived(!!$voice);
+  $effect(() => {
+    if (!inCall) return void (settled = false);
+    const timer = setTimeout(() => (settled = true), 520);
+    return () => clearTimeout(timer);
+  });
+  const status = $derived(shown?.status === "connected" && settled ? "connected" : shown?.status === "connected" ? "connecting" : (shown?.status ?? "connecting"));
+  const quality = $derived(status === "connected" ? shown!.quality : "unknown");
   const open = () => shown && openJoined(shown.roomId);
 
   $effect(() => {
