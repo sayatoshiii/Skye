@@ -214,12 +214,15 @@ const WINDOW = 150;
 const STEP = 50;
 let anchor: EventId | null = null;
 
-const marksOf = (events: TimelineEvent[]) => events.flatMap((event, index) => (event.state_key === undefined ? [index] : []));
+const HIDDEN_RELATIONS = new Set(["m.replace", "m.annotation"]);
+const counts = (event: TimelineEvent) => isVisible(event) && !HIDDEN_RELATIONS.has(event.content?.["m.relates_to"]?.rel_type);
+const marksOf = (events: TimelineEvent[]) => events.flatMap((event, index) => (counts(event) ? [index] : []));
+let span = WINDOW;
 
 const slotOf = (events: TimelineEvent[], marks: number[]) => {
   const at = anchor ? events.findIndex((event) => event.event_id === anchor) : -1;
   const slot = at === -1 ? -1 : marks.findIndex((mark) => mark >= at);
-  return slot === -1 ? Math.max(0, marks.length - WINDOW) : slot;
+  return slot === -1 ? Math.max(0, marks.length - span) : slot;
 };
 
 const topOf = (events: TimelineEvent[]) => {
@@ -232,9 +235,9 @@ const showLive = (timeline: TimelineHandle) => {
   const events = timeline.getEvents();
   const marks = marksOf(events);
   const slot = slotOf(events, marks);
-  const open = slot + WINDOW < marks.length;
+  const open = slot + span < marks.length;
   anchor = open ? events[marks[slot]].event_id : null;
-  currentTimeline.set(events.slice(slot ? marks[slot] : 0, open ? marks[slot + WINDOW] : events.length));
+  currentTimeline.set(events.slice(slot ? marks[slot] : 0, open ? marks[slot + span] : events.length));
   canLoadOlder.set(slot > 0 || timeline.canPaginate());
   detached.set(open);
   canLoadNewer.set(open);
@@ -243,7 +246,9 @@ const showLive = (timeline: TimelineHandle) => {
 const moveWindow = (timeline: TimelineHandle, by: number) => {
   const events = timeline.getEvents();
   const marks = marksOf(events);
-  const next = Math.max(0, slotOf(events, marks) + by);
+  const from = slotOf(events, marks);
+  const next = Math.max(0, from + by);
+  !get(detached) && by < 0 && (span = Math.min(WINDOW * 4, span + from - next));
   anchor = next < marks.length ? events[marks[next]].event_id : null;
   showLive(timeline);
 };
@@ -257,6 +262,7 @@ const reveal = (timeline: TimelineHandle, eventId: EventId) => {
 const leaveContext = () => {
   context = null;
   anchor = null;
+  span = WINDOW;
   const roomId = get(currentRoomId);
   const timeline = roomId ? timelines[roomId] : undefined;
   timeline ? showLive(timeline) : (detached.set(false), canLoadNewer.set(false));
@@ -815,6 +821,7 @@ export const selectRoom = async (roomId: RoomId | null) => {
   Object.keys(timelines).slice(0, -KEPT_TIMELINES).forEach((id) => (delete timelines[id], delete pinnedCache[id]));
   context = null;
   anchor = null;
+  span = WINDOW;
   showLive(timeline);
   unsubscribeTimeline = timeline.on("change", () => context || showLive(timeline));
   loadMembers(roomId);
@@ -905,6 +912,7 @@ const mergeContext = (view: ContextView, cut: number) => {
   const timeline = getTimeline(view.roomId);
   context = null;
   anchor = null;
+  span = WINDOW;
   timeline.adoptOlder(view.events.slice(0, cut), view.start);
   view.roomId === get(currentRoomId) ? showLive(timeline) : (detached.set(false), canLoadNewer.set(false));
 };

@@ -786,9 +786,10 @@
   };
 
   const holdScroll = () => {
-    const rows = [...(timeline?.querySelectorAll<HTMLElement>("[data-event-id]") ?? [])];
-    const top = timeline?.getBoundingClientRect().top ?? 0;
-    const keep = rows.find((row) => row.getBoundingClientRect().bottom > top);
+    const rows = [...(timeline?.querySelectorAll<HTMLElement>(":scope > li[data-event-id]") ?? [])];
+    const box = timeline?.getBoundingClientRect();
+    const middle = box ? box.top + box.height / 2 : 0;
+    const keep = rows.find((row) => row.getBoundingClientRect().bottom > middle) ?? rows.at(-1);
     const from = keep?.getBoundingClientRect().top ?? 0;
     return () => keep?.isConnected && timeline && (timeline.scrollTop += keep.getBoundingClientRect().top - from);
   };
@@ -797,11 +798,13 @@
     if (!timeline || loadingOlder || !$canLoadOlder) return;
 
     loadingOlder = true;
+    const pinned = timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 4;
     const restore = holdScroll();
     const loaded = await loadOlderMessages();
     await tick();
-    restore();
+    pinned ? timeline && (timeline.scrollTop = timeline.scrollHeight) : restore();
     loadingOlder = false;
+    holdRow();
     if (loaded) fillViewport();
   };
 
@@ -934,15 +937,17 @@
   const holdRow = () =>
     (holding ||= requestAnimationFrame(() => {
       holding = 0;
-      const top = timeline?.getBoundingClientRect().top ?? 0;
-      const row = firstShown([...(timeline?.querySelectorAll<HTMLElement>(":scope > li[data-event-id]") ?? [])], top);
+      const box = timeline?.getBoundingClientRect();
+      const top = box?.top ?? 0;
+      const row = firstShown([...(timeline?.querySelectorAll<HTMLElement>(":scope > li[data-event-id]") ?? [])], top + (box?.height ?? 0) / 2);
       held = row ? { row, offset: row.getBoundingClientRect().top - top } : null;
     }));
 
   const onresize = () => {
-    if (!timeline || loadingOlder || loadingNewer) return;
-    if (stuck && !isDetached) timeline.scrollTop = timeline.scrollHeight;
-    else if (pin) applyPin();
+    if (!timeline) return;
+    if (stuck && !isDetached) return void (timeline.scrollTop = timeline.scrollHeight);
+    if (loadingOlder || loadingNewer) return;
+    if (pin) applyPin();
     else if (held?.row.isConnected) timeline.scrollTop += held.row.getBoundingClientRect().top - timeline.getBoundingClientRect().top - held.offset;
   };
 

@@ -49,6 +49,11 @@ export const bundledThread = (event: MatrixEvent): ThreadSummary | undefined => 
   };
 };
 
+const WANTED = 12;
+const MAX_ROUNDS = 6;
+const NOISE = new Set(["m.reaction", "m.room.redaction"]);
+const substantial = (event: TimelineEvent) => event.state_key === undefined && !NOISE.has(event.type);
+
 export const createTimeline = ({
   session,
   roomId,
@@ -225,24 +230,24 @@ export const createTimeline = ({
         backToken = context.start ?? null;
         if (backToken === null) return false;
       }
-      const response = await request<MessagesResponse>({
-        endpoint: `${roomPath}/messages`,
-        method: "GET",
-        query: { dir: "b", from: backToken, limit },
-      });
       const older: TimelineEvent[] = [];
-
-      for (const raw of response.chunk) {
-        const event = await decrypt(raw);
-        if (findEvent(event.event_id) || absorb(event)) continue;
-        older.unshift(settle(event));
+      for (let round = 0; round < MAX_ROUNDS && backToken !== null && older.filter(substantial).length < WANTED; round++) {
+        const response = await request<MessagesResponse>({
+          endpoint: `${roomPath}/messages`,
+          method: "GET",
+          query: { dir: "b", from: backToken, limit: round ? Math.max(limit, 60) : limit },
+        });
+        const page: TimelineEvent[] = [];
+        for (const raw of response.chunk) {
+          const event = await decrypt(raw);
+          if (findEvent(event.event_id) || absorb(event)) continue;
+          page.unshift(settle(event));
+        }
+        older.unshift(...page);
+        backToken = !response.chunk.length || response.end === backToken ? null : (response.end ?? null);
       }
 
       events = [...older, ...events];
-      backToken =
-        !response.chunk.length || response.end === backToken
-          ? null
-          : (response.end ?? null);
       notify();
 
       return backToken !== null;
