@@ -279,6 +279,16 @@
   const stash = (id: string | undefined, value: string, marks: Pill[]) => id && (value.trim() ? (drafts[id] = { draft: value, pills: marks }) : delete drafts[id]);
 
   $effect(() => {
+    const flush = () => (clearTimeout(saving), draftRoom && stash(draftRoom, draft, pills), keepDrafts());
+    const hidden = () => document.visibilityState === "hidden" && flush();
+    addEventListener("pagehide", flush);
+    addEventListener("beforeunload", flush);
+    addEventListener("blur", flush);
+    document.addEventListener("visibilitychange", hidden);
+    return () => (removeEventListener("pagehide", flush), removeEventListener("beforeunload", flush), removeEventListener("blur", flush), document.removeEventListener("visibilitychange", hidden));
+  });
+
+  $effect(() => {
     const id = $currentRoom?.roomId;
     untrack(() => {
       if (id === draftRoom) return;
@@ -2771,7 +2781,6 @@
       display: none;
     }
   }
-
 
   .header {
     height: 52px;

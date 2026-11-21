@@ -99,6 +99,20 @@ fn quit(app: &tauri::AppHandle) {
   std::thread::spawn(move || (std::thread::sleep(std::time::Duration::from_secs(2)), handle.exit(0)));
 }
 
+#[cfg(all(unix, desktop))]
+fn signals(app: &tauri::AppHandle) {
+  use tokio::signal::unix::{signal, SignalKind};
+  let handle = app.clone();
+  tauri::async_runtime::spawn(async move {
+    let (Ok(mut term), Ok(mut int), Ok(mut hup)) = (signal(SignalKind::terminate()), signal(SignalKind::interrupt()), signal(SignalKind::hangup())) else { return };
+    tokio::select! { _ = term.recv() => {}, _ = int.recv() => {}, _ = hup.recv() => {} }
+    quit(&handle);
+  });
+}
+
+#[cfg(not(all(unix, desktop)))]
+fn signals(_: &tauri::AppHandle) {}
+
 #[tauri::command]
 fn leave(app: tauri::AppHandle) {
   app.exit(0);
@@ -196,5 +210,11 @@ pub fn run() {
     .on_window_event(|window, event| match event { tauri::WindowEvent::CloseRequested { api, .. } if cfg!(desktop) => (api.prevent_close(), window.hide()).1.unwrap_or_default(), _ => {} })
     .build(context)
     .expect("skye failed to start")
-    .run(|_app, event| match event { #[cfg(target_os = "macos")] tauri::RunEvent::Reopen { .. } => reveal(_app), _ => {} });
+    .run(|_app, event| match event {
+      #[cfg(target_os = "macos")]
+      tauri::RunEvent::Reopen { .. } => reveal(_app),
+      #[cfg(desktop)]
+      tauri::RunEvent::ExitRequested { code: None, api, .. } => (api.prevent_exit(), quit(_app)).1,
+      _ => {}
+    });
 }

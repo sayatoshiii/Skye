@@ -862,7 +862,7 @@ native &&
 
 native &&
   import("@tauri-apps/api/event").then(({ listen }) =>
-    listen("skye:quit", () => disconnect().finally(() => import("@tauri-apps/api/core").then(({ invoke }) => invoke("leave")))),
+    listen("skye:quit", () => (dispatchEvent(new Event("pagehide")), disconnect()).finally(() => import("@tauri-apps/api/core").then(({ invoke }) => invoke("leave")))),
   );
 
 const clearStaleSelf = (roomId: RoomId) => {
