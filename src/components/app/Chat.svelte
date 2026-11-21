@@ -2086,7 +2086,7 @@
   {:else if !$synced}
     <div class="flex-max min-0"><Skeleton kind="messages" count={7} /></div>
   {:else}
-    <div class="empty col centre flex-max glow">
+    <div class="empty col centre flex-max">
       <p class="muted md">{text("chat", "empty")}</p>
     </div>
   {/if}
