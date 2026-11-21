@@ -84,6 +84,7 @@ export class NativeRoom {
     this.unwatch = await watchRemotes(this.id, (identity) => this.remoteParticipants.get(identity), () => this.emit("trackPublished"));
     await invoke("voice_connect", { link: this.id, url, token, encrypted: this.encrypted, publish: this.publish, keys: this.keys.splice(0) }).catch((error) => (this.stop(), Promise.reject(new Error(String(error)))));
     this.connected = true;
+    await Promise.all(this.keys.splice(0).map(([identity, index, key]) => invoke("voice_key", { link: this.id, identity, index, key }).catch(none)));
   };
 
   disconnect = async () => (this.stop(), this.unwatch(), this.localParticipant.isScreenShareEnabled && (await this.unshare()), (this.connected = false), await invoke("voice_disconnect", { link: this.id }).catch(none), this.emit("disconnected"));

@@ -245,6 +245,10 @@ type Live = {
   timers: ReturnType<typeof setInterval>[];
   delayId: string | null;
   stop: (() => void)[];
+  publishedAt: number;
+  healing: boolean;
+  failures: number;
+  retryAt: number;
 };
 
 let live: Live | null = null;
@@ -585,15 +589,52 @@ const refreshMedia = (current: Live) => {
     screenOn.set(!!link?.room.localParticipant.isScreenShareEnabled));
 };
 
-const keepMembership = async (current: Live, focus: LiveKitFocus) => {
+const publishMembership = async (current: Live) => {
   const active = get(session)!;
-  const delayed = await supportsDelayedEvents(active);
-  current.delayId = delayed ? await scheduleLeave(active, current.roomId).catch(() => null) : null;
-  await putMembership(active, current.roomId, membershipContent(active, focus, current.roomId));
-  current.timers.push(
-    setInterval(() => current.delayId && updateDelayed(active, current.delayId, "restart").catch(() => undefined), 8000),
-    setInterval(() => putMembership(active, current.roomId, membershipContent(active, focus, current.roomId)).catch(() => undefined), MEMBERSHIP_LIFETIME - 10 * 60 * 1000),
-  );
+  const stale = current.delayId;
+  current.delayId = null;
+  stale && updateDelayed(active, stale, "cancel").catch(() => undefined);
+  const delayId = (await supportsDelayedEvents(active)) ? await scheduleLeave(active, current.roomId).catch((error) => (console.warn("Skye could not schedule the call leave", error), null)) : null;
+  if (live !== current) return void (delayId && updateDelayed(active, delayId, "cancel").catch(() => undefined));
+  current.delayId = delayId;
+  await putMembership(active, current.roomId, membershipContent(active, current.focus, current.roomId));
+  live === current ? ((current.publishedAt = Date.now()), (current.failures = 0), (current.retryAt = 0)) : await putMembership(active, current.roomId, {}).catch(() => undefined);
+};
+
+const heal = (current: Live, reason: string) =>
+  live === current &&
+  !current.healing &&
+  Date.now() >= current.retryAt &&
+  (console.warn(`Skye is republishing its call membership: ${reason}`),
+  (current.healing = true),
+  publishMembership(current)
+    .then(
+      () => void (live === current && sendKey(current)),
+      (error) => void (console.warn("Skye could not republish its call membership", error), (current.failures += 1), (current.retryAt = Date.now() + Math.min(60000, 2000 * 2 ** current.failures))),
+    )
+    .finally(() => (current.healing = false)));
+
+const restartLeave = (current: Live) => {
+  const active = get(session);
+  const delayId = current.delayId;
+  active &&
+    delayId &&
+    !current.healing &&
+    updateDelayed(active, delayId, "restart").then(
+      () => current.delayId === delayId && (current.failures = 0),
+      (error: { status?: number }) =>
+        current.delayId === delayId &&
+        (console.warn("Skye could not restart its delayed call leave", error), (current.failures += 1), (error?.status === 404 || current.failures >= 2) && heal(current, "delayed leave lost")),
+    );
+};
+
+const keepMembership = async (current: Live) => {
+  await publishMembership(current);
+  live === current &&
+    current.timers.push(
+      setInterval(() => restartLeave(current), 5000),
+      setInterval(() => heal(current, "refresh"), MEMBERSHIP_LIFETIME - 10 * 60 * 1000),
+    );
 };
 
 const neededFoci = (current: Live) => {
@@ -622,11 +663,14 @@ const closeLink = (current: Live, key: string) => {
 
 const watchMembers = (current: Live) =>
   callMembers.subscribe((all) => {
-    const identities = new Set((all[current.roomId] ?? []).map((member) => identityOf(member.userId, member.deviceId)));
-    const fresh = new Set([...identities].filter((identity) => !current.known.has(identity)));
+    const own = ownLegacy();
+    const members = all[current.roomId] ?? [];
+    const sessions = new Map(members.filter((member) => identityOf(member.userId, member.deviceId) !== own).map((member) => [`${identityOf(member.userId, member.deviceId)}|${member.memberId}|${member.kind === "session" ? member.createdTs : ""}`, identityOf(member.userId, member.deviceId)]));
+    const fresh = new Set([...sessions].filter(([entry]) => !current.known.has(entry)).map(([, identity]) => identity));
     const joined = fresh.size > 0;
-    const left = [...current.known].some((identity) => !identities.has(identity));
-    current.known = identities;
+    const left = [...current.known].some((entry) => !sessions.has(entry));
+    current.known = new Set(sessions.keys());
+    current.publishedAt && !members.some((member) => identityOf(member.userId, member.deviceId) === own) && Date.now() - current.publishedAt > 15000 && heal(current, "membership missing");
     current.encrypted && left && rotateKey(current);
     current.encrypted && joined && !left && sendKey(current, fresh);
     replayKeys(current);
@@ -793,7 +837,7 @@ export const joinVoice = async (roomId: RoomId, startedAt = Date.now()) => {
   micBlocked.set(false);
   const encrypted = !!summary.encryption;
   voice.set({ kind: "rtc", roomId, status: "connecting", quality: "unknown", encrypted, startedAt });
-  const current: Live = { roomId, encrypted, focus, links: new Map(), keyIndex: 0, key: crypto.getRandomValues(new Uint8Array(16)), received: new Map(), known: new Set(), timers: [], delayId: null, stop: [] };
+  const current: Live = { roomId, encrypted, focus, links: new Map(), keyIndex: 0, key: crypto.getRandomValues(new Uint8Array(16)), received: new Map(), known: new Set(), timers: [], delayId: null, stop: [], publishedAt: 0, healing: false, failures: 0, retryAt: 0 };
   live = current;
   try {
     const ownHash = await hashIdentity(active.userId, ownLegacy());
@@ -803,7 +847,7 @@ export const joinVoice = async (roomId: RoomId, startedAt = Date.now()) => {
     live === current && patch({ status: "connected" });
     current.stop.push(watchMembers(current));
     clearStaleSelf(current.roomId);
-    await keepMembership(current, focus);
+    await keepMembership(current);
     sendKey(current);
   } catch (error) {
     console.warn("Skye could not join voice", error);
@@ -825,7 +869,7 @@ const clearStaleSelf = (roomId: RoomId) => {
   const active = get(session);
   const own = active && stateKeyOf(active);
   callMemberships(get(rooms)[roomId], Object.values(get(stickyMembers)[roomId] ?? {}))
-    .filter((member) => active && member.userId === active.userId && member.kind === "session" && member.stateKey !== own && member.stateKey.startsWith(`_${active.userId}_`))
+    .filter((member) => active && member.userId === active.userId && member.kind === "session" && member.deviceId === active.deviceId && member.stateKey !== own && member.stateKey.startsWith(`_${active.userId}_`))
     .forEach((member) => clearMembership(active!, roomId, member.stateKey).catch(() => undefined));
 };
 
@@ -844,5 +888,9 @@ export const disconnect = async () => {
   current.stop.forEach((stop) => stop());
   await Promise.allSettled([...current.links.values()].map((link) => link.room.disconnect()));
   current.links.clear();
-  await (current.delayId ? updateDelayed(active, current.delayId, "send") : Promise.reject()).catch(() => putMembership(active, current.roomId, {})).catch(() => undefined);
+  const delayId = current.delayId;
+  current.delayId = null;
+  await (delayId ? updateDelayed(active, delayId, "send") : Promise.reject())
+    .catch(() => (delayId && updateDelayed(active, delayId, "cancel").catch(() => undefined), putMembership(active, current.roomId, {})))
+    .catch((error) => console.warn("Skye could not leave the call cleanly", error));
 };
