@@ -146,7 +146,7 @@
       {#if oncancel}
         {@render track()}
       {:else}
-      <span class="xs faint">{formatBytes(info.size)}{kind !== "file" && !inline ? ` · ${text("media", unplayable && $gstreamerMissing ? "no_gstreamer" : "unsafe_type")}` : ""}</span>
+      <span class="xs faint">{formatBytes(info.size)}{kind !== "file" && !inline ? ` · ${text("media", unplayable && $gstreamerMissing ? "no_gstreamer" : unplayable ? `broken_${kind}` : "unsafe_type")}` : ""}</span>
       {/if}
     </span>
     {#if oncancel}
