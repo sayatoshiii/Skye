@@ -112,6 +112,7 @@ const syncHooks = new Set<LiveSyncHook>();
 
 export const registerSyncHook = (hook: LiveSyncHook) => {
   syncHooks.add(hook);
+  return () => void syncHooks.delete(hook);
 };
 
 type ToDeviceHook = (event: MatrixEvent) => void;

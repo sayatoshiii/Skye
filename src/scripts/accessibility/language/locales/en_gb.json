@@ -398,6 +398,8 @@
       },
       "devices": {
         "managed": "Your homeserver manages devices on its own account page, so signing out opens there.",
+        "open_account": "Open account page",
+        "active_now": "Active now",
         "title": "Devices",
         "current": "This device",
         "unnamed": "Unnamed device",

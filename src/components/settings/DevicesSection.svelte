@@ -1,12 +1,15 @@
 <script lang="ts">
   import { onMount } from "svelte";
+  import { flip } from "svelte/animate";
+  import { blur, fade } from "svelte/transition";
+  import { cubicOut } from "svelte/easing";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { accountManagement, clientInfo, deleteDevice, deleteDevices, deviceKind, listDevices, manageLink, renameDevice, type AccountManagement, type ClientInfo, type Device } from "../../scripts/matrix/utilities/account";
   import type { Session } from "../../scripts/matrix/types";
   import { entityText, menu } from "../../scripts/misc/entitymenu.svelte";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { formatAgo } from "../../scripts/misc/time";
-  import { session } from "../../scripts/stores/matrix";
+  import { registerSyncHook, session } from "../../scripts/stores/matrix";
   import { copied, toastKey } from "../../scripts/stores/toast";
   import type { MenuItem } from "../app/MessageMenu.svelte";
   import ConfirmDialog from "../ui/ConfirmDialog.svelte";
@@ -35,9 +38,10 @@
     failed = false;
     const current = active;
     if (!current) return void (devices = null);
-    accountManagement(current).then((value) => (manage = value));
-    devices = await listDevices(current).catch(() => ((failed = true), null));
-    devices?.forEach((device) => clientInfo(current, device.device_id).then((info) => (clients = { ...clients, [device.device_id]: info })));
+    manage ?? accountManagement(current).then((value) => (manage = value));
+    const known = devices;
+    devices = await listDevices(current).catch(() => (known ?? ((failed = true), null)));
+    devices?.filter((device) => !(device.device_id in clients)).forEach((device) => clientInfo(current, device.device_id).then((info) => (clients = { ...clients, [device.device_id]: info })));
   };
 
   const KIND_ICONS = { mobile: "phone", desktop: "monitor", web: "globe", unknown: "laptop" } as const;
@@ -47,7 +51,17 @@
   const askRemove = (target: Device | "others") =>
     manage ? external(target === "others" ? ["org.matrix.devices_list", "org.matrix.sessions_list"] : ["org.matrix.device_delete", "org.matrix.session_end", "org.matrix.device_view", "org.matrix.session_view"], target === "others" ? undefined : target.device_id) : (removing = target);
 
-  onMount(() => void load());
+  const ACTIVE_WINDOW = 5 * 60 * 1000;
+  let now = $state(Date.now());
+
+  onMount(() => {
+    void load();
+    const timer = setInterval(() => document.visibilityState === "visible" && ((now = Date.now()), void load()), 15000);
+    const stop = registerSyncHook((response) => active && response.device_lists?.changed?.includes(active.userId) && void load());
+    return () => (clearInterval(timer), stop());
+  });
+
+  const live = (device: Device) => isCurrent(device) || (!!device.last_seen_ts && now - device.last_seen_ts < ACTIVE_WINDOW);
 
   const isCurrent = (device: Device) => device.device_id === active?.deviceId;
   const mine = $derived((devices ?? []).find(isCurrent));
@@ -55,7 +69,7 @@
 
   const nameOf = (device: Device) => device.display_name?.trim() || dev("unnamed");
   const seen = (device: Device) => (device.last_seen_ts ? dev("last_seen").replace("{time}", formatAgo(Date.now() - device.last_seen_ts)) : dev("never"));
-  const details = (device: Device) => [device.device_id, device.last_seen_ip, seen(device)].filter(Boolean);
+  const details = (device: Device) => [device.device_id, device.last_seen_ip, live(device) ? null : seen(device)].filter(Boolean);
 
   const deviceItems = (device: Device) => (): MenuItem[] => [
     { id: "device-rename", label: dev("rename"), icon: MENU_ICONS.edit, run: () => startRename(device) },
@@ -134,7 +148,10 @@
       <span class="set-title truncate device-name">{nameOf(device)}</span>
       {#if isCurrent(device)}<span class="tag xs bold">{dev("current")}</span>{/if}
     </span>
-    <span class="xs faint truncate">{details(device).join(" · ")}</span>
+    <span class="meta row-nw align-centre gap-xs xs min-0">
+      {#if live(device)}<span class="live row-nw align-centre bold" transition:blur={{ amount: 4, duration: 320, easing: cubicOut }}><span class="live-dot"></span>{dev("active_now")}</span><span class="faint">·</span>{/if}
+      {#key details(device).join(" · ")}<span class="faint truncate" in:fade={{ duration: 260, easing: cubicOut }}>{details(device).join(" · ")}</span>{/key}
+    </span>
   </span>
 {/snippet}
 
@@ -146,6 +163,13 @@
 {:else if !devices}
   <p class="set-hint">{dev("loading")}</p>
 {:else}
+  {#if manage}
+    <div class="notice row-nw align-centre gap-md" role="note">
+      <svg class="notice-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" /><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 11v5M12 8h.01" /></svg>
+      <p class="sm flex-max min-0">{dev("managed")}</p>
+      <button type="button" class="set-button notice-button ghost press" onclick={() => external(["org.matrix.devices_list", "org.matrix.sessions_list"])}>{dev("open_account")}</button>
+    </div>
+  {/if}
   {#if mine}
     <section class="set-section" data-part="current">
       <h3 class="set-heading">{dev("current")}</h3>
@@ -162,16 +186,12 @@
     </section>
   {/if}
 
-  {#if manage}
-    <p class="set-hint managed">{dev("managed")}</p>
-  {/if}
-
   <section class="set-section" data-part="others">
     <h3 class="set-heading">{dev("others")}</h3>
     {#if others.length}
       <ul class="list col">
         {#each others as device (device.device_id)}
-          <li class="device" use:menu={editing === device.device_id ? undefined : deviceItems(device)}>
+          <li class="device" animate:flip={{ duration: 380, easing: cubicOut }} in:blur={{ amount: 6, duration: 360, easing: cubicOut }} out:blur={{ amount: 6, duration: 260, easing: cubicOut }} use:menu={editing === device.device_id ? undefined : deviceItems(device)}>
             {#if editing === device.device_id}
               {@render rename(device)}
             {:else}
@@ -211,6 +231,57 @@
 {/if}
 
 <style>
+  .live {
+    gap: 5px;
+    flex: none;
+    color: var(--colours-success);
+  }
+
+  .live-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: currentColor;
+    animation: ring 1.6s ease-out infinite;
+  }
+
+  @keyframes ring {
+    from {
+      box-shadow: 0 0 0 0 color-mix(in oklab, currentColor 60%, transparent);
+    }
+    to {
+      box-shadow: 0 0 0 6px transparent;
+    }
+  }
+
+  .notice {
+    margin-bottom: var(--azure-spacing-lg);
+    padding: var(--azure-spacing-sm) var(--azure-spacing-sm) var(--azure-spacing-sm) var(--azure-spacing-md);
+    border-radius: var(--azure-radius-md);
+    border: 1px solid color-mix(in oklab, var(--colours-accent) 35%, transparent);
+    background-color: var(--colours-accent-faint);
+    color: var(--colours-text);
+  }
+
+  .notice p {
+    margin: 0;
+  }
+
+  .notice-button {
+    border-color: transparent;
+    background-color: transparent;
+    color: var(--colours-accent);
+  }
+
+  .notice-button:hover {
+    background-color: color-mix(in oklab, var(--colours-accent) 10%, transparent);
+  }
+
+  .notice-icon {
+    flex: none;
+    color: var(--colours-accent);
+  }
+
   .current {
     padding: var(--azure-spacing-md);
     border-radius: 8px;
