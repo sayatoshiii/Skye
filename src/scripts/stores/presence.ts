@@ -368,7 +368,7 @@ export const presenceKinds = derived(
 
 export const statusTextOf = derived([presenceDetails, ownStatus, session, profileStatuses], ([$details, $own, $session, $profiles]) => (userId: UserId | undefined) => {
   if (!userId) return undefined;
-  if (userId === $session?.userId) return statusMessage($own);
+  if (userId === $session?.userId) return statusMessage($own) || $details[userId]?.statusMessage || undefined;
   const fallback = $profiles[userId];
   return $details[userId]?.statusMessage || (fallback ? statusMessage(fallback) : undefined);
 });

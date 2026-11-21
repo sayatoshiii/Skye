@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tooltip } from "../../scripts/misc/tooltip";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
-  import { ownProfile } from "../../scripts/stores/matrix";
+  import { ownProfile, presenceDetails } from "../../scripts/stores/matrix";
   import { ownStatus, profileFields, serverPresence, setOwnStatus, statusMessage, type StatusMode } from "../../scripts/stores/presence";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import MessageMenu, { type MenuItem } from "../app/MessageMenu.svelte";
@@ -32,7 +32,7 @@
 
   const name = $derived($ownProfile?.displayName ?? $ownProfile?.userId ?? text("profile", "placeholder", "display_name"));
   const userId = $derived($ownProfile?.userId ?? text("profile", "placeholder", "user_id"));
-  const message = $derived(statusMessage($ownStatus));
+  const message = $derived(statusMessage($ownStatus) || ($ownProfile?.userId ? $presenceDetails[$ownProfile.userId]?.statusMessage : undefined) || undefined);
   const subtitle = $derived(message ?? text("status", $ownStatus.mode));
 
   let menu: { x: number; y: number } | null = $state(null);
