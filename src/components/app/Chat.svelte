@@ -107,6 +107,11 @@
   import { handoff, navigation, openJoined, openRoom, openRoomMenu, openRoomSettings, openUserMenu, roomSettings } from "../../scripts/stores/navigation.svelte";
   import { openFullProfile, openMiniProfile } from "../../scripts/stores/profile";
   import Skeleton from "../ui/Skeleton.svelte";
+  import RoomLinkDialog from "./RoomLinkDialog.svelte";
+  import FriendlyHearts from "./FriendlyHearts.svelte";
+  import { heartsOn, isFriendly } from "../../scripts/misc/hearts";
+  import { setFriendlyHearts } from "../../scripts/settings/media";
+  import { parseRoomLink, type RoomLink } from "../../scripts/matrix/utilities/links";
   import { getScrollAnchor, persistScrollAnchors, setScrollAnchor, type ScrollAnchor } from "../../scripts/stores/scroll";
 
   let {
@@ -1482,13 +1487,17 @@
   const openProfile = (userId: string, element: HTMLElement) =>
     openMiniProfile(userId, element, "right", $currentRoom?.roomId);
 
+  let roomLink = $state.raw<RoomLink | null>(null);
+
   const onmentionclick = (event: MouseEvent) => {
+    const plain = (event.target as HTMLElement).closest<HTMLAnchorElement>("a[href*='matrix.to/#/']");
+    const parsed = plain && !plain.dataset.roomId && parseRoomLink(plain.href);
     const anchor = (event.target as HTMLElement).closest<HTMLAnchorElement>("a.mention");
-    if (anchor?.dataset.roomId) {
+    if (anchor?.dataset.roomId || parsed) {
       event.preventDefault();
-      const id = anchor.dataset.roomId;
-      const known = Object.values($rooms).find((room) => room.roomId === id || room.state["m.room.canonical_alias"]?.[""]?.content?.alias === id);
-      return openUpgraded(known?.roomId ?? id);
+      const id = anchor?.dataset.roomId ?? (parsed as RoomLink).target;
+      const known = Object.values($rooms).find((room) => room.membership === "join" && (room.roomId === id || room.state["m.room.canonical_alias"]?.[""]?.content?.alias === id));
+      return known ? openJoined(known.roomId) : (roomLink = parsed || parseRoomLink(anchor!.href) || { target: id, kind: id.startsWith("#") ? "alias" : "id", via: [] });
     }
     const match = anchor?.href.match(/matrix\.to\/#\/(@[^/?]+)/);
     if (!anchor || !match) return;
@@ -2215,6 +2224,10 @@
 
   {#if pollOpen}
     <PollDialog onsubmit={createPoll} onclose={() => (pollOpen = false)} />
+  {/if}
+
+  {#if roomLink}
+    <RoomLinkDialog link={roomLink} onclose={() => (roomLink = null)} />
   {/if}
 
   {#if confirming}

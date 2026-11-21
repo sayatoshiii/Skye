@@ -252,7 +252,7 @@ const renderLinks = (text: string): RenderedBody => {
 
 export const findLinks = (text: string) => [
   ...new Set([
-    ...[...text.matchAll(URL_PATTERN)].map((match) => safeHref(match[0].startsWith("www.") ? `https://${match[0]}` : match[0])).filter((href): href is string => !!href && href.startsWith("http")),
+    ...[...text.matchAll(URL_PATTERN)].map((match) => safeHref(match[0].startsWith("www.") ? `https://${match[0]}` : match[0])).filter((href): href is string => !!href && href.startsWith("http") && !href.startsWith("https://matrix.to/")),
     ...[...text.matchAll(MXC_PATTERN)].map((match) => match[0]),
   ]),
 ];

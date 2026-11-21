@@ -48,13 +48,36 @@
   let box: Gifbox | null = $state.raw(null);
   const favourite = () => toggleFavouriteGif(box ? gifFromGifbox(url, box) : gifFromLink(url, preview?.image, preview?.imageWidth, preview?.imageHeight));
 
+  let tint = $state<string | undefined>();
+  const large = $derived.by(() => {
+    const { imageWidth = 0, imageHeight = 0 } = (preview as LinkPreview | null) ?? {};
+    return imageWidth >= 400 && imageHeight > 0 && imageWidth / imageHeight >= 1.2;
+  });
+
+  const sample = (link: string) => {
+    const probe = new Image();
+    probe.crossOrigin = "anonymous";
+    probe.onload = () => {
+      try {
+        const canvas = document.createElement("canvas");
+        canvas.width = canvas.height = 12;
+        const context = canvas.getContext("2d", { willReadFrequently: true })!;
+        context.drawImage(probe, 0, 0, 12, 12);
+        const data = context.getImageData(0, 0, 12, 12).data;
+        const best = Array.from({ length: 144 }, (_, index) => [data[index * 4], data[index * 4 + 1], data[index * 4 + 2]]).reduce((top, pixel) => (Math.max(...pixel) - Math.min(...pixel) > Math.max(...top) - Math.min(...top) ? pixel : top), [128, 128, 128]);
+        tint = Math.max(...best) - Math.min(...best) > 40 ? `rgb(${best.join(" ")})` : undefined;
+      } catch {}
+    };
+    probe.src = link;
+  };
+
   const onvisible = () => {
     const current = $session;
     if (isGifbox(url) && gifboxReady) return void resolveGifbox(url).then((value) => (box = value));
     if (!previews || !current) return;
     getLinkPreview(current, url, ts).then(async (value) => {
       preview = value;
-      if (value?.image) image = await getWideMediaLink(value.image, 640, 360);
+      if (value?.image) (image = await getWideMediaLink(value.image, 640, 360)), image && sample(image);
     });
   };
 </script>
@@ -86,7 +109,7 @@
         {text("media", "always_allow").replace("{provider}", embed.name)}
       </button>
     {:else if embed || preview}
-      <div class="card col">
+      <div class="card col" class:has-thumb={!!image && !embed && !large} style:--embed={tint}>
         {#if gifLink}
         <button type="button" class="gif-star ghost press" class:on={starred} aria-label={text("gifs", starred ? "unfavourite" : "favourite")} aria-pressed={starred} use:starburst={starred} use:tooltip={text("gifs", starred ? "unfavourite" : "favourite")} onclick={favourite}>
           <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.star} /></svg>
@@ -128,7 +151,9 @@
           {/if}
         </div>
         {#if image && !embed}
-          <img class="thumb" src={image} alt="" draggable="false" />
+          <button type="button" class="shot ghost" class:banner={large} class:thumb={!large} aria-label={preview?.title ?? host} onclick={() => image && lightbox.set({ source: image, mimetype: "image/jpeg", name: preview?.title ?? host, w: preview?.imageWidth, h: preview?.imageHeight })}>
+            <img src={image} alt="" draggable="false" onload={(event) => event.currentTarget.classList.add("loaded")} />
+          </button>
         {/if}
       </div>
     {/if}
@@ -221,7 +246,8 @@
     overflow: hidden;
     border-radius: var(--azure-radius-md);
     border: 1px solid var(--colours-outline-hairline);
-    border-left: 3px solid var(--colours-accent);
+    border-left: 4px solid var(--embed, var(--colours-accent));
+    transition: border-color 420ms cubic-bezier(0.32, 0.72, 0, 1);
     background-color: var(--colours-surface);
     animation: fade var(--azure-duration-md) var(--azure-ease-out);
   }
@@ -231,11 +257,56 @@
   }
 
   .site {
-    color: var(--colours-accent);
+    color: var(--colours-text-muted);
+  }
+
+  .card.has-thumb {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: start;
+  }
+
+  .shot {
+    display: block;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: zoom-in;
+    overflow: hidden;
+  }
+
+  .shot img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0;
+    filter: blur(8px);
+    transition:
+      opacity 420ms cubic-bezier(0.32, 0.72, 0, 1),
+      filter 420ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .shot img:global(.loaded) {
+    opacity: 1;
+    filter: none;
+  }
+
+  .shot.banner {
+    margin: 0 var(--azure-spacing-md) var(--azure-spacing-md);
+    border-radius: var(--azure-radius-sm);
+    max-height: 300px;
+  }
+
+  .shot.thumb {
+    width: 80px;
+    height: 80px;
+    margin: var(--azure-spacing-md) var(--azure-spacing-md) var(--azure-spacing-md) 0;
+    border-radius: var(--azure-radius-sm);
   }
 
   .title {
-    color: var(--colours-text-strong);
+    color: var(--colours-link, var(--colours-accent));
     text-decoration: none;
   }
 
