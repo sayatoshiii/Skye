@@ -2191,7 +2191,7 @@
     {/if}
 
     {#if dragging}
-      <div class="dropzone" aria-hidden="true" transition:fade={{ duration: 200, easing: cubicOut }}>
+      <div class="dropzone" aria-hidden="true" use:portal transition:fade={{ duration: 200, easing: cubicOut }}>
         <div class="drop-card col centre gap-xs" transition:scale={{ start: 0.9, duration: 320, easing: backOut, opacity: 0 }}>
           {#key dragRound}<div class="drop-files">
             {#each ["text", "image", "code"] as icon, index}
@@ -3891,12 +3891,14 @@
   }
 
   .dropzone {
-    position: absolute;
+    position: fixed;
     inset: 0;
     z-index: var(--azure-z-overlay);
     display: grid;
     place-items: center;
     pointer-events: none;
+    background-color: color-mix(in oklab, var(--colours-background) 55%, transparent);
+    backdrop-filter: blur(6px);
   }
 
   .drop-card {
