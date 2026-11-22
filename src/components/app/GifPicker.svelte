@@ -236,6 +236,7 @@
 {/snippet}
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<span class="portal-anchor" hidden></span>
 <div
   class="gif-picker col"
   class:placed={!!position}
@@ -335,6 +336,7 @@
     <MessageMenu items={gifItems(gifMenu.gif)} x={gifMenu.x} y={gifMenu.y} label={text("actions")} onclose={() => (gifMenu = null)} />
   {/if}
 </div>
+<span class="portal-anchor" hidden></span>
 
 <style>
   .gif-picker {

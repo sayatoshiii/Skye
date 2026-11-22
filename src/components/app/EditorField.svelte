@@ -555,6 +555,7 @@
 </div>
 
 {#if suggest}
+  <span class="portal-anchor" hidden></span>
   <div
     class="emoji-suggest col"
     role="listbox"
@@ -590,9 +591,11 @@
       </button>
     {/each}
   </div>
+  <span class="portal-anchor" hidden></span>
 {/if}
 
 {#if toolbar}
+  <span class="portal-anchor" hidden></span>
   <div
     class="format-bar row-nw align-centre"
     class:below={toolbar.below}
@@ -611,6 +614,7 @@
       {#if bind.action === "code"}<span class="divider" aria-hidden="true"></span>{/if}
     {/each}
   </div>
+  <span class="portal-anchor" hidden></span>
 {/if}
 
 <style>

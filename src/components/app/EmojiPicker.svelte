@@ -219,6 +219,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+<span class="portal-anchor" hidden></span>
 <div
   class="emoji-picker col"
   class:placed={!!position}
@@ -335,6 +336,7 @@
     <MessageMenu items={emojiItems(emojiMenu.entry, emojiMenu.section)} x={emojiMenu.x} y={emojiMenu.y} label={text("emoji", "emoji_actions")} onclose={() => (emojiMenu = null)} />
   {/if}
 </div>
+<span class="portal-anchor" hidden></span>
 
 <style>
   .emoji-picker {

@@ -247,6 +247,7 @@
   <ImageCropper file={cropping} shape="squircle" onapply={oncrop} oncancel={() => (cropping = null)} />
 {/if}
 
+<span class="portal-anchor" hidden></span>
 <div class="layer col centre" class:closing={exit.closing} role="presentation" use:portal>
   <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
   <div class="dialog col" onanimationend={exit.onanimationend} inert={exit.closing} role="dialog" aria-modal="true" aria-labelledby="join-title" tabindex="-1" onkeydown={(event) => event.key === "Escape" && close()}>
@@ -419,6 +420,7 @@
     {/key}
   </div>
 </div>
+<span class="portal-anchor" hidden></span>
 
 <style>
   .layer {

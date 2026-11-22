@@ -162,6 +162,7 @@
   };
 </script>
 
+<span class="portal-anchor" hidden></span>
 <div class="layer" class:closing={exit.closing} class:dragging role="presentation" use:portal>
   <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={dismiss} oncontextmenu={reopen} style:opacity={pull > 0 ? Math.max(0.2, 1 - pull / 360) : null}></button>
   <div class="menu col" role="menu" style:transform={pull ? `translateY(${pull}px)` : null} onanimationend={exit.onanimationend} inert={exit.closing} aria-label={label} tabindex="-1" bind:this={menu} style:left="{left}px" style:top="{top}px" style:min-width={minWidth ? `${minWidth}px` : undefined} {onkeydown}>
@@ -185,6 +186,7 @@
     {/each}
   </div>
 </div>
+<span class="portal-anchor" hidden></span>
 
 <style>
   .layer {

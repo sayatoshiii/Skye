@@ -98,6 +98,7 @@
   };
 </script>
 
+<span class="portal-anchor" hidden></span>
 <div class="layer" class:closing={exit.closing} role="presentation" use:portal>
   <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={exit.close}></button>
   <div
@@ -196,6 +197,7 @@
     {/if}
   </div>
 </div>
+<span class="portal-anchor" hidden></span>
 
 <style>
   .head .close {

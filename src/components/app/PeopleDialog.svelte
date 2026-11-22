@@ -42,6 +42,7 @@
   };
 </script>
 
+<span class="portal-anchor" hidden></span>
 <div class="people-layer col centre" class:closing={exit.closing} role="presentation" use:portal>
   <button type="button" class="people-scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
   <div class="people-dialog col" class:split={!!groups} onanimationend={exit.onanimationend} inert={exit.closing} role="dialog" aria-modal="true" aria-label={title} tabindex="-1" onkeydown={(event) => event.key === "Escape" && close()}>
@@ -84,6 +85,7 @@
     </div>
   </div>
 </div>
+<span class="portal-anchor" hidden></span>
 
 <style>
   .people-layer {

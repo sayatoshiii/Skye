@@ -99,6 +99,7 @@
   };
 </script>
 
+<span class="portal-anchor" hidden></span>
 <div
   class="emoji-info col"
   class:below={position?.below}
@@ -139,6 +140,7 @@
     </button>
   </div>
 </div>
+<span class="portal-anchor" hidden></span>
 
 <style>
   .emoji-info {

@@ -102,6 +102,7 @@
 </script>
 
 {#if target}
+  <span class="portal-anchor" hidden></span>
   <div class="layer col centre" class:closing={exit.closing} role="presentation" use:portal>
     <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
     <div class="modal col" style:--profile-tint={tint.colour} style:--profile-glow={tint.glow} style:--profile-ink={tint.ink} role="dialog" aria-modal="true" aria-label={text("user_profile", "card").replace("{name}", data.displayName)} tabindex="-1" bind:this={dialog} inert={exit.closing} onanimationend={exit.onanimationend} {onkeydown}>
@@ -186,6 +187,7 @@
       </div>
     </div>
   </div>
+  <span class="portal-anchor" hidden></span>
 {/if}
 
 <style>

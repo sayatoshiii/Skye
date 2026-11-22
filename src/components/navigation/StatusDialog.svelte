@@ -92,6 +92,7 @@
   };
 </script>
 
+<span class="portal-anchor" hidden></span>
 <div class="layer col centre" class:closing={exit.closing} role="presentation" use:portal>
   <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
   <form
@@ -175,6 +176,7 @@
     </footer>
   </form>
 </div>
+<span class="portal-anchor" hidden></span>
 
 {#if clearMenu}
   <MessageMenu items={clearItems} x={clearMenu.x} y={clearMenu.y} label={text("status", "clear_after")} minWidth={240} onclose={() => (clearMenu = null)} />

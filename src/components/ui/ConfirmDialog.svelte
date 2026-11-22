@@ -37,6 +37,7 @@
   const close = () => !busy && exit.close();
 </script>
 
+<span class="portal-anchor" hidden></span>
 <div class="confirm-layer col centre" class:closing={exit.closing} role="presentation" use:portal>
   <button type="button" class="confirm-scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
   <div class="confirm col gap-md" onanimationend={exit.onanimationend} inert={exit.closing} role="alertdialog" aria-modal="true" aria-labelledby={id} aria-busy={busy} tabindex="-1" onkeydown={(event) => event.key === "Escape" && close()}>
@@ -54,6 +55,7 @@
     </div>
   </div>
 </div>
+<span class="portal-anchor" hidden></span>
 
 <style>
   .confirm-layer {

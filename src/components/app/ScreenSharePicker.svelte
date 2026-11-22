@@ -43,6 +43,7 @@
 </script>
 
 {#if $sharePicker}
+  <span class="portal-anchor" hidden></span>
   <div class="share-layer set-surface" class:closing={exit.closing} role="presentation" use:portal>
     <button type="button" class="share-scrim ghost" tabindex="-1" aria-hidden="true" onclick={cancel}></button>
     <div class="share-card col" role="dialog" aria-modal="true" aria-label={text("share_title")} tabindex="-1" inert={exit.closing} onanimationend={exit.onanimationend} onkeydown={(event) => event.key === "Escape" && cancel()}>
@@ -120,6 +121,7 @@
       </footer>
     </div>
   </div>
+  <span class="portal-anchor" hidden></span>
 {/if}
 
 <style>

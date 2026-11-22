@@ -197,6 +197,7 @@
   const cancel = () => exit.close();
 </script>
 
+<span class="portal-anchor" hidden></span>
 <div class="layer col centre" class:closing={exit.closing} role="presentation" use:portal>
   <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={cancel}></button>
   <div class="dialog col" onanimationend={exit.onanimationend} inert={exit.closing} role="dialog" aria-modal="true" aria-labelledby="crop-title" tabindex="-1" onkeydown={(event) => event.key === "Escape" && (event.stopPropagation(), cancel())}>
@@ -258,6 +259,7 @@
     </footer>
   </div>
 </div>
+<span class="portal-anchor" hidden></span>
 
 <style>
   .layer {

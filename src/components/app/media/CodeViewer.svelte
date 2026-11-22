@@ -37,6 +37,7 @@
   };
 </script>
 
+<span class="portal-anchor" hidden></span>
 <div class="viewer-layer col centre" class:closing={exit.closing} role="presentation" use:portal>
   <button type="button" class="viewer-scrim ghost" tabindex="-1" aria-hidden="true" onclick={exit.close}></button>
   <div
@@ -69,6 +70,7 @@
     </div>
   </div>
 </div>
+<span class="portal-anchor" hidden></span>
 
 <style>
   .viewer-layer {

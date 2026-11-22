@@ -132,6 +132,7 @@
   });
 </script>
 
+<span class="portal-anchor" hidden></span>
 <div class="settings-layer" class:closing={exit.closing} class:paged role="presentation" use:portal>
   <button type="button" class="settings-scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
   <div class="settings-card row-nw" role="dialog" aria-modal="true" aria-label={text("title")} tabindex="-1" bind:this={modal} inert={exit.closing} onanimationend={exit.onanimationend}>
@@ -200,6 +201,7 @@
     </main>
   </div>
 </div>
+<span class="portal-anchor" hidden></span>
 
 {#if confirming}
   <ConfirmDialog title={text("sign_out_title")} body={text("sign_out_body")} cancelLabel={text("cancel")} confirmLabel={signOutLabel} busy={leaving} onconfirm={leave} onclose={() => (confirming = false)} />

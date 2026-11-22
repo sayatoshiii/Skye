@@ -260,6 +260,7 @@
   </span>
 {/snippet}
 
+<span class="portal-anchor" hidden></span>
 <div class="roles-layer set-surface" class:closing={exit.closing} role="presentation" use:portal>
   <button type="button" class="roles-scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
   <div class="roles-card col" role="dialog" aria-modal="true" aria-label={text("title")} tabindex="-1" inert={exit.closing} onanimationend={exit.onanimationend} onkeydown={(event) => event.key === "Escape" && close()}>
@@ -534,6 +535,7 @@
     </div>
   </div>
 </div>
+<span class="portal-anchor" hidden></span>
 
 {#if picking}
   <ConfirmDialog title={fill("add_title", { name: role?.name ?? "" })} cancelLabel={text("cancel")} tone="primary" onclose={() => (picking = false)}>

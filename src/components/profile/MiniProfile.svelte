@@ -154,6 +154,7 @@
 <svelte:window onkeydown={onwindowkey} />
 
 {#if target}
+  <span class="portal-anchor" hidden></span>
   <div class="layer" class:closing={exit.closing} role="presentation" use:portal>
     <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={() => close()}></button>
     {#key target.userId}
@@ -209,6 +210,7 @@
       </div>
     {/key}
   </div>
+  <span class="portal-anchor" hidden></span>
 {/if}
 
 <style>

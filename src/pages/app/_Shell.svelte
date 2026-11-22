@@ -220,13 +220,14 @@
 
     width: 100%;
     height: 100dvh;
-    overflow: hidden;
+    overflow: clip;
     background-color: var(--colours-background);
   }
 
   .track {
     height: 100%;
     display: grid;
+    grid-template-rows: minmax(0, 100%);
     grid-template-columns: var(--left) minmax(0, 1fr) var(--right);
     transition: grid-template-columns var(--azure-duration-glide) var(--azure-ease-fluid);
   }
@@ -238,7 +239,8 @@
   .pane {
     height: 100%;
     min-width: 0;
-    overflow: hidden;
+    min-height: 0;
+    overflow: clip;
     position: relative;
   }
 
