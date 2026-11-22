@@ -295,8 +295,12 @@
   }
 
   .rich :global(:is(p, ul, ol, blockquote, pre, h1, h2, h3, h4, h5, h6, table, details)) {
-    margin: var(--azure-spacing-xs) 0;
+    margin: 0;
     white-space: normal;
+  }
+
+  .rich :global(:is(p, ul, ol, blockquote, pre, h1, h2, h3, h4, h5, h6, table, details, hr) + :is(p, ul, ol, blockquote, pre, h1, h2, h3, h4, h5, h6, table, details, hr)) {
+    margin-top: 1lh;
   }
 
   .rich :global(:is(h1, h2, h3, h4, h5, h6)) {
