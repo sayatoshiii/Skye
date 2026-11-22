@@ -9,6 +9,12 @@
       "sign_out": "Sign out"
     },
     "navigation": {
+      "in_voice": "In voice",
+      "in_voice_with": "In {room} with {names}",
+      "in_voice_alone": "In {room}",
+      "in_voice_join": "Join call",
+      "in_voice_joining": "Joining",
+      "in_voice_joined": "Joined",
       "home": "Home",
       "spaces": "Spaces",
       "direct_messages": "Direct messages",

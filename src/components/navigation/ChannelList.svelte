@@ -3,6 +3,8 @@
   import { copied, toastKey, type ToastIcon } from "../../scripts/stores/toast";
   import { tooltip } from "../../scripts/misc/tooltip";
   import EmojiText from "../ui/EmojiText.svelte";
+  import LoadingDots from "../ui/LoadingDots.svelte";
+  import { reducesMotion } from "../../scripts/settings/motion";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { getOrphanRooms } from "../../scripts/matrix/rooms";
   import type { RoomSummary } from "../../scripts/matrix/types";
@@ -84,6 +86,53 @@
 
   const text = (...path: string[]) =>
     getLocalisedText(undefined, ...path) as string;
+
+  const listed = (names: string[]) => (names.length < 3 ? names.join(" and ") : `${names.slice(0, -1).join(", ")}, and ${names.at(-1)}`);
+  const nameIn = (roomId: string, userId: string) => $rooms[roomId]?.members[userId]?.displayName || userId.slice(1).split(":")[0];
+  const friendCalls = $derived(
+    Object.entries($callMembers).reduce<Record<string, string>>((found, [roomId, members]) => (members.forEach((member) => (!found[member.userId] || $rooms[roomId]?.directUserId === member.userId) && (found[member.userId] = roomId)), found), {}),
+  );
+  const callLabel = (roomId: string, userId: string) => {
+    const others = [...new Set(($callMembers[roomId] ?? []).map((member) => member.userId))].filter((id) => id !== userId);
+    const room = $rooms[roomId]?.isDirect ? nameIn(roomId, userId) : $rooms[roomId]?.name ?? roomId;
+    return others.length ? text("navigation", "in_voice_with").replace("{room}", room).replace("{names}", listed([nameIn(roomId, userId), ...others.map((id) => nameIn(roomId, id))])) : text("navigation", "in_voice_alone").replace("{room}", room);
+  };
+  let pressed = $state<string | null>(null);
+  let joinedRoom = $state<string | null>(null);
+  $effect(() => {
+    if (!pressed || $voice?.roomId !== pressed || $voice.status !== "connected") return;
+    if (reducesMotion()) return void (pressed = null);
+    joinedRoom = pressed;
+    const timer = setTimeout(() => ((joinedRoom = null), (pressed = null)), 650);
+    return () => clearTimeout(timer);
+  });
+  const joinCall = (roomId: string) => ((pressed = roomId), joinVoice(roomId));
+  let faceWidths = $state<Record<string, number>>({});
+  const faceTokens: Record<string, number> = {};
+  const sized = (node: HTMLElement, id: string) => {
+    const token = (faceTokens[id] = (faceTokens[id] ?? 0) + 1);
+    const measure = () => token === faceTokens[id] && node.offsetWidth && (faceWidths[id] = node.offsetWidth);
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    requestAnimationFrame(measure);
+    return { destroy: () => observer.disconnect() };
+  };
+  const swapIcon = (_node: Element) => ({ duration: reducesMotion() ? 0 : 360, css: (t: number) => `opacity: ${t}; scale: ${0.4 + 0.6 * t}; translate: 0 ${(1 - t) * 4}px; filter: blur(${(1 - t) * 3}px);` });
+  const joined = (node: HTMLElement) => {
+    const space = node.offsetWidth + 4 + (parseFloat(getComputedStyle(node.parentElement!).columnGap) || 0);
+    return {
+    duration: reducesMotion() ? 0 : 620,
+    css: (t: number) => {
+      const u = 1 - t;
+      const smooth = (v: number) => ((v = Math.min(1, Math.max(0, v))), v * v * (3 - 2 * v));
+      const pop = Math.sin(smooth(u / 0.4) * Math.PI);
+      const fade = 1 - smooth((u - 0.2) / 0.8);
+      const close = smooth((u - 0.3) / 0.7);
+      return `margin-right: ${4 - space * close}px; opacity: ${fade}; scale: ${1 + 0.1 * pop - 0.35 * (1 - fade)}; filter: blur(${(1 - fade) * 4}px); box-shadow: 0 0 ${10 * pop}px 0px color-mix(in oklab, currentColor ${45 * pop}%, transparent);`;
+    },
+    };
+  };
+  const callItems = (roomId: string): MenuItem[] => [{ id: "dm-voice-join", label: text("navigation", "in_voice_join"), icon: SETTINGS_ICONS.headphones, run: () => joinCall(roomId) }];
 
   let hidden: Record<string, string[]> = $state.raw({});
 
@@ -401,6 +450,38 @@
                           <span class="dm-status xs muted truncate"><EmojiText text={status} /></span>
                         {/if}
                       </span>
+                      {@const call = room.directUserId ? friendCalls[room.directUserId] : undefined}
+                      {@const joining = !!call && $voice?.roomId === call}
+                      {@const phase = !joining ? "idle" : $voice?.status === "connecting" ? "connecting" : joinedRoom === call ? "joined" : "gone"}
+                      {@const face = phase === "gone" ? "joined" : phase}
+                      {#if call && phase !== "gone" && !(joining && reducesMotion())}
+                        <span
+                          class="dm-voice row-nw align-centre gap-xs xs bold"
+                          class:joining={phase === "connecting"}
+                          out:joined
+                          role="button"
+                          tabindex="0"
+                          aria-label={`${callLabel(call, room.directUserId!)}. ${text("navigation", "in_voice_join")}`}
+                          use:tooltip={callLabel(call, room.directUserId!)}
+                          use:entityMenu={() => callItems(call)}
+                          onclick={(event) => (event.stopPropagation(), phase === "idle" && joinCall(call))}
+                          ondblclick={(event) => event.stopPropagation()}
+                          onkeydown={(event) => (event.key === "Enter" || event.key === " ") && (event.preventDefault(), event.stopPropagation(), phase === "idle" && joinCall(call))}
+                        >
+                          <span class="dm-voice-body" style:width={faceWidths[call] ? `${faceWidths[call]}px` : null}>
+                            {#key face}
+                              <span class="dm-voice-face row-nw align-centre gap-xs" use:sized={call} in:swapIcon out:swapIcon>
+                                {#if face === "connecting"}
+                                  <LoadingDots label={text("navigation", "in_voice_joining")} />
+                                {:else}
+                                  <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d={face === "joined" ? SETTINGS_ICONS.mic : SETTINGS_ICONS.headphones} /></svg>
+                                  <span>{text("navigation", face === "joined" ? "in_voice_joined" : "in_voice")}</span>
+                                {/if}
+                              </span>
+                            {/key}
+                          </span>
+                        </span>
+                      {/if}
                     {:else if $joinable.has(room.id) || $callMembers[room.id]?.length}
                       <svg class="hash faint" class:live={$voice?.roomId === room.id} viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d={SETTINGS_ICONS.speaker} /></svg>
                       <span class="truncate flex-max"><EmojiText text={room.name} /></span>
@@ -622,6 +703,65 @@
   .room.unread .dm-name,
   .room.direct[aria-current="page"] .dm-name {
     color: var(--colours-text-strong);
+  }
+
+  .dm-voice {
+    flex-shrink: 0;
+    padding: 4px 8px;
+    border-radius: 999px;
+    white-space: nowrap;
+    margin-right: 4px;
+    transform-origin: right center;
+    color: var(--colours-success, #3ba55d);
+    background: color-mix(in oklab, currentColor 14%, transparent);
+    animation: dm-voice-in 420ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+    transition:
+      background-color 260ms cubic-bezier(0.32, 0.72, 0, 1),
+      scale 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .dm-voice-body {
+    display: grid;
+    place-items: center;
+    grid-template-columns: minmax(0, 1fr);
+    transition: width 420ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .dm-voice-face {
+    grid-area: 1 / 1;
+    justify-self: unsafe center;
+    width: max-content;
+    white-space: nowrap;
+    min-height: 14px;
+  }
+
+  .dm-voice-face :global(.dots span) {
+    background-color: currentColor;
+  }
+
+  .dm-voice.joining {
+    animation: dm-voice-joining 1100ms ease-in-out infinite;
+  }
+
+  @keyframes dm-voice-joining {
+    50% {
+      background: color-mix(in oklab, currentColor 28%, transparent);
+    }
+  }
+
+  .dm-voice:hover {
+    background: color-mix(in oklab, currentColor 24%, transparent);
+  }
+
+  .dm-voice:active {
+    scale: 0.94;
+  }
+
+  @keyframes dm-voice-in {
+    from {
+      opacity: 0;
+      scale: 0.7;
+    }
   }
 
   .dm-text {
