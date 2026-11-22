@@ -8,7 +8,7 @@
   import { rooms, session } from "../../scripts/stores/matrix";
   import { openJoined } from "../../scripts/stores/navigation.svelte";
   import { settingsOpen, settingsSection } from "../../scripts/stores/settings";
-  import { deafened, muted, pttHeld, toggleDeafen, toggleMute, measurePing, voice, voicePing, voicePrefs } from "../../scripts/stores/voice";
+  import { deafened, muted, pttHeld, screenOn, screenSupported, toggleDeafen, toggleMute, toggleScreen, measurePing, voice, voicePing, voicePrefs } from "../../scripts/stores/voice";
   import type { MenuItem } from "../app/MessageMenu.svelte";
   import Icon from "../settings/Icon.svelte";
   import { SETTINGS_ICONS } from "../settings/icons";
@@ -49,6 +49,7 @@
 
   const muteItems = (): MenuItem[] => [items()[1], items()[3]];
   const deafenItems = (): MenuItem[] => [items()[2], items()[3]];
+  const screenItems = (): MenuItem[] => [{ id: "voice-screen", label: text($screenOn ? "screen_stop" : "screen_start"), icon: $screenOn ? SETTINGS_ICONS.screenOff : SETTINGS_ICONS.screen, run: toggleScreen }, items()[3]];
   const leaveItems = (): MenuItem[] => [items()[4]];
   const pttItems = (): MenuItem[] => [
     { id: "ptt-off", label: text("ptt_off"), icon: SETTINGS_ICONS.mic, run: () => voicePrefs.update((prefs) => ({ ...prefs, pushToTalk: false })) },
@@ -87,8 +88,8 @@
         <button type="button" class="action wide ghost press" class:off={$deafened} aria-pressed={$deafened} aria-label={text($deafened ? "undeafen" : "deafen")} use:tooltip={text($deafened ? "undeafen" : "deafen")} onclick={toggleDeafen} use:menu={deafenItems}>
           <Icon name={$deafened ? "headphonesOff" : "headphones"} size={18} />
         </button>
-        <button type="button" class="action wide ghost press" aria-label={text("settings")} use:tooltip={text("settings")} onclick={settings} use:menu={() => [items()[3]]}>
-          <Icon name="gear" size={18} />
+        <button type="button" class="action wide ghost press" class:on={$screenOn} disabled={!screenSupported || shown?.kind === "legacy"} aria-pressed={$screenOn} aria-label={text($screenOn ? "screen_stop" : "screen_start")} use:tooltip={text($screenOn ? "screen_stop" : "screen_start")} onclick={toggleScreen} use:menu={screenItems}>
+          <Icon name={$screenOn ? "screenOff" : "screen"} size={18} />
         </button>
       </div>
     </section>
@@ -184,6 +185,16 @@
   .action.off {
     color: var(--colours-danger);
     background: color-mix(in oklab, var(--colours-danger) 14%, transparent);
+  }
+
+  .action.on {
+    color: var(--colours-accent);
+    background: color-mix(in oklab, var(--colours-accent) 16%, transparent);
+  }
+
+  .action:disabled {
+    opacity: 0.4;
+    pointer-events: none;
   }
 
   .ptt {
