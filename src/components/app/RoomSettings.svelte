@@ -1,4 +1,5 @@
 <script lang="ts">
+  import ColourPopover from "../ui/ColourPopover.svelte";
   import ConfirmDialog from "../ui/ConfirmDialog.svelte";
   import Avatar from "../ui/Avatar.svelte";
   import EmojiText from "../ui/EmojiText.svelte";
@@ -32,6 +33,7 @@
   import type { PowerLevels } from "../../scripts/matrix/types";
   import type { MenuItem } from "./MessageMenu.svelte";
 
+  let colourAnchor: HTMLElement | null = $state(null);
   let { roomId, onclose }: { roomId: string; onclose: () => void } = $props();
 
   type Tab = "display" | "permissions" | "members";
@@ -415,11 +417,13 @@
                       <button type="button" class="big-swatch ghost press" class:on={!colour} aria-label={text("colour_default")} disabled={!displayEditable} onclick={() => setMeta(level, { color: undefined })} use:menu={() => colourItems(undefined)}>
                         <span class="check"><Icon name="check" size={20} /></span>
                       </button>
-                      <label class="big-swatch custom" class:on={!!colour && !PALETTE.includes(colour)} style:background-color={colour && !PALETTE.includes(colour) ? colour : undefined} aria-label={text("colour_custom")} use:menu={() => colourItems(colour)}>
-                        <input type="color" value={colour ?? "#99aab5"} disabled={!displayEditable} oninput={(event) => setMeta(level, { color: event.currentTarget.value })} />
+                      <button type="button" class="big-swatch custom ghost press" class:on={!!colour && !PALETTE.includes(colour)} style:background-color={colour && !PALETTE.includes(colour) ? colour : undefined} aria-label={text("colour_custom")} aria-expanded={!!colourAnchor} disabled={!displayEditable} use:menu={() => colourItems(colour)} onclick={(event) => (colourAnchor = colourAnchor ? null : event.currentTarget)}>
                         <span class="check"><Icon name="check" size={20} /></span>
                         <span class="pen"><Icon name="appearance" size={14} /></span>
-                      </label>
+                      </button>
+                      {#if colourAnchor}
+                        <ColourPopover anchor={colourAnchor} value={colour ?? "#99aab5"} onchange={(value) => setMeta(level, { color: value })} onclose={() => (colourAnchor = null)} />
+                      {/if}
                       <div class="palette">
                         {#each PALETTE as swatch (swatch)}
                           <button type="button" class="swatch ghost press" class:on={colour === swatch} style:background-color={swatch} aria-label={swatch} disabled={!displayEditable} onclick={() => setMeta(level, { color: swatch })} use:menu={() => colourItems(swatch)}>
@@ -955,13 +959,6 @@
 
   .big-swatch:first-child {
     background-color: #99aab5;
-  }
-
-  .custom input {
-    position: absolute;
-    inset: 0;
-    opacity: 0;
-    cursor: pointer;
   }
 
   .pen {

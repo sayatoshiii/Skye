@@ -11,6 +11,7 @@
   import { copied } from "../../scripts/stores/toast";
   import type { MenuItem } from "../app/MessageMenu.svelte";
   import Toggle from "../ui/Toggle.svelte";
+  import ColourPopover from "../ui/ColourPopover.svelte";
   import Icon from "./Icon.svelte";
 
   const THEMES = [{ id: "dark", window: "var(--colours-background)", rail: "var(--colours-surface)", block: "var(--colours-surface-raised)" }];
@@ -23,6 +24,7 @@
   let reduce = $state(false);
   let system = $state(false);
   let hex = $state("");
+  let pickAnchor: HTMLElement | null = $state(null);
 
   const active = $derived(getAccentPreset(accent));
   const index = $derived(PRESETS.findIndex(([name]) => name === active));
@@ -93,9 +95,10 @@
           <span class="faint">#</span>
           <input value={hex} maxlength="6" spellcheck="false" autocomplete="off" aria-label={look("custom_colour")} oninput={(event) => typed(event.currentTarget.value)} onblur={() => (hex = expanded(accent).slice(1).toUpperCase())} />
         </label>
-        <label class="preview press" class:selected={active === "custom"} style:--swatch={accent} use:tooltip={look("pick")}>
-          <input type="color" value={expanded(accent)} aria-label={look("pick")} oninput={(event) => choose(event.currentTarget.value)} />
-        </label>
+        <button type="button" class="preview ghost press" class:selected={active === "custom"} style:--swatch={accent} aria-label={look("pick")} aria-expanded={!!pickAnchor} use:tooltip={look("pick")} onclick={(event) => (pickAnchor = pickAnchor ? null : event.currentTarget)}></button>
+        {#if pickAnchor}
+          <ColourPopover anchor={pickAnchor} value={expanded(accent)} onchange={(value) => choose(value)} onclose={() => (pickAnchor = null)} />
+        {/if}
       </div>
     </div>
   </div>
@@ -398,11 +401,9 @@
       0 0 0 4px var(--colours-text-strong);
   }
 
-  .preview input {
-    position: absolute;
-    inset: 0;
-    opacity: 0;
-    cursor: pointer;
+  button.preview {
+    padding: 0;
+    border: none;
   }
 
   @media (max-width: 1023px) {
