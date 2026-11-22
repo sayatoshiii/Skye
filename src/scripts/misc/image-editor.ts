@@ -8,7 +8,7 @@ export type FontId = "sans" | "serif" | "mono" | "hand" | "impact";
 export type Stroke = { id: number; kind: "stroke"; brush: Exclude<Brush, "eraser">; colour: string; size: number; opacity: number; points: Pt[] };
 export type BlurMode = "blur" | "pixelate";
 export type Blur = { id: number; kind: "blur"; size: number; mode: BlurMode; strength: number; points: Pt[] };
-export type Shape = { id: number; kind: "rect" | "ellipse" | "line" | "arrow"; a: Pt; b: Pt; colour: string; width: number; fill: boolean; dashed: boolean; shadow: boolean };
+export type Shape = { id: number; kind: "rect" | "ellipse" | "line" | "arrow"; a: Pt; b: Pt; colour: string; width: number; fill: boolean; fillOpacity?: number; dashed: boolean; shadow: boolean };
 export type Step = { id: number; kind: "step"; at: Pt; colour: string; size: number };
 export type Text = { id: number; kind: "text"; at: Pt; value: string; colour: string; font: FontId; size: number; bold: boolean; italic: boolean; underline: boolean; align: Align; background: boolean };
 export type Obj = Stroke | Blur | Shape | Step | Text;
@@ -157,7 +157,7 @@ export const draw = (ctx: CanvasRenderingContext2D, o: Obj, base: HTMLCanvasElem
     const [ax, ay] = o.a;
     const [bx, by] = o.b;
     ctx.strokeStyle = o.colour;
-    ctx.fillStyle = `${o.colour}40`;
+    ctx.fillStyle = `${o.colour}${Math.round((o.fillOpacity ?? 25) * 2.55).toString(16).padStart(2, "0")}`;
     ctx.lineWidth = o.width;
     o.dashed && ctx.setLineDash([o.width * 2.5, o.width * 2]);
     o.shadow && Object.assign(ctx, { shadowColor: "rgb(0 0 0 / 0.45)", shadowBlur: o.width * 3, shadowOffsetY: o.width });

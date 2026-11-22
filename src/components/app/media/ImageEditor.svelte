@@ -21,7 +21,7 @@
   type Props = { file: File; session?: EditorSession; onsave: (file: File, session: EditorSession) => void; onclose: () => void };
   let { file, session, onsave, onclose }: Props = $props();
 
-  type Tool = "hand" | "crop" | "draw" | "text" | "shapes" | "blur";
+  type Tool = "select" | "hand" | "crop" | "draw" | "text" | "shapes" | "blur";
   type Entry = { base: HTMLCanvasElement; crop: Rect; objects: Obj[] };
   type Drag =
     | { kind: "pan"; x: number; y: number }
@@ -59,6 +59,9 @@
     fill: "M5 5h14v14H5zM5 12l7-7M5 19 19 5M12 19l7-7",
     dashed: "M4 12h3M10.5 12h3M17 12h3",
     shadow: "M6 4h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM8 20h10a2 2 0 0 0 2-2V8",
+    select: "M5 3l14 7.5-6.2 1.7L10 18.5z",
+    forward: "M12 20V8M7 13l5-5 5 5M5 4h14",
+    backward: "M12 4v12M7 11l5 5 5-5M5 20h14",
     hand: "M8 13V5.5a1.5 1.5 0 0 1 3 0V12M11 11.5v-8a1.5 1.5 0 0 1 3 0V12M14 6.5a1.5 1.5 0 0 1 3 0V12M17 8.5a1.5 1.5 0 0 1 3 0V15a6 6 0 0 1-6 6h-2a6 6 0 0 1-5-2.7L4.3 14.2a1.5 1.5 0 0 1 2.4-1.8L8 14",
     crop: "M6 2v14a2 2 0 0 0 2 2h14M18 22V8a2 2 0 0 0-2-2H2",
     draw: "M16 3l5 5L8 21H3v-5zM13 6l5 5",
@@ -70,10 +73,11 @@
     minus: "M6 12h12",
     plus: "M12 6v12M6 12h12",
     eyedrop: "M19 5a2.8 2.8 0 0 0-4 0l-2 2-1-1-1.5 1.5 6 6L18 12l-1-1 2-2a2.8 2.8 0 0 0 0-4zM12.5 9.5 5 17v2h2l7.5-7.5",
+    delete: "M5 7h14M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3",
     fit: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
   };
 
-  const TOOLS: Tool[] = ["hand", "crop", "draw", "text", "shapes", "blur"];
+  const TOOLS: Tool[] = ["select", "hand", "crop", "draw", "text", "shapes", "blur"];
   const BRUSHES: Brush[] = ["pen", "marker", "highlighter", "eraser"];
   const BRUSH_SIZE = { pen: 4, marker: 12, highlighter: 26, eraser: 0 };
   const SHAPES: ShapeKind[] = ["rect", "ellipse", "line", "arrow", "step"];
@@ -98,7 +102,7 @@
   let pen = $state({ colour: COLOURS[2], size: 4, opacity: 1 });
   let type = $state({ colour: "#ffffff", font: "sans" as FontId, size: 48, bold: true, italic: false, underline: false, align: "center" as Align, background: false });
   let shape: ShapeKind = $state("arrow");
-  let ink = $state({ colour: COLOURS[2], width: 6, fill: false, dashed: false, shadow: true, step: 22 });
+  let ink = $state({ colour: COLOURS[2], width: 6, fill: false, fillOpacity: 25, dashed: false, shadow: true, step: 22 });
   let blurSize = $state(40);
   let blurMode: BlurMode = $state("blur");
   let blurStrength = $state(30);
@@ -140,7 +144,7 @@
 
   const mod = getLocalisedText(undefined, "format", /Mac|iPhone|iPad/.test(navigator.userAgent) ? "mod_mac" : "mod") as string;
   const tip = (label: string, ...keys: string[]) => (keys.length ? `${label} ${keys.map((key) => `[[${key === "mod" ? mod : key}]]`).join(" ")}` : label);
-  const TOOL_KEYS: Record<Tool, string> = { hand: "H", crop: "C", draw: "D", text: "T", shapes: "S", blur: "B" };
+  const TOOL_KEYS: Record<Tool, string> = { select: "V", hand: "H", crop: "C", draw: "D", text: "T", shapes: "S", blur: "B" };
 
   const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
@@ -368,7 +372,7 @@
   const syncFrom = (o: Obj) => {
     if (o.kind === "text") type = { colour: o.colour, font: o.font, size: Math.round(o.size / unit), bold: o.bold, italic: o.italic, underline: o.underline, align: o.align, background: o.background };
     if (o.kind === "step") ((shape = "step"), (ink.colour = o.colour), (ink.step = Math.round(o.size / unit)));
-    if ("a" in o) ((shape = o.kind), (ink = { ...ink, colour: o.colour, width: Math.round(o.width / unit), fill: o.fill, dashed: o.dashed, shadow: o.shadow }));
+    if ("a" in o) ((shape = o.kind), (ink = { ...ink, colour: o.colour, width: Math.round(o.width / unit), fill: o.fill, fillOpacity: o.fillOpacity ?? 25, dashed: o.dashed, shadow: o.shadow }));
   };
 
   const select = (o?: Obj) => {
@@ -388,7 +392,7 @@
   const applyInk = (done = true) => {
     if (!sel) return;
     if (sel.kind === "step") Object.assign(sel, { colour: ink.colour, size: ink.step * unit });
-    else if ("a" in sel) Object.assign(sel, { colour: ink.colour, width: ink.width * unit, fill: ink.fill, dashed: ink.dashed, shadow: ink.shadow });
+    else if ("a" in sel) Object.assign(sel, { colour: ink.colour, width: ink.width * unit, fill: ink.fill, fillOpacity: ink.fillOpacity, dashed: ink.dashed, shadow: ink.shadow });
     else return;
     rev++;
     done && commit();
@@ -397,6 +401,21 @@
   const topHit = (p: Pt, kinds: string[]) => {
     const slop = 8 / view().s;
     return objects.findLast((o) => kinds.includes(o.kind) && hit(o, p, slop));
+  };
+
+  const layerAt = $derived.by(() => {
+    void rev;
+    const at = sel ? objects.indexOf(sel) : -1;
+    return { top: at === objects.length - 1, bottom: at <= 0 };
+  });
+
+  const layer = (o: Obj, to: "forward" | "backward" | "front" | "back") => {
+    const at = objects.indexOf(o);
+    const next = to === "front" ? objects.length - 1 : to === "back" ? 0 : clamp(at + (to === "forward" ? 1 : -1), 0, objects.length - 1);
+    if (at < 0 || next === at) return;
+    objects.splice(at, 1);
+    objects.splice(next, 0, o);
+    commit();
   };
 
   const remove = (id: number) => {
@@ -540,6 +559,15 @@
       return startEdit(t);
     }
 
+    if (tool === "select") {
+      if (sel && "a" in sel) {
+        const end = (["a", "b"] as const).find((key) => Math.hypot(sel[key][0] - p[0], sel[key][1] - p[1]) < slop * 1.5);
+        if (end) return void (drag = { kind: "handle", o: sel, end });
+      }
+      const o = topHit(p, ["stroke", "blur", "text", ...SHAPE_KINDS]);
+      return void (o ? (select(o), (drag = { kind: "move", o, last: p, moved: false })) : (selected = null));
+    }
+
     if (sel && "a" in sel) {
       const end = (["a", "b"] as const).find((key) => Math.hypot(sel[key][0] - p[0], sel[key][1] - p[1]) < slop * 1.5);
       if (end) return void (drag = { kind: "handle", o: sel, end });
@@ -552,7 +580,7 @@
       selected = step.id;
       return commit();
     }
-    const created: Shape = { id: nextId++, kind: shape, a: p, b: p, colour: ink.colour, width: ink.width * unit, fill: ink.fill, dashed: ink.dashed, shadow: ink.shadow };
+    const created: Shape = { id: nextId++, kind: shape, a: p, b: p, colour: ink.colour, width: ink.width * unit, fill: ink.fill, fillOpacity: ink.fillOpacity, dashed: ink.dashed, shadow: ink.shadow };
     objects.push(created);
     selected = created.id;
     drag = { kind: "create", o: created };
@@ -669,8 +697,10 @@
         selected = copy.id;
         commit();
       } },
-      { id: "editor-front", label: text("front"), icon: MENU_ICONS.collapse, disabled: at === objects.length - 1, run: () => ((objects = [...objects.filter((x) => x !== o), o]), commit()) },
-      { id: "editor-back", label: text("back"), icon: MENU_ICONS.expand, disabled: at === 0, run: () => ((objects = [o, ...objects.filter((x) => x !== o)]), commit()) },
+      { id: "editor-forward", label: text("forward"), icon: MENU_ICONS.collapse, disabled: at === objects.length - 1, separated: true, run: () => layer(o, "forward") },
+      { id: "editor-backward", label: text("backward"), icon: MENU_ICONS.expand, disabled: at === 0, run: () => layer(o, "backward") },
+      { id: "editor-front", label: text("front"), icon: MENU_ICONS.collapse, disabled: at === objects.length - 1, run: () => layer(o, "front") },
+      { id: "editor-back", label: text("back"), icon: MENU_ICONS.expand, disabled: at === 0, run: () => layer(o, "back") },
       { id: "editor-delete", label: text("delete"), icon: MENU_ICONS.delete, danger: true, separated: true, run: () => remove(o.id) },
     ], event.clientX, event.clientY);
   };
@@ -688,13 +718,14 @@
     if (mod && key === "y") return void (handled(), redo());
     if (mod && event.key === "Enter") return void (handled(), done());
     if ((event.key === "Delete" || event.key === "Backspace") && selected !== null) return void (handled(), remove(selected));
+    if ((event.key === "]" || event.key === "[") && sel) return void (handled(), layer(sel, event.key === "]" ? (mod ? "front" : "forward") : mod ? "back" : "backward"));
     if (event.key === "Escape") return void (handled(), pop ? (pop = null) : selected !== null ? (selected = null) : close());
     if (event.key === " ") return void (handled(), (spaceHeld = true), (cursor = "grab"));
     if (mod) return;
     if (event.key === "+" || event.key === "=") return void (handled(), zoomTo(zoom * 1.25));
     if (event.key === "-") return void (handled(), zoomTo(zoom / 1.25));
     if (event.key === "0") return void (handled(), fit());
-    const next = ({ h: "hand", c: "crop", d: "draw", t: "text", s: "shapes", b: "blur" } as Record<string, Tool>)[key];
+    const next = ({ v: "select", h: "hand", c: "crop", d: "draw", t: "text", s: "shapes", b: "blur" } as Record<string, Tool>)[key];
     next && (handled(), setTool(next));
   };
 
@@ -859,7 +890,19 @@
     {#if tool !== "hand"}
     {#key tool}
       <div class="toolbar glass row-nw align-centre" role="toolbar" tabindex="-1" onmousedown={(event) => !(event.target instanceof HTMLInputElement) && event.preventDefault()} in:fly={{ y: -8, duration: 320, delay: 60, easing: cubicOut }} out:fade={{ duration: 120 }}>
-        {#if tool === "crop"}
+        {#if tool === "select"}
+          {#if sel}
+            {@render button("forward", text("forward"), false, () => layer(sel, "forward"), ["]"])}
+            {@render button("backward", text("backward"), false, () => layer(sel, "backward"), ["["])}
+            <span class="sep"></span>
+            <button type="button" class="chip press" disabled={layerAt.top} onclick={() => layer(sel, "front")}>{text("front")}</button>
+            <button type="button" class="chip press" disabled={layerAt.bottom} onclick={() => layer(sel, "back")}>{text("back")}</button>
+            <span class="sep"></span>
+            {@render button("delete", text("delete"), false, () => remove(sel.id), ["Del"])}
+          {:else}
+            <span class="xs muted hint">{text("select_hint")}</span>
+          {/if}
+        {:else if tool === "crop"}
           {#each RATIOS as [id]}
             <button type="button" class="chip press" class:on={ratio === id} onclick={() => setRatio(id)}>{id === "free" || id === "original" ? text(id) : id}</button>
           {/each}
@@ -923,7 +966,10 @@
           {:else}
             {@render range(text("width"), ink.width, 1, 30, (value, finished = true) => ((ink.width = value), applyInk(finished)))}
             <span class="sep"></span>
-            {#if shape === "rect" || shape === "ellipse"}{@render button("fill", text("fill"), ink.fill, () => ((ink.fill = !ink.fill), applyInk()))}{/if}
+            {#if shape === "rect" || shape === "ellipse"}
+              {@render button("fill", text("fill"), ink.fill, () => ((ink.fill = !ink.fill), applyInk()))}
+              {#if ink.fill}{@render range(text("fill_opacity"), ink.fillOpacity, 5, 100, (value, finished = true) => ((ink.fillOpacity = value), applyInk(finished)), "%")}{/if}
+            {/if}
             {@render button("dashed", text("dashed"), ink.dashed, () => ((ink.dashed = !ink.dashed), applyInk()))}
             {@render button("shadow", text("shadow"), ink.shadow, () => ((ink.shadow = !ink.shadow), applyInk()))}
           {/if}
