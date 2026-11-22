@@ -105,6 +105,10 @@ wrap_with_args! {
         }
         return;
       }
+      #[cfg(target_os = "linux")]
+      if let Some(host) = browser.as_deref().and_then(|browser| browser.host()) {
+        crate::platform::linux::proxy_drops(host.window_handle() as _);
+      }
       if let Some(browser) = browser
         && browser.is_popup() == 0
         && let Some(initial_url) = &self.initial_url

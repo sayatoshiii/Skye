@@ -152,3 +152,52 @@ pub(super) fn set_wm_state(xid: c_ulong, add: bool, atom1: &str, atom2: Option<&
     }
   });
 }
+
+unsafe fn tree(xlib: &xlib::Xlib, display: *mut xlib::Display, window: c_ulong) -> Option<(c_ulong, c_ulong, Vec<c_ulong>)> {
+  let (mut root, mut parent, mut children, mut count) = (0, 0, std::ptr::null_mut(), 0);
+  if unsafe { (xlib.XQueryTree)(display, window, &mut root, &mut parent, &mut children, &mut count) } == 0 {
+    return None;
+  }
+  let list = if children.is_null() { Vec::new() } else { unsafe { std::slice::from_raw_parts(children, count as usize).to_vec() } };
+  if !children.is_null() {
+    unsafe { (xlib.XFree)(children.cast()) };
+  }
+  Some((root, parent, list))
+}
+
+unsafe fn drop_target(xlib: &xlib::Xlib, display: *mut xlib::Display, window: c_ulong, aware: c_ulong) -> Option<c_ulong> {
+  let (mut kind, mut format, mut count, mut after, mut data) = (0, 0, 0, 0, std::ptr::null_mut());
+  unsafe { (xlib.XGetWindowProperty)(display, window, aware, 0, 1, 0, 0, &mut kind, &mut format, &mut count, &mut after, &mut data) };
+  if !data.is_null() {
+    unsafe { (xlib.XFree)(data.cast()) };
+  }
+  if kind != 0 {
+    return Some(window);
+  }
+  unsafe { tree(xlib, display, window) }?.2.into_iter().find_map(|child| unsafe { drop_target(xlib, display, child, aware) })
+}
+
+pub(crate) fn proxy_drops(browser: c_ulong) {
+  std::thread::spawn(move || {
+    for _ in 0..50 {
+      let done = with_x11(true, |xlib, display| unsafe {
+        let Some(target) = drop_target(xlib, display, browser, atom(xlib, display, "XdndAware")) else {
+          return false;
+        };
+        let proxy = atom(xlib, display, "XdndProxy");
+        let mut window = target;
+        loop {
+          (xlib.XChangeProperty)(display, window, proxy, xlib::XA_WINDOW, 32, xlib::PropModeReplace, (&target as *const c_ulong).cast(), 1);
+          match tree(xlib, display, window) {
+            Some((root, parent, _)) if parent != root && parent != 0 => window = parent,
+            _ => return true,
+          }
+        }
+      });
+      if done {
+        return;
+      }
+      std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+  });
+}

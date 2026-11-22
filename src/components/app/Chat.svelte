@@ -171,7 +171,7 @@
   let uploads: Upload[] = $state([]);
   let uploadChain: Promise<unknown> = Promise.resolve();
   const quietUploads = new Set<string>();
-  let dragDepth = $state(0);
+  let dragging = $state(false);
   let dragRound = $state(0);
   let dockHeight = $state(60);
   let replying: (ReplyTarget & { name: string }) | null = $state(null);
@@ -1635,24 +1635,25 @@
   const hasFiles = (event: DragEvent) => isFileDrag(event) && !document.querySelector('[aria-modal="true"], .confirm-layer');
 
   const ondragenter = (event: DragEvent) => {
-    if (!hasFiles(event) || !room) return;
-    event.preventDefault();
-    if (!dragDepth++) dragRound++;
+    if (isFileDrag(event)) event.preventDefault();
   };
 
   const ondragover = (event: DragEvent) => {
     if (!isFileDrag(event)) return;
     event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = hasFiles(event) && room ? "copy" : "none";
+    const ok = hasFiles(event) && !!room;
+    if (event.dataTransfer) event.dataTransfer.dropEffect = ok ? "copy" : "none";
+    if (!ok) return;
+    if (!dragging) dragRound++;
+    dragging = true;
   };
 
   const ondragleave = (event: DragEvent) => {
-    if (!isFileDrag(event)) return;
-    dragDepth = event.relatedTarget ? Math.max(1, dragDepth - 1) : 0;
+    if (event.clientX <= 0 || event.clientY <= 0 || event.clientX >= innerWidth || event.clientY >= innerHeight) dragging = false;
   };
 
   const ondrop = (event: DragEvent) => {
-    dragDepth = 0;
+    dragging = false;
     if (!isFileDrag(event)) return;
     event.preventDefault();
     if (!hasFiles(event)) return;
@@ -1663,7 +1664,7 @@
   const roomLabel = $derived(room ? `${room.isDirect || room.name.startsWith("#") ? "" : "#"}${room.name}` : "");
 </script>
 
-<svelte:window onkeydown={onwindowkey} {ondragenter} {ondragover} {ondragleave} {ondrop} ondragend={() => (dragDepth = 0)} />
+<svelte:window onkeydown={onwindowkey} {ondragenter} {ondragover} {ondragleave} {ondrop} ondragend={() => (dragging = false)} />
 
 <section
   class="chat col min-0"
@@ -2180,7 +2181,7 @@
       <LocationDialog onsend={sendLocation} onclose={() => (locating = false)} />
     {/if}
 
-    {#if dragDepth > 0}
+    {#if dragging}
       <div class="dropzone" aria-hidden="true" transition:fade={{ duration: 200, easing: cubicOut }}>
         <div class="drop-card col centre gap-xs" transition:scale={{ start: 0.9, duration: 320, easing: backOut, opacity: 0 }}>
           {#key dragRound}<div class="drop-files">
