@@ -3,7 +3,6 @@
   import { heartSet, heartsOn, isFriendly } from "../../scripts/misc/hearts";
   import { renderEmoji } from "../../scripts/misc/emoji";
   import { portal } from "../../scripts/misc/portal";
-  import { reducesMotion } from "../../scripts/settings/motion";
 
   type Entry = { id: string; ts: number; plain?: boolean; body?: string; eventId: string };
   type Heart = { key: number; emoji: string; x: number; y: number; drift: number; size: number; delay: number; spin: number };
@@ -21,10 +20,10 @@
     const row = timeline?.querySelector<HTMLElement>(`li[data-event-id="${CSS.escape(message.eventId)}"]`);
     const box = row?.querySelector<HTMLElement>(".content")?.getBoundingClientRect() ?? row?.getBoundingClientRect();
     if (!row || !box || !box.width) return;
-    row.classList.remove("friendly-glow");
+    row.classList.remove("friendly-glow", "motion-keep");
     void row.offsetWidth;
-    row.classList.add("friendly-glow");
-    setTimeout(() => row.classList.remove("friendly-glow"), 1800);
+    row.classList.add("friendly-glow", "motion-keep");
+    setTimeout(() => row.classList.remove("friendly-glow", "motion-keep"), 1800);
     const set = heartSet();
     const amount = 4 + Math.floor(Math.random() * 3);
     const start = box.left + Math.min(box.width, 160) / 2;
@@ -45,7 +44,7 @@
 
   $effect(() => {
     const now = Date.now();
-    const on = primed && $heartsOn && !reducesMotion();
+    const on = primed && $heartsOn;
     for (const message of messages) {
       if (seen.has(message.id)) continue;
       seen.add(message.id);
@@ -59,7 +58,7 @@
   <span class="portal-anchor" hidden></span>
   <div class="hearts" aria-hidden="true" use:portal>
     {#each hearts as heart (heart.key)}
-      <span class="heart" style="left: {heart.x}px; top: {heart.y}px; font-size: {heart.size}px; --drift: {heart.drift}px; --spin: {heart.spin}deg; animation-delay: {heart.delay}ms" onanimationend={() => done(heart.key)}>{@html renderEmoji(heart.emoji)}</span>
+      <span class="heart motion-keep" style="left: {heart.x}px; top: {heart.y}px; font-size: {heart.size}px; --drift: {heart.drift}px; --spin: {heart.spin}deg; animation-delay: {heart.delay}ms" onanimationend={() => done(heart.key)}>{@html renderEmoji(heart.emoji)}</span>
     {/each}
   </div>
   <span class="portal-anchor" hidden></span>
@@ -116,12 +115,6 @@
     }
     30% {
       background-color: color-mix(in srgb, #ff6b9a 7%, transparent);
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .hearts {
-      display: none;
     }
   }
 </style>
