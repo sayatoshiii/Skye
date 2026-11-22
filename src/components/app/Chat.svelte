@@ -1,6 +1,6 @@
 <script lang="ts">
   import { reducesMotion } from "../../scripts/settings/motion";
-  import { blur, fly, scale, slide } from "svelte/transition";
+  import { blur, fade, fly, scale, slide } from "svelte/transition";
   import { flip } from "svelte/animate";
   import { backOut, cubicOut } from "svelte/easing";
   import KeyText from "../ui/KeyText.svelte";
@@ -172,6 +172,7 @@
   let uploadChain: Promise<unknown> = Promise.resolve();
   const quietUploads = new Set<string>();
   let dragDepth = $state(0);
+  let dragRound = $state(0);
   let dockHeight = $state(60);
   let replying: (ReplyTarget & { name: string }) | null = $state(null);
   let editing: { eventId: string; draft: string; pills: Pill[] } | null = $state(null);
@@ -1630,28 +1631,31 @@
     return !!last;
   };
 
-  const hasFiles = (event: DragEvent) => !!event.dataTransfer?.types.includes("Files");
+  const isFileDrag = (event: DragEvent) => !!event.dataTransfer?.types.includes("Files");
+  const hasFiles = (event: DragEvent) => isFileDrag(event) && !document.querySelector('[aria-modal="true"], .confirm-layer');
 
   const ondragenter = (event: DragEvent) => {
     if (!hasFiles(event) || !room) return;
     event.preventDefault();
-    dragDepth++;
+    if (!dragDepth++) dragRound++;
   };
 
   const ondragover = (event: DragEvent) => {
-    if (!hasFiles(event) || !room) return;
+    if (!isFileDrag(event)) return;
     event.preventDefault();
-    if (event.dataTransfer) event.dataTransfer.dropEffect = "copy";
+    if (event.dataTransfer) event.dataTransfer.dropEffect = hasFiles(event) && room ? "copy" : "none";
   };
 
   const ondragleave = (event: DragEvent) => {
-    if (hasFiles(event)) dragDepth = Math.max(0, dragDepth - 1);
+    if (!isFileDrag(event)) return;
+    dragDepth = event.relatedTarget ? Math.max(1, dragDepth - 1) : 0;
   };
 
   const ondrop = (event: DragEvent) => {
-    if (!hasFiles(event)) return;
-    event.preventDefault();
     dragDepth = 0;
+    if (!isFileDrag(event)) return;
+    event.preventDefault();
+    if (!hasFiles(event)) return;
     if (room) addFiles([...(event.dataTransfer?.files ?? [])]);
   };
 
@@ -1659,7 +1663,7 @@
   const roomLabel = $derived(room ? `${room.isDirect || room.name.startsWith("#") ? "" : "#"}${room.name}` : "");
 </script>
 
-<svelte:window onkeydown={onwindowkey} />
+<svelte:window onkeydown={onwindowkey} {ondragenter} {ondragover} {ondragleave} {ondrop} ondragend={() => (dragDepth = 0)} />
 
 <section
   class="chat col min-0"
@@ -1672,10 +1676,6 @@
   style:--search-room="{Math.max(220, headerWidth - 200)}px"
   bind:clientWidth={chatWidth}
   style:--composer-space="{dockHeight + 35}px"
-  {ondragenter}
-  {ondragover}
-  {ondragleave}
-  {ondrop}
   aria-label={roomLabel}
 >
   <header class="header row-nw align-centre gap-sm hairline-b" bind:offsetHeight={headerSpace} bind:clientWidth={headerWidth} bind:this={headerEl}>
@@ -2181,9 +2181,16 @@
     {/if}
 
     {#if dragDepth > 0}
-      <div class="dropzone col centre gap-sm" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="32" height="32"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m-5 5 5-5 5 5M5 20h14" /></svg>
-        <span class="md bold">{text("media", "drop")}</span>
+      <div class="dropzone" aria-hidden="true" transition:fade={{ duration: 200, easing: cubicOut }}>
+        <div class="drop-card col centre gap-xs" transition:scale={{ start: 0.9, duration: 320, easing: backOut, opacity: 0 }}>
+          {#key dragRound}<div class="drop-files">
+            {#each ["text", "image", "code"] as icon, index}
+              <img class="drop-file" style:--i={index - 1} src="/drop/{icon}.webp" alt="" draggable="false" />
+            {/each}
+          </div>{/key}
+          <span class="drop-title bold">{text("media", "drop").replace("{name}", roomLabel)}</span>
+          <span class="sm">{text("media", "drop_hint")}</span>
+        </div>
       </div>
     {/if}
   {:else if !$synced}
@@ -3875,23 +3882,71 @@
 
   .dropzone {
     position: absolute;
-    inset: var(--azure-spacing-md);
+    inset: 0;
     z-index: var(--azure-z-overlay);
+    display: grid;
+    place-items: center;
     pointer-events: none;
-    color: var(--colours-accent);
-    border-radius: var(--azure-radius-lg);
-    border: 2px dashed color-mix(in oklab, var(--colours-accent) 60%, transparent);
-    background-color: color-mix(in oklab, var(--colours-background) 80%, transparent);
-    backdrop-filter: blur(6px);
-    box-shadow: inset 0 0 60px -20px var(--colours-accent-glow);
-    animation: fade-in var(--azure-duration-md) var(--azure-ease-out);
   }
 
-  @keyframes fade-in {
+  .drop-card {
+    position: relative;
+    width: min(400px, calc(100% - 2 * var(--azure-spacing-lg)));
+    padding: 116px 40px 44px;
+    gap: 6px;
+    text-align: center;
+    color: white;
+    border-radius: var(--azure-radius-lg);
+    background: var(--colours-accent);
+    box-shadow: 0 20px 60px -20px var(--colours-accent-glow);
+  }
+
+  .drop-card::before {
+    content: "";
+    position: absolute;
+    inset: 14px;
+    border: 2px dashed color-mix(in oklab, white 55%, transparent);
+    border-radius: calc(var(--azure-radius-lg) - 8px);
+  }
+
+  .drop-title {
+    font-size: 1.5rem;
+    line-height: 1.2;
+  }
+
+  .drop-files {
+    position: absolute;
+    top: -40px;
+    left: 50%;
+    width: 0;
+    height: 150px;
+  }
+
+  .drop-file {
+    position: absolute;
+    left: -42px;
+    width: 84px;
+    height: auto;
+    transform-origin: 50% 50%;
+    transform: translate(calc(var(--i) * 74px), calc(var(--i) * var(--i) * 22px)) rotate(calc(var(--i) * 20deg));
+    animation: drop-fan 560ms cubic-bezier(0.34, 1.4, 0.64, 1) calc(120ms + (var(--i) + 1) * 70ms) both;
+    filter: drop-shadow(0 6px 10px rgb(0 0 0 / 0.2));
+  }
+
+  .drop-file:nth-child(2) {
+    z-index: 1;
+  }
+
+  @keyframes drop-fan {
     from {
+      transform: translateY(70px) rotate(0deg) scale(0.7);
       opacity: 0;
     }
+    30% {
+      opacity: 1;
+    }
   }
+
 
   @media (pointer: coarse) {
     .message {
