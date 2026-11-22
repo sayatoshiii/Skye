@@ -1,6 +1,8 @@
 <script lang="ts">
   import { tick } from "svelte";
   import { heartSet, heartsOn, isFriendly } from "../../scripts/misc/hearts";
+  import { renderEmoji } from "../../scripts/misc/emoji";
+  import { portal } from "../../scripts/misc/portal";
   import { reducesMotion } from "../../scripts/settings/motion";
 
   type Entry = { id: string; ts: number; plain?: boolean; body?: string; eventId: string };
@@ -54,11 +56,13 @@
 </script>
 
 {#if hearts.length}
-  <div class="hearts" aria-hidden="true">
+  <span class="portal-anchor" hidden></span>
+  <div class="hearts" aria-hidden="true" use:portal>
     {#each hearts as heart (heart.key)}
-      <span class="heart" style="left: {heart.x}px; top: {heart.y}px; font-size: {heart.size}px; --drift: {heart.drift}px; --spin: {heart.spin}deg; animation-delay: {heart.delay}ms" onanimationend={() => done(heart.key)}>{heart.emoji}</span>
+      <span class="heart" style="left: {heart.x}px; top: {heart.y}px; font-size: {heart.size}px; --drift: {heart.drift}px; --spin: {heart.spin}deg; animation-delay: {heart.delay}ms" onanimationend={() => done(heart.key)}>{@html renderEmoji(heart.emoji)}</span>
     {/each}
   </div>
+  <span class="portal-anchor" hidden></span>
 {/if}
 
 <style>
@@ -76,6 +80,12 @@
     opacity: 0;
     will-change: transform, opacity, filter;
     animation: rise 1500ms cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+
+  .heart :global(img) {
+    display: block;
+    width: 1em;
+    height: 1em;
   }
 
   @keyframes rise {
