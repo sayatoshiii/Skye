@@ -5,6 +5,7 @@
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { tooltip } from "../../scripts/misc/tooltip";
   import { accentPresets, getAccent, getAccentPreset, isHexColour, setAccent, type AccentPreset } from "../../scripts/settings/accent";
+  import { plainDates } from "../../scripts/misc/when";
   import { mediaSettings, setFriendlyHearts, setGifsAsLinks, setHideRedacted, setQuickOpensChat, setShowCallEvents } from "../../scripts/settings/media";
   import { getMotionChoice, setMotionChoice, systemReducesMotion } from "../../scripts/settings/motion";
   import { copied } from "../../scripts/stores/toast";
@@ -157,6 +158,16 @@
       <p class="set-hint">{look("friendly_hearts_hint")}</p>
     </div>
     <Toggle checked={$mediaSettings.friendlyHearts} label={look("friendly_hearts")} onchange={setFriendlyHearts} />
+  </div>
+</section>
+
+<section class="set-section" data-part="dates">
+  <div class="split">
+    <div class="head col">
+      <h3 class="set-heading title">{look("plain_dates")}</h3>
+      <p class="set-hint">{look("plain_dates_hint")}</p>
+    </div>
+    <Toggle checked={$plainDates} label={look("plain_dates")} onchange={(value: boolean) => plainDates.set(value)} />
   </div>
 </section>
 

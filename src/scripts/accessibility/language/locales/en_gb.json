@@ -473,7 +473,9 @@
         "show_call_events": "Show call activity",
         "show_call_events_hint": "Show when people join or leave calls in your chats",
         "friendly_hearts": "Friendly Hearts",
-        "friendly_hearts_hint": "Little hearts float up when someone says thanks or sends some love"
+        "friendly_hearts_hint": "Little hearts float up when someone says thanks or sends some love",
+        "plain_dates": "Everyday date wording",
+        "plain_dates_hint": "Say \"2 weeks ago\" instead of \"a fortnight ago\", and skip words like ereyesterday and quinquennium"
       },
       "notify": {
         "desktop": "Desktop notifications",
