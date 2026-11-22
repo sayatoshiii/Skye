@@ -107,6 +107,7 @@
   import { handoff, navigation, openJoined, openRoom, openRoomMenu, openRoomSettings, openUserMenu, roomSettings } from "../../scripts/stores/navigation.svelte";
   import { openFullProfile, openMiniProfile } from "../../scripts/stores/profile";
   import Skeleton from "../ui/Skeleton.svelte";
+  import { clock, exactDate, isFancy, plainDates, whenLabel } from "../../scripts/misc/when";
   import RoomLinkDialog from "./RoomLinkDialog.svelte";
   import FriendlyHearts from "./FriendlyHearts.svelte";
   import { heartsOn, isFriendly } from "../../scripts/misc/hearts";
@@ -810,6 +811,11 @@
     (relations.get(message.eventId) ?? []).some((event) => POLL_END.includes(event.type) && (event.sender === message.sender || mayModerate(event.sender)));
 
   const findReply = (eventId: string) => $visibleTimeline.find((event) => event.event_id === eventId);
+
+  const dateItems = (ts: number): MenuItem[] => [
+    ...($plainDates || isFancy(ts) ? [{ id: "when-wording", label: getLocalisedText(undefined, "when", $plainDates ? "fancy" : "plain") as string, icon: MENU_ICONS.edit, run: () => plainDates.set(!$plainDates) }] : []),
+    { id: "when-copy", label: getLocalisedText(undefined, "when", "copy") as string, icon: MENU_ICONS.copy, run: () => copied(exactDate(ts)) },
+  ];
 
   const formatTime = (ts: number) =>
     new Intl.DateTimeFormat(undefined, { hour: "2-digit", minute: "2-digit" }).format(ts);
@@ -1925,7 +1931,7 @@
               <div class="meta row-nw align-centre gap-sm">
                 <button type="button" class="sender md bold ghost" class:admin={sender.powerLevel >= 100 && !$currentRoom?.isDirect} style:color={sender.role?.color} data-profile-trigger use:usermenu={{ userId: message.sender, roomId: $currentRoom?.roomId }} onclick={(event) => openProfile(message.sender, event.currentTarget)}><EmojiText text={sender.name} /></button>
                 {#if roleIcon(sender.role)}<span class="role-icon" use:tooltip={sender.role?.name}><Avatar name={sender.role?.name ?? ""} url={roleIcon(sender.role)} size="16px" radius="4px" /></span>{/if}
-                <time class="xs faint" datetime={new Date(message.ts).toISOString()}>{formatTime(message.ts)}</time>
+                <time class="xs faint when" datetime={new Date(message.ts).toISOString()} use:tooltip={exactDate(message.ts)} use:entityMenu={() => dateItems(message.ts)}>{whenLabel(message.ts, $plainDates, $clock)}</time>
                 {#if message.kind === "notice"}<span class="bot-tag xs bold">{text("chat", "bot")}</span>{/if}
                 {#if message.kind === "server"}<span class="bot-tag server-tag xs bold">{text("chat", "server_notice")}</span>{/if}
                 {#if pinnedSet.has(message.eventId)}{@render pinMark()}{/if}
@@ -2081,7 +2087,7 @@
               {#if !grouped}
                 <div class="meta row-nw align-centre gap-sm">
                   <span class="sender md bold" style:color={me.role?.color}><EmojiText text={me.name} /></span>
-                  <time class="xs faint" datetime={new Date(upload.ts).toISOString()}>{formatTime(upload.ts)}</time>
+                  <time class="xs faint when" datetime={new Date(upload.ts).toISOString()} use:tooltip={exactDate(upload.ts)}>{whenLabel(upload.ts, $plainDates, $clock)}</time>
                 </div>
               {/if}
               {#if upload.content}<MessageMedia content={upload.content} preview={upload.preview} still={upload.still} progress={upload.failed ? undefined : upload.progress} oncancel={() => dropUpload(upload.id)} />{/if}
