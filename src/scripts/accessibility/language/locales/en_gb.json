@@ -711,7 +711,13 @@
         "echo_hint": "Stops people hearing themselves through your speakers.",
         "auto_live": "When the bar lights up, Skye is sending your voice.",
         "more": "Show {count} more",
-        "fewer": "Show fewer"
+        "fewer": "Show fewer",
+        "heading_log": "Troubleshooting",
+        "log": "Call log",
+        "log_hint": "Skye keeps a record of what happens in calls. If one drops or goes quiet, copy or save it straight after and send it over.",
+        "log_copy": "Copy log",
+        "log_save": "Save log",
+        "log_clear": "Clear log"
       }
     },
     "login": {
@@ -897,7 +903,8 @@
       "opacity": "Opacity",
       "colour": "Colour",
       "custom": "Custom colour",
-      "eyedrop": "Click the image to pick a colour",
+      "eyedrop": "Pick from image",
+      "eyedrop_active": "Press and drag on the image",
       "bold": "Bold",
       "italic": "Italic",
       "underline": "Underline",
@@ -1408,6 +1415,7 @@
       "image_copied": "Image copied",
       "media_copied": "Copied to clipboard",
       "saved": "Saved",
+      "voice_log_cleared": "Call log cleared",
       "pinned": "Message pinned",
       "unpinned": "Message unpinned",
       "deleted": "Message deleted",

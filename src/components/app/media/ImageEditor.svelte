@@ -25,6 +25,7 @@
   type Entry = { base: HTMLCanvasElement; crop: Rect; objects: Obj[] };
   type Drag =
     | { kind: "pan"; x: number; y: number }
+    | { kind: "eyedrop" }
     | { kind: "paint"; o: Obj & { points: Pt[] } }
     | { kind: "erase"; changed: boolean }
     | { kind: "create"; o: Shape }
@@ -68,6 +69,7 @@
     redo: "m15 14 5-5-5-5M20 9H9a5 5 0 0 0 0 10h3",
     minus: "M6 12h12",
     plus: "M12 6v12M6 12h12",
+    eyedrop: "M19 5a2.8 2.8 0 0 0-4 0l-2 2-1-1-1.5 1.5 6 6L18 12l-1-1 2-2a2.8 2.8 0 0 0 0-4zM12.5 9.5 5 17v2h2l7.5-7.5",
     fit: "M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5",
   };
 
@@ -102,6 +104,7 @@
   let blurStrength = $state(30);
   let pop: string | null = $state(null);
   let custom = $state(false);
+  let dropping = $state(false);
   let saving = $state(false);
   let failed = $state(false);
   let cursor = $state("");
@@ -494,7 +497,7 @@
   const onpointerdown = (event: PointerEvent) => {
     if (!base || !canvas) return;
     event.preventDefault();
-    if (eyedropping && event.button === 0) return eyedrop(event);
+    if (eyedropping && event.button === 0) return void (canvas.setPointerCapture(event.pointerId), (drag = { kind: "eyedrop" }), eyedrop(event));
     pop = null;
     editing !== null && finishEdit();
     canvas.setPointerCapture(event.pointerId);
@@ -593,6 +596,7 @@
       return void (cursor = CURSORS[cropMode(p, (8 / view().s) * 1.5) ?? ""] ?? "grab");
     }
 
+    if (drag.kind === "eyedrop") return eyedrop(event);
     if (drag.kind === "pan") {
       panX += event.clientX - drag.x;
       panY += event.clientY - drag.y;
@@ -627,6 +631,7 @@
       const o = current.o;
       if (Math.hypot(o.b[0] - o.a[0], o.b[1] - o.a[1]) < 6 / view().s) o.b = [o.a[0] + 160 * unit, o.a[1] + (o.kind === "line" || o.kind === "arrow" ? 0 : 110 * unit)];
     }
+    if (current.kind === "eyedrop") return void ((dropping = false), sel && (tool === "text" ? applyText() : tool === "shapes" && applyInk()));
     if (current.kind === "pan") return void (target = { zoom, panX, panY });
     if (current.kind === "crop") return commit();
     if (current.kind === "move" && !current.moved) return;
@@ -725,7 +730,16 @@
     return { destroy: () => removeEventListener("pointerdown", handler, true) };
   };
 
-  const eyedropping = $derived(pop === "colour" && custom);
+  const eyedropping = $derived(pop === "colour" && custom && dropping);
+
+  $effect(() => {
+    if (!(pop === "colour" && custom)) dropping = false;
+  });
+
+  const grow = (node: HTMLElement, { duration = 320 } = {}) => {
+    const { width, height } = node.getBoundingClientRect();
+    return { duration, easing: cubicOut, css: (t: number) => `overflow: hidden; width: ${t * width}px; height: ${t * height}px; opacity: ${t}; margin-left: ${t * 15}px; padding-left: ${t * 15}px;` };
+  };
 
   const eyedrop = (event: PointerEvent) => {
     const ctx = canvas?.getContext("2d", { willReadFrequently: true });
@@ -733,8 +747,8 @@
     const dpr = canvas.width / canvas.getBoundingClientRect().width;
     const [r, g, b] = ctx.getImageData(Math.round(event.clientX * dpr), Math.round(event.clientY * dpr), 1, 1).data;
     const hex = `#${[r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
-    if (tool === "text") return void ((type.colour = hex), applyText());
-    if (tool === "shapes") return void ((ink.colour = hex), applyInk());
+    if (tool === "text") return void ((type.colour = hex), applyText(false));
+    if (tool === "shapes") return void ((ink.colour = hex), applyInk(false));
     pen.colour = hex;
     brush === "eraser" && (brush = "pen");
   };
@@ -766,9 +780,9 @@
         <button type="button" class="dot custom press" class:on={custom} aria-label={text("custom")} aria-expanded={custom} use:tooltip={text("custom")} onclick={() => (custom = !custom)}>{@render icon(I.plus, 14)}</button>
         </div>
         {#if custom}
-          <div class="custom-panel col" transition:slide={{ axis: "x", duration: 300, easing: cubicOut }}>
+          <div class="custom-panel col" transition:grow>
             <ColourPicker {value} onchange={set} />
-            <span class="xs faint eyedrop-hint">{text("eyedrop")}</span>
+            <button type="button" class="eyedrop ghost press row-nw align-centre" class:on={dropping} aria-pressed={dropping} onclick={() => (dropping = !dropping)}>{@render icon(I.eyedrop, 16)}<span class="xs">{text(dropping ? "eyedrop_active" : "eyedrop")}</span></button>
           </div>
         {/if}
       </div>
@@ -1290,14 +1304,31 @@
 
   .custom-panel {
     gap: var(--azure-spacing-sm);
-    padding-left: var(--azure-spacing-lg);
-    margin-left: var(--azure-spacing-lg);
+    padding-left: 15px;
+    margin-left: 15px;
     border-left: 1px solid var(--colours-outline-hairline);
     white-space: nowrap;
   }
 
-  .eyedrop-hint {
-    padding: 0 2px;
+  .eyedrop {
+    gap: var(--azure-spacing-sm);
+    height: 34px;
+    padding: 0 var(--azure-spacing-md);
+    border: none;
+    border-radius: var(--azure-radius-sm);
+    color: var(--colours-text-muted);
+    background: none;
+    transition: background-color var(--azure-duration-md) var(--azure-ease-out), color var(--azure-duration-md) var(--azure-ease-out);
+  }
+
+  .eyedrop:hover {
+    color: var(--colours-text-strong);
+    background-color: var(--colours-surface-hover);
+  }
+
+  .eyedrop.on {
+    color: var(--colours-accent);
+    background-color: var(--colours-accent-soft);
   }
 
   .list {
