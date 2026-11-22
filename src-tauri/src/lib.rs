@@ -84,6 +84,7 @@ fn window(app: &tauri::App) -> tauri::Result<tauri::WebviewWindow> {
   style(app, tauri::WebviewWindowBuilder::from_config(app, &app.config().app.windows[0])?)
     .on_permission_request(|_, kind| [PermissionResponse::Allow, PermissionResponse::Default][matches!(kind, PermissionKind::Other) as usize])
     .on_new_window(move |url, _| (["http", "https", "mailto"].contains(&url.scheme()).then(|| opener.opener().open_url(url.as_str(), None::<&str>)), NewWindowResponse::Deny).1)
+    .devtools(debugging())
     .build()
 }
 
@@ -176,9 +177,25 @@ fn single(builder: tauri::Builder) -> tauri::Builder {
   builder
 }
 
+fn debugging() -> bool {
+  std::env::args().any(|arg| arg == "--debug")
+}
+
+fn debug_port() -> Option<u16> {
+  let args: Vec<String> = std::env::args().collect();
+  let port = args.iter().enumerate().find_map(|(at, arg)| arg.strip_prefix("--port=").map(str::to_owned).or_else(|| (arg == "--port").then(|| args.get(at + 1).cloned()).flatten())).and_then(|value| value.parse::<u16>().ok());
+  match (debugging(), port) {
+    (true, Some(port)) => (log::warn!("debug: DevTools protocol open on 127.0.0.1:{port}; anything on this machine can control Skye while it runs"), Some(port)).1,
+    (false, Some(_)) => (log::warn!("debug: --port needs --debug, ignoring it"), None).1,
+    _ => None,
+  }
+}
+
 #[cfg(target_os = "linux")]
 fn runtime() -> tauri_runtime_cef::Cef {
-  tauri_runtime_cef::Cef::default().enable_features(["WebRTCPipeWireCapturer"])
+  use tauri_runtime_cef::{DevToolsPolicy, RemoteDebugging};
+  let cef = tauri_runtime_cef::Cef::default().enable_features(["WebRTCPipeWireCapturer"]).devtools([DevToolsPolicy::Auto, DevToolsPolicy::Allowed][debugging() as usize]);
+  match debug_port() { Some(port) => cef.remote_debugging(RemoteDebugging::Port { port, allowed_origins: Vec::new() }), None => cef }
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -206,7 +223,11 @@ pub fn run() {
   engine(single(tauri::Builder::default().runtime(runtime())))
     .plugin(tauri_plugin_log::Builder::default().level([log::LevelFilter::Warn, log::LevelFilter::Info][cfg!(debug_assertions) as usize]).build())
     .plugin(tauri_plugin_notification::init())
-    .setup(|app| Ok((unlock(&window(app)?), tray(app)?).0))
+    .setup(|app| {
+      let main = window(app)?;
+      debugging().then(|| main.open_devtools());
+      Ok((unlock(&main), tray(app)?, signals(app.handle())).0)
+    })
     .on_window_event(|window, event| match event { tauri::WindowEvent::CloseRequested { api, .. } if cfg!(desktop) => (api.prevent_close(), window.hide()).1.unwrap_or_default(), _ => {} })
     .build(context)
     .expect("skye failed to start")
