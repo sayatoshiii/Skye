@@ -1104,6 +1104,14 @@
     }
   };
 
+  const replacePending = (id: number, file: File) => {
+    const item = pending.find((entry) => entry.id === id);
+    if (!item) return;
+    item.preview && URL.revokeObjectURL(item.preview);
+    item.file = file;
+    item.preview = URL.createObjectURL(file);
+  };
+
   const removePending = (id: number) => {
     const item = pending.find((entry) => entry.id === id);
     if (item?.preview) URL.revokeObjectURL(item.preview);
@@ -2169,6 +2177,7 @@
       oncancelreply={() => (replying = null)}
       onfiles={addFiles}
       onremove={removePending}
+      onreplace={replacePending}
       oneditlast={editLast}
       onmetadata={setKeepImageMetadata}
       onpoll={() => (pollOpen = true)}

@@ -18,6 +18,8 @@
   import { entityText, menu, openEntityMenu } from "../../scripts/misc/entitymenu.svelte";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { copied } from "../../scripts/stores/toast";
+  import ImageEditor, { type EditorSession } from "./media/ImageEditor.svelte";
+  import { EDITABLE } from "../../scripts/misc/image-editor";
 
   type Props = {
     draft: string;
@@ -32,6 +34,7 @@
     oncancelreply: () => void;
     onfiles: (files: File[]) => void;
     onremove: (id: number) => void;
+    onreplace?: (id: number, file: File) => void;
     oneditlast: () => boolean;
     onmetadata: (keep: boolean) => void;
     onpoll?: () => void;
@@ -52,6 +55,7 @@
     oncancelreply,
     onfiles,
     onremove,
+    onreplace,
     oneditlast,
     onmetadata,
     onpoll,
@@ -76,6 +80,12 @@
   let gifOpen = $state(false);
   let gifPicker: GifPicker | undefined = $state();
   let face = $state(FACES[0]);
+  let editing: Pending | null = $state.raw(null);
+  const sessions = new Map<number, EditorSession>();
+
+  $effect(() => [...sessions.keys()].forEach((id) => pending.some((item) => item.id === id) || sessions.delete(id)));
+
+  const editable = (item: Pending) => !!onreplace && !item.error && item.progress === null && EDITABLE.includes(item.file.type);
 
   const hasJpeg = $derived(pending.some((item) => item.file.type === "image/jpeg"));
   const ready = $derived(!!draft.trim() || pending.some((item) => !item.error && item.progress === null));
@@ -132,10 +142,11 @@
         {#each pending as item (item.id)}
           {@const name = sanitiseFilename(item.file.name)}
           <li class="chip col" class:error={!!item.error} class:busy={item.progress !== null} use:tooltip={item.error ?? name} use:menu={() => [
+            ...(editable(item) ? [{ id: "chip-edit", label: text("image_editor", "edit"), icon: MENU_ICONS.edit, run: () => (editing = item) }] : []),
             { id: "chip-name", label: entityText("copy_file_name"), icon: MENU_ICONS.copy, run: () => copied(name) },
             { id: "chip-remove", label: entityText("remove_attachment"), icon: MENU_ICONS.delete, danger: true, separated: true, disabled: item.progress !== null, run: () => onremove(item.id) },
           ]}>
-            <span class="chip-preview row centre">
+            <button type="button" disabled={!editable(item)} class="chip-preview row centre" class:editable={editable(item)} aria-label={editable(item) ? text("image_editor", "edit_named").replace("{name}", name) : undefined} onclick={() => editable(item) && (editing = item)}>
               {#if item.preview}
                 <img src={item.preview} alt="" draggable="false" />
               {:else}
@@ -144,7 +155,10 @@
               {#if item.progress !== null}
                 <span class="progress" style:--progress={item.progress} role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(item.progress * 100)} aria-label={text("media", "uploading").replace("{percent}", String(Math.round(item.progress * 100)))}></span>
               {/if}
-            </span>
+              {#if editable(item)}
+                <span class="chip-edit" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M16 3l5 5L8 21H3v-5zM13 6l5 5" /></svg></span>
+              {/if}
+            </button>
             <span class="chip-name xs truncate">{item.error ?? name}</span>
             <span class="chip-size xs faint">{formatBytes(item.file.size)}</span>
             {#if item.progress === null}
@@ -211,6 +225,10 @@
 
 {#if gifOpen && gifButton && ongif}
   <GifPicker bind:this={gifPicker} anchor={gifButton} onpick={ongif} onclose={() => (gifOpen = false)} />
+{/if}
+
+{#if editing}
+  <ImageEditor file={editing.file} session={sessions.get(editing.id)} onsave={(file, session) => editing && (sessions.set(editing.id, session), onreplace?.(editing.id, file), (editing = null))} onclose={() => (editing = null)} />
 {/if}
 
 <style>
@@ -414,6 +432,56 @@
     color: var(--colours-text-muted);
     background-color: var(--colours-surface-raised);
     border: 1px solid var(--colours-outline-light);
+  }
+
+  button.chip-preview {
+    width: 100%;
+    padding: 0;
+    border: none;
+    opacity: 1;
+  }
+
+  .chip-preview.editable {
+    cursor: pointer;
+  }
+
+  .chip-preview.editable img {
+    transition: scale var(--azure-duration-md) var(--azure-ease-out);
+  }
+
+  .chip-preview.editable:hover img {
+    scale: 1.05;
+  }
+
+  .chip-edit {
+    position: absolute;
+    top: 6px;
+    left: 6px;
+    display: grid;
+    place-items: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    color: var(--colours-text-strong);
+    background-color: hsla(242, 10%, 10%, 0.72);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--colours-outline-hairline);
+    opacity: 0;
+    scale: 0.85;
+    transition: opacity var(--azure-duration-md) var(--azure-ease-out), scale var(--azure-duration-md) var(--azure-ease-spring);
+  }
+
+  .chip-preview:hover .chip-edit,
+  .chip-preview:focus-visible .chip-edit {
+    opacity: 1;
+    scale: 1;
+  }
+
+  @media (hover: none) {
+    .chip-edit {
+      opacity: 1;
+      scale: 1;
+    }
   }
 
   .chip-remove:hover {
