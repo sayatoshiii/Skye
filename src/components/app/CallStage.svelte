@@ -297,7 +297,7 @@
               <span class="bars" class:shown={talking} aria-hidden="true">{#each $userLevels[tile.userId] ?? [0, 0, 0] as level, index (index)}<i style:--level={Math.max(0.25, level)}></i>{/each}</span>
               <span class="flag" class:shown={tile.pending || (!tile.screen && self && here && ($muted || $deafened))} class:calling={tile.pending}><Icon name={tile.pending ? "call" : $deafened ? "headphonesOff" : "micOff"} size={14} /></span>
             </span>
-            <span class="ringing-label xs muted" class:shown={tile.pending}>{text("ringing")}</span>
+            <span class="ringing-label xs muted" class:shown={tile.pending}><span>{text("ringing")}</span></span>
             {#if tile.screen}
               <div class="screen-ui" onclick={(event) => event.stopPropagation()} ondblclick={(event) => event.stopPropagation()} role="presentation">
                 <span class="screen-top row-nw align-centre md bold"><span class="truncate"><EmojiText text={text("screen_of").replace("{name}", name)} /></span></span>
@@ -857,8 +857,29 @@
     transition:
       width 320ms var(--ease),
       margin-inline-start 320ms var(--ease),
+      margin-inline-end 320ms var(--ease),
       opacity 240ms var(--ease),
       scale 240ms var(--ease);
+  }
+
+  .tile:not(.video) .tile-name {
+    max-width: calc(100% - 72px);
+  }
+
+  .tile:not(.video) .bars.shown {
+    margin-inline-end: -18px;
+  }
+
+  .tile:not(.video) .flag.shown {
+    margin-inline-end: -18px;
+  }
+
+  .tile:not(.video) .bars.shown:has(~ .flag.shown) {
+    margin-inline-end: 0;
+  }
+
+  .tile:not(.video) .bars.shown ~ .flag.shown {
+    margin-inline-end: -36px;
   }
 
   .bars.shown {
@@ -902,13 +923,21 @@
   .ringing-label {
     display: grid;
     grid-template-rows: 0fr;
+    margin-top: calc(-1 * var(--azure-spacing-md));
     opacity: 0;
     transition:
       grid-template-rows 360ms var(--ease),
+      margin-top 360ms var(--ease),
       opacity 360ms var(--ease);
   }
 
+  .ringing-label > span {
+    min-height: 0;
+    overflow: hidden;
+  }
+
   .ringing-label.shown {
+    margin-top: 0;
     grid-template-rows: 1fr;
     opacity: 1;
   }
@@ -924,6 +953,7 @@
     transition:
       width 320ms var(--ease),
       margin-inline-start 320ms var(--ease),
+      margin-inline-end 320ms var(--ease),
       color 240ms var(--ease),
       opacity 240ms var(--ease),
       scale 240ms var(--ease);
