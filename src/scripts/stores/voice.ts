@@ -43,6 +43,7 @@ import { native } from "../misc/native";
 import { askShare, bridgePublisher, screenShared, shareAudio } from "./nativescreen";
 import { NativeRoom, webInput, nativeDevices, nativeLevels, nativeTuning, nativeVoice, nativeVoices } from "./nativeroom";
 import { getLocalisedText } from "../accessibility/language/translation";
+import { onWake, vlog } from "./voicelog";
 
 export type VoiceKind = "rtc" | "legacy";
 export type VoiceStatus = "connecting" | "ringing" | "connected" | "reconnecting";
@@ -246,6 +247,7 @@ type Live = {
   delayId: string | null;
   stop: (() => void)[];
   publishedAt: number;
+  createdTs: number;
   healing: boolean;
   failures: number;
   retryAt: number;
@@ -439,6 +441,7 @@ typeof window !== "undefined" &&
 const PREF_OF = { audioinput: "input", audiooutput: "output", videoinput: "camera" } as const;
 
 export const switchDevice = (kind: "audioinput" | "audiooutput" | "videoinput", deviceId: string) => {
+  vlog(`switch ${kind}`, deviceId);
   voicePrefs.update((prefs) => ({ ...prefs, [PREF_OF[kind]]: deviceId }));
   live?.links.forEach((link) => (link.publish || kind === "audiooutput") && link.room.switchActiveDevice(kind, deviceId === "default" ? "default" : deviceId).catch(() => undefined));
   micHooks.forEach((hook) => hook(micOpen()));
@@ -597,7 +600,8 @@ const publishMembership = async (current: Live) => {
   const delayId = (await supportsDelayedEvents(active)) ? await scheduleLeave(active, current.roomId).catch((error) => (console.warn("Skye could not schedule the call leave", error), null)) : null;
   if (live !== current) return void (delayId && updateDelayed(active, delayId, "cancel").catch(() => undefined));
   current.delayId = delayId;
-  await putMembership(active, current.roomId, membershipContent(active, current.focus, current.roomId));
+  await putMembership(active, current.roomId, membershipContent(active, current.focus, current.roomId, current.createdTs));
+  vlog("membership published", { delayed: !!delayId, expires: new Date(Date.now() + MEMBERSHIP_LIFETIME).toISOString() });
   live === current ? ((current.publishedAt = Date.now()), (current.failures = 0), (current.retryAt = 0)) : await putMembership(active, current.roomId, {}).catch(() => undefined);
 };
 
@@ -606,11 +610,12 @@ const heal = (current: Live, reason: string) =>
   !current.healing &&
   Date.now() >= current.retryAt &&
   (console.warn(`Skye is republishing its call membership: ${reason}`),
+  vlog(`membership heal: ${reason}`),
   (current.healing = true),
   publishMembership(current)
     .then(
       () => void (live === current && sendKey(current)),
-      (error) => void (console.warn("Skye could not republish its call membership", error), (current.failures += 1), (current.retryAt = Date.now() + Math.min(60000, 2000 * 2 ** current.failures))),
+      (error) => void (console.warn("Skye could not republish its call membership", error), vlog("membership heal failed", error, `failures ${current.failures + 1}`), (current.failures += 1), (current.retryAt = Date.now() + Math.min(60000, 2000 * 2 ** current.failures))),
     )
     .finally(() => (current.healing = false)));
 
@@ -624,7 +629,7 @@ const restartLeave = (current: Live) => {
       () => current.delayId === delayId && (current.failures = 0),
       (error: { status?: number }) =>
         current.delayId === delayId &&
-        (console.warn("Skye could not restart its delayed call leave", error), (current.failures += 1), (error?.status === 404 || current.failures >= 2) && heal(current, "delayed leave lost")),
+        (console.warn("Skye could not restart its delayed call leave", error), vlog("delayed leave restart failed", error?.status ?? error, `failures ${current.failures + 1}`), (current.failures += 1), (error?.status === 404 || current.failures >= 2) && heal(current, "delayed leave lost")),
     );
 };
 
@@ -650,7 +655,14 @@ const neededFoci = (current: Live) => {
 const syncLinks = (current: Live) => {
   const needed = neededFoci(current);
   current.links.forEach((link, key) => !link.publish && !needed.has(key) && closeLink(current, key));
-  needed.forEach((entry, key) => !current.links.has(key) && openLink(current, entry.focus, false, serverNameFromUserId(entry.member.userId)).catch((error) => console.warn("Skye could not reach another MatrixRTC server", error)));
+  needed.forEach(
+    (entry, key) =>
+      !current.links.has(key) &&
+      (vlog("opening listen link", key),
+      openLink(current, entry.focus, false, serverNameFromUserId(entry.member.userId)).catch(
+        (error) => (console.warn("Skye could not reach another MatrixRTC server", error), vlog("listen link failed", key, error), closeLink(current, key), setTimeout(() => live === current && syncLinks(current), 5000)),
+      )),
+  );
 };
 
 const closeLink = (current: Live, key: string) => {
@@ -670,8 +682,9 @@ const watchMembers = (current: Live) =>
     const joined = fresh.size > 0;
     const left = [...current.known].some((entry) => !sessions.has(entry));
     current.known = new Set(sessions.keys());
+    (joined || left) && vlog("members changed", { joined: [...fresh], left: [...current.known].length, total: sessions.size, self: members.some((member) => identityOf(member.userId, member.deviceId) === own) });
     current.publishedAt && !members.some((member) => identityOf(member.userId, member.deviceId) === own) && Date.now() - current.publishedAt > 15000 && heal(current, "membership missing");
-    current.encrypted && left && rotateKey(current);
+    current.encrypted && left && (vlog("rotating key"), rotateKey(current));
     current.encrypted && joined && !left && sendKey(current, fresh);
     replayKeys(current);
     syncLinks(current);
@@ -718,12 +731,31 @@ const openLink = async (current: Live, focus: LiveKitFocus, publish: boolean, se
     (next.size !== link.speakers.size || [...next].some((identity) => !link.speakers.has(identity))) && ((link.speakers = next), refreshSpeaking(current), applyVolumes());
   }, 80);
   room.once(kit.RoomEvent.Disconnected, () => clearInterval(poll));
+  const tag = publish ? "main" : key;
+  const who = (participant?: Participant) => participant?.identity ?? "?";
+  room
+    .on(kit.RoomEvent.ConnectionStateChanged, (state) => vlog(`livekit ${tag} state ${state}`))
+    .on(kit.RoomEvent.SignalReconnecting, () => vlog(`livekit ${tag} signal reconnecting`))
+    .on(kit.RoomEvent.Reconnecting, () => vlog(`livekit ${tag} reconnecting`))
+    .on(kit.RoomEvent.Reconnected, () => vlog(`livekit ${tag} reconnected`))
+    .on(kit.RoomEvent.Disconnected, (reason?: unknown) => vlog(`livekit ${tag} disconnected`, reason ?? "", { current: live === current, tracked: current.links.get(key) === link }))
+    .on(kit.RoomEvent.ConnectionQualityChanged, (quality, participant) => participant.isLocal && vlog(`livekit ${tag} quality ${quality}`))
+    .on(kit.RoomEvent.ParticipantConnected, (participant: Participant) => vlog(`livekit ${tag} participant joined`, who(participant)))
+    .on(kit.RoomEvent.ParticipantDisconnected, (participant: Participant) => vlog(`livekit ${tag} participant left`, who(participant)))
+    .on(kit.RoomEvent.TrackSubscribed, (track: RemoteTrack, _publication, participant: Participant) => vlog(`livekit ${tag} subscribed ${track.kind}`, who(participant)))
+    .on(kit.RoomEvent.TrackUnsubscribed, (track: RemoteTrack, _publication, participant: Participant) => vlog(`livekit ${tag} unsubscribed ${track.kind}`, who(participant)))
+    .on(kit.RoomEvent.TrackSubscriptionFailed, (sid: string, participant: Participant, error?: unknown) => vlog(`livekit ${tag} subscription failed`, sid, who(participant), error ?? ""))
+    .on(kit.RoomEvent.TrackMuted, (_publication, participant: Participant) => vlog(`livekit ${tag} muted`, who(participant)))
+    .on(kit.RoomEvent.TrackUnmuted, (_publication, participant: Participant) => vlog(`livekit ${tag} unmuted`, who(participant)))
+    .on(kit.RoomEvent.MediaDevicesError, (error: unknown) => vlog(`livekit ${tag} device error`, error))
+    .on(kit.RoomEvent.EncryptionError, (error: unknown) => vlog(`livekit ${tag} encryption error`, error))
+    .on(kit.RoomEvent.AudioPlaybackStatusChanged, () => (vlog(`livekit ${tag} audio playback ${room.canPlaybackAudio ? "allowed" : "blocked"}`), room.canPlaybackAudio || resumeAudio(room, "playback blocked")));
   room
     .on(kit.RoomEvent.ConnectionQualityChanged, (quality, participant) => publish && participant.isLocal && patch({ quality: QUALITY[quality] ?? "unknown" }))
     .on(kit.RoomEvent.Reconnecting, () => publish && patch({ status: "reconnecting" }))
     .on(kit.RoomEvent.Reconnected, () => publish && patch({ status: "connected" }))
-    .on(kit.RoomEvent.Disconnected, () => live === current && current.links.get(key) === link && (publish ? rejoin(current) : closeLink(current, key)))
-    .on(kit.RoomEvent.TrackSubscribed, (track: RemoteTrack, _publication, participant: Participant) => (track.kind === "audio" && userOfIdentity(participant.identity) !== get(session)?.userId && track.attach(), media()))
+    .on(kit.RoomEvent.Disconnected, () => live === current && current.links.get(key) === link && (publish ? rejoin(current) : (closeLink(current, key), setTimeout(() => live === current && syncLinks(current), 2000))))
+    .on(kit.RoomEvent.TrackSubscribed, (track: RemoteTrack, _publication, participant: Participant) => (track.kind === "audio" && userOfIdentity(participant.identity) !== get(session)?.userId && watchElement(track.attach(), `${tag} ${participant.identity}`), media()))
     .on(kit.RoomEvent.TrackUnsubscribed, (track: RemoteTrack) => (track.detach().forEach((element) => element.remove()), media()))
     .on(kit.RoomEvent.TrackMuted, media)
     .on(kit.RoomEvent.TrackUnmuted, media)
@@ -741,7 +773,8 @@ const openLink = async (current: Live, focus: LiveKitFocus, publish: boolean, se
   keys && setOwnKey(current, current.keyIndex, current.key);
   keys && replayKeys(current);
   const grant = await requestSfu(active, focus, current.roomId, publish, serverName);
-  await room.connect(grant.url, grant.jwt).catch(() => room.connect(grant.url, grant.jwt, { rtcConfig: { iceTransportPolicy: "relay" } }));
+  vlog(`livekit ${tag} connecting`, grant.url, { encrypted: current.encrypted, native: !!shim });
+  await room.connect(grant.url, grant.jwt).catch((error) => (vlog(`livekit ${tag} connect failed, trying relay`, error), room.connect(grant.url, grant.jwt, { rtcConfig: { iceTransportPolicy: "relay" } })));
   keys && (await room.setE2EEEnabled(true));
   live === current && current.links.get(key) === link ? media() : room.disconnect().catch(() => undefined);
   return link;
@@ -816,20 +849,58 @@ export const ringRoom = (roomId: RoomId) => {
   ]).then((results) => (entry.ids = results.flatMap((result) => (result.status === "fulfilled" && typeof result.value === "string" ? [result.value] : []))));
 };
 
+const waitOnline = () => (navigator.onLine ? Promise.resolve() : (vlog("rejoin waiting for network"), new Promise((done) => (addEventListener("online", done, { once: true }), setTimeout(done, 60000)))));
+
+let rejoining: Live | null = null;
+
 const rejoin = async (current: Live, attempt = 0): Promise<void> => {
-  const startedAt = get(voice)?.startedAt;
+  if (!attempt && rejoining === current) return void vlog("rejoin already running");
+  rejoining = current;
+  const saved = get(voice);
   const direct = !!get(rooms)[current.roomId]?.isDirect;
   const others = (get(callMembers)[current.roomId] ?? []).some((member) => member.userId !== get(session)?.userId);
-  if ((direct && !others) || attempt > 5) return disconnect();
-  await joinVoice(current.roomId, startedAt);
-  !get(voice) && (await new Promise((done) => setTimeout(done, 2000 * 2 ** attempt)), !get(voice) && (await rejoin(current, attempt + 1)));
+  vlog(`rejoin attempt ${attempt + 1}`, { direct, others, online: navigator.onLine });
+  if (!saved) return void vlog("rejoin skipped, call was left");
+  if ((direct && !others) || attempt > 5) return (vlog(direct && !others ? "rejoin skipped, nobody else in the DM call" : "rejoin gave up"), disconnect());
+  patch({ status: "reconnecting" });
+  await waitOnline();
+  if (!get(voice)) return void vlog("rejoin stopped, call was left");
+  await joinVoice(current.roomId, saved.startedAt).catch((error) => vlog("rejoin join threw", error));
+  if (live && live !== current && get(voice)?.status === "connected") return void vlog("rejoined");
+  live === current && (await disconnect());
+  voice.set({ ...saved, status: "reconnecting" });
+  await new Promise((done) => setTimeout(done, 2000 * 2 ** attempt));
+  return get(voice)?.status === "reconnecting" && !live ? rejoin(current, attempt + 1) : vlog("rejoin stopped, call was left or rejoined elsewhere");
 };
+
+const resumeAudio = (room: LiveKitRoom, why: string) =>
+  (room as { startAudio?: () => Promise<void> }).startAudio?.().then(
+    () => vlog(`audio resumed (${why})`, { playback: room.canPlaybackAudio }),
+    (error) => vlog(`audio resume failed (${why})`, error),
+  );
+
+const watchElement = (element: HTMLMediaElement, label: string) => {
+  ["pause", "stalled", "suspend", "emptied", "ended", "error"].forEach((name) => element.addEventListener(name, () => vlog(`audio element ${name}`, label, { paused: element.paused, ready: element.readyState })));
+  element.addEventListener("playing", () => vlog("audio element playing", label));
+  return element;
+};
+
+onWake((why) => {
+  const current = live;
+  vlog(`wake: ${why}`, { inCall: !!current, status: get(voice)?.status ?? "none" });
+  if (!current) return;
+  current.links.forEach((link) => resumeAudio(link.room, why));
+  restartLeave(current);
+  const main = publishLink();
+  why !== "devices" && main && (main.room as { state?: string }).state === "disconnected" && (vlog("main link dead after wake, rejoining"), rejoin(current));
+});
 
 export const joinVoice = async (roomId: RoomId, startedAt = Date.now()) => {
   const active = get(session);
   const summary = get(rooms)[roomId];
+  vlog("join voice", roomId);
   const focus = await voiceFocus(roomId);
-  if (!active || !summary) return;
+  if (!active || !summary) return void vlog("join skipped, no session or room");
   if (!focus) return voiceError.set("no_focus");
   get(voice) && (await disconnect());
   voiceError.set(null);
@@ -837,20 +908,21 @@ export const joinVoice = async (roomId: RoomId, startedAt = Date.now()) => {
   micBlocked.set(false);
   const encrypted = !!summary.encryption;
   voice.set({ kind: "rtc", roomId, status: "connecting", quality: "unknown", encrypted, startedAt });
-  const current: Live = { roomId, encrypted, focus, links: new Map(), keyIndex: 0, key: crypto.getRandomValues(new Uint8Array(16)), received: new Map(), known: new Set(), timers: [], delayId: null, stop: [], publishedAt: 0, healing: false, failures: 0, retryAt: 0 };
+  const current: Live = { roomId, encrypted, focus, links: new Map(), keyIndex: 0, key: crypto.getRandomValues(new Uint8Array(16)), received: new Map(), known: new Set(), timers: [], delayId: null, stop: [], publishedAt: 0, createdTs: Date.now(), healing: false, failures: 0, retryAt: 0 };
   live = current;
   try {
     const ownHash = await hashIdentity(active.userId, ownLegacy());
     identityHashes.update((hashes) => ({ ...hashes, [hashKey(active.userId, ownLegacy())]: ownHash }));
     const link = await openLink(current, focus, true);
     await link.room.localParticipant.setMicrophoneEnabled(micOpen()).catch((error) => (console.warn("Skye could not open the microphone", error), blockMic()));
-    live === current && patch({ status: "connected" });
+    live === current && (patch({ status: "connected" }), vlog("joined"));
     current.stop.push(watchMembers(current));
     clearStaleSelf(current.roomId);
     await keepMembership(current);
     sendKey(current);
   } catch (error) {
     console.warn("Skye could not join voice", error);
+    vlog("join failed", error);
     live === current && voiceError.set((error as Error)?.message === "sfu_failed" ? "sfu_failed" : "join_failed");
     live === current && (await disconnect());
   }
@@ -875,6 +947,7 @@ const clearStaleSelf = (roomId: RoomId) => {
 
 export const disconnect = async () => {
   const current = live;
+  current && vlog("leaving call", new Error().stack?.split("\n")[2]?.trim() ?? "");
   const active = get(session);
   live = null;
   voice.update((state) => (state?.kind === "rtc" ? null : state));
@@ -892,5 +965,5 @@ export const disconnect = async () => {
   current.delayId = null;
   await (delayId ? updateDelayed(active, delayId, "send") : Promise.reject())
     .catch(() => (delayId && updateDelayed(active, delayId, "cancel").catch(() => undefined), putMembership(active, current.roomId, {})))
-    .catch((error) => console.warn("Skye could not leave the call cleanly", error));
+    .catch((error) => (console.warn("Skye could not leave the call cleanly", error), vlog("leave not clean", error)));
 };

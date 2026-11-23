@@ -714,7 +714,7 @@
         "fewer": "Show fewer",
         "heading_log": "Troubleshooting",
         "log": "Call log",
-        "log_hint": "Skye keeps a record of what happens in calls. If one drops or goes quiet, copy or save it straight after and send it over.",
+        "log_hint": "Skye keeps a local record of your calls for debugging. This file never leaves your computer.",
         "log_copy": "Copy log",
         "log_save": "Save log",
         "log_clear": "Clear log"

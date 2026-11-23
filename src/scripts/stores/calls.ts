@@ -2,6 +2,7 @@ import { get, writable } from "svelte/store";
 import type { MatrixEvent, RoomId } from "../matrix/types";
 import { NOTIFY_TYPES, turnServers } from "../matrix/utilities/rtc";
 import { rooms, sendRoomEvent, session } from "./matrix";
+import { vlog } from "./voicelog";
 import { applyOutput, audioElements, blockMic, callMembers, disconnect, incomingCall, joinVoice, micBlocked, registerCallEventHook, registerMicHook, ringRoom, stopRingRoom, voice, voiceFocus, voicePrefs, captureOf } from "./voice";
 
 type Legacy = {
@@ -101,12 +102,15 @@ const setup = async (roomId: RoomId, callId: string) => {
       candidates.length && call === current && send("m.call.candidates", { ...base(current), candidates }, roomId);
     }, 300);
   };
+  peer.oniceconnectionstatechange = () => vlog(`legacy ice ${peer.iceConnectionState}`);
+  ["pause", "stalled", "emptied", "error"].forEach((name) => remote.addEventListener(name, () => vlog(`legacy audio element ${name}`)));
   peer.onconnectionstatechange = () =>
+    (vlog(`legacy peer ${peer.connectionState}`),
     ({
       connected: () => voice.update((state) => state && { ...state, status: "connected", quality: "good" }),
       disconnected: () => voice.update((state) => state && { ...state, status: "reconnecting", quality: "poor" }),
       failed: () => hangup("ice_failed"),
-    })[peer.connectionState as "connected"]?.();
+    })[peer.connectionState as "connected"]?.());
   current.stream = await capture().then(
     (stream) => (micBlocked.set(false), stream),
     () => (blockMic(), null),
@@ -171,6 +175,7 @@ export const declineCall = () => {
 
 export const hangup = (reason = "user_hangup") => {
   const current = call;
+  current && vlog(`legacy hangup ${reason}`);
   teardown();
   current && send("m.call.hangup", { ...base(current), reason }, current.roomId);
 };

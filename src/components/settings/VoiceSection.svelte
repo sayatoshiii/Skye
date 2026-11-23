@@ -5,11 +5,12 @@
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { menu } from "../../scripts/misc/entitymenu.svelte";
   import { MENU_ICONS } from "../../scripts/misc/icons";
-  import { copied } from "../../scripts/stores/toast";
+  import { copied, toastKey } from "../../scripts/stores/toast";
   import type { SettingsSection } from "../../scripts/stores/settings";
   import { captureFor, inputLevel, listDevices, transmitting, switchDevice, voicePrefs, watchInput, type VoicePrefs } from "../../scripts/stores/voice";
   import type { MenuItem } from "../app/MessageMenu.svelte";
   import Toggle from "../ui/Toggle.svelte";
+  import { clearVoiceLog, voiceLog } from "../../scripts/stores/voicelog";
   import Icon from "./Icon.svelte";
 
   let { go }: { go?: (id: SettingsSection) => void } = $props();
@@ -139,6 +140,21 @@
     recording = false;
     voicePrefs.update((value) => ({ ...value, pttKey: event.code, pttLabel: event.key.length === 1 ? event.key.toUpperCase() : event.code }));
   };
+
+  const logName = () => `skye-voice-log-${new Date().toISOString().slice(0, 19).replace(/:/g, "-")}.txt`;
+  const copyLog = () => copied(voiceLog());
+  const saveLog = async () => {
+    const blob = new Blob([voiceLog()], { type: "text/plain" });
+    if (native) return (await import("@tauri-apps/api/core")).invoke("save_download", new Uint8Array(await blob.arrayBuffer()), { headers: { "x-name": logName() } }).then(() => toastKey("saved", { icon: "save" }), () => undefined);
+    const anchor = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: logName() });
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(anchor.href), 30_000);
+  };
+  const logItems = (): MenuItem[] => [
+    { id: "log-copy", label: text("log_copy"), icon: MENU_ICONS.copy, run: copyLog },
+    { id: "log-save", label: text("log_save"), icon: MENU_ICONS.save, run: saveLog },
+    { id: "log-clear", label: text("log_clear"), icon: MENU_ICONS.delete, danger: true, separated: true, run: () => (clearVoiceLog(), toastKey("voice_log_cleared", { icon: "trash" })) },
+  ];
 
   const keyItems = (): MenuItem[] => [
     { id: "ptt-change", label: text("change_key"), icon: MENU_ICONS.edit, run: () => (recording = true) },
@@ -275,6 +291,22 @@
           <Icon name="keyboard" size={16} />
           <span>{recording ? text("record") : prefs.pttLabel}</span>
         </button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="set-section" data-part="log">
+  <h3 class="set-heading">{text("heading_log")}</h3>
+  <div class="set-rows">
+    <div class="set-row" use:menu={logItems}>
+      <div class="col gap-xs min-0">
+        <span class="set-title">{text("log")}</span>
+        <p class="set-hint">{text("log_hint")}</p>
+      </div>
+      <div class="row-nw align-centre gap-md">
+        <button type="button" class="set-button ghost press" onclick={copyLog} use:menu={logItems}>{text("log_copy")}</button>
+        <button type="button" class="set-button ghost press" onclick={saveLog} use:menu={logItems}>{text("log_save")}</button>
       </div>
     </div>
   </div>

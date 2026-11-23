@@ -180,12 +180,13 @@ export const toDeviceKeyContent = (session: Session, roomId: RoomId, index: numb
 
 export const stateKeyOf = (session: Session) => `_${session.userId}_${session.deviceId}`;
 
-export const membershipContent = (session: Session, focus: LiveKitFocus, roomId: RoomId) => ({
+export const membershipContent = (session: Session, focus: LiveKitFocus, roomId: RoomId, createdTs = Date.now()) => ({
   application: "m.call",
   call_id: "",
   scope: "m.room",
   device_id: session.deviceId,
-  expires: MEMBERSHIP_LIFETIME,
+  created_ts: createdTs,
+  expires: Date.now() - createdTs + MEMBERSHIP_LIFETIME,
   focus_active: { type: "livekit", focus_selection: "multi_sfu" },
   foci_preferred: [focus.livekit_service_url ? { ...focus, livekit_alias: focus.livekit_alias ?? roomId } : focus],
   "m.call.intent": "audio",
