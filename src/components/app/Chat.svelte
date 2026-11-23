@@ -6,6 +6,7 @@
   import KeyText from "../ui/KeyText.svelte";
   import { copied, toast, toastKey, type ToastIcon } from "../../scripts/stores/toast";
   import { tooltip } from "../../scripts/misc/tooltip";
+  import { native } from "../../scripts/misc/native";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { canCopyMedia, copyMedia } from "../../scripts/misc/clipboard";
   import { portal } from "../../scripts/misc/portal";
@@ -21,7 +22,7 @@
   import { serverNameFromUserId } from "../../scripts/matrix/discovery";
   import RoomSettings from "./RoomSettings.svelte";
   import type { TimelineEvent } from "../../scripts/matrix/types";
-  import { formatBytes, getUploadLimit, isInline, prepareAttachment, sanitiseFilename, uploadAttachment, type PreparedAttachment } from "../../scripts/matrix/utilities/attachments";
+  import { formatBytes, getUploadLimit, isInline, prepareAttachment, sanitiseFilename, typeOf, uploadAttachment, type PreparedAttachment } from "../../scripts/matrix/utilities/attachments";
   import { seedMedia } from "../../scripts/matrix/utilities/media";
   import { downloadMedia } from "../../scripts/matrix/utilities/download";
   import { isMxc, type MediaSource } from "../../scripts/matrix/utilities/media";
@@ -1640,7 +1641,8 @@
   };
 
   const isFileDrag = (event: DragEvent) => !!event.dataTransfer?.types.includes("Files");
-  const hasFiles = (event: DragEvent) => isFileDrag(event) && !document.querySelector('[aria-modal="true"], .confirm-layer');
+  const blocked = () => !!document.querySelector('[aria-modal="true"], .confirm-layer');
+  const hasFiles = (event: DragEvent) => isFileDrag(event) && !blocked();
 
   const ondragenter = (event: DragEvent) => {
     if (isFileDrag(event)) event.preventDefault();
@@ -1659,6 +1661,25 @@
   const ondragleave = (event: DragEvent) => {
     if (event.clientX <= 0 || event.clientY <= 0 || event.clientX >= innerWidth || event.clientY >= innerHeight) dragging = false;
   };
+
+  const nativeDrop = async (paths: string[]) => {
+    const { invoke } = await import("@tauri-apps/api/core");
+    const files = await Promise.all(paths.map((path) => invoke<ArrayBuffer>("dropped_file", { path }).then((data) => typeOf(new File([data], path.split(/[\\/]/).pop() ?? "file"))).catch(() => null)));
+    room && addFiles(files.filter((file) => !!file));
+  };
+
+  $effect(() => {
+    if (!native) return;
+    let off: (() => void) | undefined;
+    let gone = false;
+    import("@tauri-apps/api/webview").then(({ getCurrentWebview }) => getCurrentWebview().onDragDropEvent(({ payload }) => {
+      const ok = !!room && !blocked();
+      if (payload.type === "enter" || payload.type === "over") return ok && (dragging || dragRound++, (dragging = true));
+      dragging = false;
+      payload.type === "drop" && ok && nativeDrop(payload.paths);
+    })).then((stop) => (gone ? stop() : (off = stop)));
+    return () => ((gone = true), off?.());
+  });
 
   const ondrop = (event: DragEvent) => {
     dragging = false;

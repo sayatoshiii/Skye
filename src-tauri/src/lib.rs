@@ -149,17 +149,17 @@ fn tray(_: &tauri::App) -> tauri::Result<()> { Ok(()) }
 
 #[cfg(target_os = "linux")]
 fn engine(builder: tauri::Builder) -> tauri::Builder {
-  builder.invoke_handler(tauri::generate_handler![screen_pw::screen_apps, screen_pw::screen_audio_capture, screen_pw::screen_audio_release, location::location_current, ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_transcode, embed::media_drop, files::save_download, files::copy_image, leave])
+  builder.invoke_handler(tauri::generate_handler![screen_pw::screen_apps, screen_pw::screen_audio_capture, screen_pw::screen_audio_release, location::location_current, ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_transcode, embed::media_drop, files::save_download, files::copy_image, files::dropped_file, leave])
 }
 
 #[cfg(windows)]
 fn engine(builder: tauri::Builder) -> tauri::Builder {
-  builder.invoke_handler(tauri::generate_handler![screen_win::screen_apps, screen_win::screen_audio_capture, screen_win::screen_audio_release, ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_transcode, embed::media_drop, files::save_download, files::copy_image, leave])
+  builder.invoke_handler(tauri::generate_handler![screen_win::screen_apps, screen_win::screen_audio_capture, screen_win::screen_audio_release, ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_transcode, embed::media_drop, files::save_download, files::copy_image, files::dropped_file, leave])
 }
 
 #[cfg(target_os = "macos")]
 fn engine(builder: tauri::Builder) -> tauri::Builder {
-  builder.invoke_handler(tauri::generate_handler![ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_transcode, embed::media_drop, files::save_download, files::copy_image, leave])
+  builder.invoke_handler(tauri::generate_handler![ptt::ptt_bind, embed::embed_port, embed::media_put, embed::media_transcode, embed::media_drop, files::save_download, files::copy_image, files::dropped_file, leave])
 }
 
 #[cfg(mobile)]
@@ -225,6 +225,8 @@ pub fn run() {
     .plugin(tauri_plugin_notification::init())
     .setup(|app| {
       let main = window(app)?;
+      app.manage(files::Dropped::default());
+      files::track(&main);
       debugging().then(|| main.open_devtools());
       Ok((unlock(&main), tray(app)?, signals(app.handle())).0)
     })

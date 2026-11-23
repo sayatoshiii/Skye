@@ -39,3 +39,23 @@ pub async fn copy_image(app: AppHandle, request: Request<'_>) -> Result<(), Stri
   let image = tauri::image::Image::from_bytes(&png).map_err(|error| error.to_string())?;
   app.clipboard().write_image(&image).map_err(|error| error.to_string())
 }
+
+#[derive(Default)]
+pub struct Dropped(std::sync::Mutex<std::collections::HashSet<PathBuf>>);
+
+pub fn track(window: &tauri::WebviewWindow) {
+  let app = window.app_handle().clone();
+  window.on_window_event(move |event| {
+    if let tauri::WindowEvent::DragDrop(tauri::DragDropEvent::Drop { paths, .. }) = event {
+      app.state::<Dropped>().0.lock().unwrap().extend(paths.iter().filter(|path| path.is_file()).cloned());
+    }
+  });
+}
+
+#[tauri::command]
+pub async fn dropped_file(app: AppHandle, path: PathBuf) -> Result<tauri::ipc::Response, String> {
+  if !app.state::<Dropped>().0.lock().unwrap().remove(&path) {
+    return Err("not dropped".into());
+  }
+  std::fs::read(&path).map(tauri::ipc::Response::new).map_err(|error| error.to_string())
+}

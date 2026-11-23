@@ -142,7 +142,7 @@ const EXTENSION_TYPES: Record<string, string> = {
   mp3: "audio/mpeg", m4a: "audio/mp4", ogg: "audio/ogg", opus: "audio/ogg", wav: "audio/wav",
 };
 
-const typeOf = (file: File) => {
+export const typeOf = (file: File) => {
   const type = file.type && file.type !== "application/octet-stream" ? file.type : EXTENSION_TYPES[file.name.split(".").pop()?.toLowerCase() ?? ""];
   return type && type !== file.type ? new File([file], file.name, { type, lastModified: file.lastModified }) : file;
 };
