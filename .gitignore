@@ -32,3 +32,6 @@ pnpm-debug.log*
 # tauri
 src-tauri/target/
 src-tauri/gen/schemas/
+
+# custom cef build
+src-tauri/cef/
