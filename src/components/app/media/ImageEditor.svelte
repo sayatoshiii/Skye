@@ -100,7 +100,7 @@
   let ratio: string = $state("free");
   let brush: Brush = $state("pen");
   let pen = $state({ colour: COLOURS[2], size: 4, opacity: 1 });
-  let type = $state({ colour: "#ffffff", font: "sans" as FontId, size: 48, bold: true, italic: false, underline: false, align: "center" as Align, background: false });
+  let type = $state({ colour: "#ffffff", font: "sans" as FontId, size: 48, bold: true, italic: false, underline: false, align: "center" as Align, background: false, backgroundColour: "#111318" });
   let shape: ShapeKind = $state("arrow");
   let ink = $state({ colour: COLOURS[2], width: 6, fill: false, fillOpacity: 25, dashed: false, shadow: true, step: 22 });
   let blurSize = $state(40);
@@ -370,7 +370,7 @@
   };
 
   const syncFrom = (o: Obj) => {
-    if (o.kind === "text") type = { colour: o.colour, font: o.font, size: Math.round(o.size / unit), bold: o.bold, italic: o.italic, underline: o.underline, align: o.align, background: o.background };
+    if (o.kind === "text") type = { colour: o.colour, font: o.font, size: Math.round(o.size / unit), bold: o.bold, italic: o.italic, underline: o.underline, align: o.align, background: o.background, backgroundColour: o.backgroundColour ?? (light(o.colour) ? "#111318" : "#ffffff") };
     if (o.kind === "step") ((shape = "step"), (ink.colour = o.colour), (ink.step = Math.round(o.size / unit)));
     if ("a" in o) ((shape = o.kind), (ink = { ...ink, colour: o.colour, width: Math.round(o.width / unit), fill: o.fill, fillOpacity: o.fillOpacity ?? 25, dashed: o.dashed, shadow: o.shadow }));
   };
@@ -746,8 +746,13 @@
     result ? exit.close() : (failed = true);
   };
 
+  const editingView = $derived.by(() => {
+    void rev;
+    return editingObj && { ...editingObj };
+  });
+
   const textScreen = $derived.by(() => {
-    const o = editingObj;
+    const o = editingView;
     if (!o) return null;
     void [zoom, panX, panY, frame, crop, tool];
     const [x, y] = toScreen(o.at);
@@ -756,15 +761,15 @@
   });
 
   const outside = (node: HTMLElement) => {
-    const handler = (event: PointerEvent) => !node.contains(event.target as Node) && !(eyedropping && event.target === canvas) && (pop = null);
+    const handler = (event: PointerEvent) => !(event.target as Element).closest?.(".pop-wrap") && !(eyedropping && event.target === canvas) && (pop = null);
     addEventListener("pointerdown", handler, true);
     return { destroy: () => removeEventListener("pointerdown", handler, true) };
   };
 
-  const eyedropping = $derived(pop === "colour" && custom && dropping);
+  const eyedropping = $derived((pop === "colour" || pop === "backdrop") && custom && dropping);
 
   $effect(() => {
-    if (!(pop === "colour" && custom)) dropping = false;
+    if (!((pop === "colour" || pop === "backdrop") && custom)) dropping = false;
   });
 
   const grow = (node: HTMLElement, { duration = 320 } = {}) => {
@@ -778,7 +783,7 @@
     const dpr = canvas.width / canvas.getBoundingClientRect().width;
     const [r, g, b] = ctx.getImageData(Math.round(event.clientX * dpr), Math.round(event.clientY * dpr), 1, 1).data;
     const hex = `#${[r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
-    if (tool === "text") return void ((type.colour = hex), applyText(false));
+    if (tool === "text") return void (pop === "backdrop" ? (type.backgroundColour = hex) : (type.colour = hex), applyText(false));
     if (tool === "shapes") return void ((ink.colour = hex), applyInk(false));
     pen.colour = hex;
     brush === "eraser" && (brush = "pen");
@@ -797,12 +802,12 @@
   <button type="button" class="ib ghost press" class:on={active} aria-label={label} aria-pressed={active} use:tooltip={tip(label, ...keys)} onclick={run}>{@render icon(I[id as keyof typeof I])}</button>
 {/snippet}
 
-{#snippet colour(value: string, set: (value: string, done?: boolean) => void)}
+{#snippet colour(value: string, set: (value: string, done?: boolean) => void, id = "colour", label = text("colour"))}
   <div class="pop-wrap" use:outside>
-    <button type="button" class="dd ghost press" aria-label={text("colour")} aria-expanded={pop === "colour"} use:tooltip={text("colour")} onclick={() => togglePop("colour")}>
+    <button type="button" class="dd ghost press" aria-label={label} aria-expanded={pop === id} use:tooltip={label} onclick={() => togglePop(id)}>
       <span class="swatch" style:background={value}></span>{@render icon(I.chev, 14)}
     </button>
-    {#if pop === "colour"}
+    {#if pop === id}
       <div class="pop glass palette row-nw" transition:fly={{ y: -6, duration: 220, easing: cubicOut }}>
         <div class="swatches">
         {#each COLOURS as option}
@@ -849,8 +854,9 @@
     <div class="centre-msg">{#if failed}<span class="sm muted">{text("load_failed")}</span>{:else}<LoadingDots label={text("loading")} />{/if}</div>
   {/if}
 
-  {#if editingObj && textScreen}
-    {@const o = editingObj}
+  {#if editingObj && editingView && textScreen}
+    {@const o = editingView}
+    {@const live = editingObj}
     <textarea
       bind:this={textField}
       class="text-input"
@@ -865,10 +871,11 @@
       style:text-decoration={o.underline ? "underline" : "none"}
       style:text-align={o.align}
       style:--ink={o.colour}
-      style:--on={light(o.colour) ? "#111318" : "#ffffff"}
+      style:--on={o.backgroundColour ? o.colour : light(o.colour) ? "#111318" : "#ffffff"}
+      style:--box={o.backgroundColour ?? o.colour}
       style:--pad="{o.background ? textScreen.size * 0.3 : 0}px"
       style:translate={o.align === "left" ? "0" : o.align === "center" ? "-50%" : "-100%"}
-      oninput={(event) => (o.value = event.currentTarget.value)}
+      oninput={(event) => (live.value = event.currentTarget.value)}
       onblur={finishEdit}
     ></textarea>
   {/if}
@@ -956,6 +963,7 @@
           <span class="sep"></span>
           {@render button(type.align, text("align"), false, () => ((type.align = type.align === "left" ? "center" : type.align === "center" ? "right" : "left"), applyText()))}
           {@render button("background", text("background"), type.background, () => ((type.background = !type.background), applyText()))}
+          {#if type.background}{@render colour(type.backgroundColour, (value, finished = true) => ((type.backgroundColour = value), applyText(finished)), "backdrop", text("background_colour"))}{/if}
         {:else if tool === "shapes"}
           {#each SHAPES as id}{@render button(id, text(id), shape === id, () => ((shape = id), sel && sel.kind !== id && (selected = null)))}{/each}
           <span class="sep"></span>
@@ -1194,6 +1202,7 @@
   }
 
   .toolbar-slot {
+    z-index: 2;
     top: calc(76px + env(safe-area-inset-top));
     left: 50%;
     translate: -50% 0;
@@ -1508,7 +1517,7 @@
 
   .text-input.boxed {
     color: var(--on);
-    background-color: var(--ink);
+    background-color: var(--box);
     text-shadow: none;
   }
 

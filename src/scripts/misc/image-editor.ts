@@ -10,7 +10,7 @@ export type BlurMode = "blur" | "pixelate";
 export type Blur = { id: number; kind: "blur"; size: number; mode: BlurMode; strength: number; points: Pt[] };
 export type Shape = { id: number; kind: "rect" | "ellipse" | "line" | "arrow"; a: Pt; b: Pt; colour: string; width: number; fill: boolean; fillOpacity?: number; dashed: boolean; shadow: boolean };
 export type Step = { id: number; kind: "step"; at: Pt; colour: string; size: number };
-export type Text = { id: number; kind: "text"; at: Pt; value: string; colour: string; font: FontId; size: number; bold: boolean; italic: boolean; underline: boolean; align: Align; background: boolean };
+export type Text = { id: number; kind: "text"; at: Pt; value: string; colour: string; font: FontId; size: number; bold: boolean; italic: boolean; underline: boolean; align: Align; background: boolean; backgroundColour?: string };
 export type Obj = Stroke | Blur | Shape | Step | Text;
 
 export const FONTS: Record<FontId, { label: string; css: string }> = {
@@ -202,13 +202,13 @@ export const draw = (ctx: CanvasRenderingContext2D, o: Obj, base: HTMLCanvasElem
   if (o.kind === "text") {
     const { lines, widths, rect } = textBox(o);
     if (o.background) {
-      ctx.fillStyle = o.colour;
+      ctx.fillStyle = o.backgroundColour ?? o.colour;
       ctx.beginPath();
       ctx.roundRect(...(Object.values(pad(rect, o.size * 0.3)) as [number, number, number, number]), o.size * 0.3);
       ctx.fill();
     }
     ctx.font = fontOf(o);
-    ctx.fillStyle = o.background ? (light(o.colour) ? "#111318" : "#ffffff") : o.colour;
+    ctx.fillStyle = o.background && !o.backgroundColour ? (light(o.colour) ? "#111318" : "#ffffff") : o.colour;
     ctx.strokeStyle = ctx.fillStyle;
     ctx.textAlign = o.align;
     ctx.textBaseline = "middle";
