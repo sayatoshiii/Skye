@@ -26,6 +26,7 @@ import {
   membershipContent,
   NOTIFY_TYPES,
   pickFocus,
+  selectTransport,
   putMembership,
   clearMembership,
   stateKeyOf,
@@ -772,7 +773,7 @@ const openLink = async (current: Live, focus: LiveKitFocus, publish: boolean, se
     .on(kit.RoomEvent.ActiveSpeakersChanged, (speakers: Participant[]) => shim && ((link.speakers = new Set(speakers.map((participant) => participant.identity))), refreshSpeaking(current), applyVolumes()));
   keys && setOwnKey(current, current.keyIndex, current.key);
   keys && replayKeys(current);
-  const grant = await requestSfu(active, focus, current.roomId, publish, serverName);
+  const grant = await requestSfu(active, focus, current.roomId, publish, serverName).catch((error) => (vlog(`sfu grant failed for ${tag}`, focus.livekit_service_url ?? focus.url ?? "?", error), Promise.reject(error instanceof TypeError ? new Error("sfu_down") : error)));
   vlog(`livekit ${tag} connecting`, grant.url, { encrypted: current.encrypted, native: !!shim });
   await room.connect(grant.url, grant.jwt).catch((error) => (vlog(`livekit ${tag} connect failed, trying relay`, error), room.connect(grant.url, grant.jwt, { rtcConfig: { iceTransportPolicy: "relay" } })));
   keys && (await room.setE2EEEnabled(true));
@@ -895,6 +896,20 @@ onWake((why) => {
   why !== "devices" && main && (main.room as { state?: string }).state === "disconnected" && (vlog("main link dead after wake, rejoining"), rejoin(current));
 });
 
+const fallbackFoci = async (roomId: RoomId, first: LiveKitFocus) => {
+  const active = get(session);
+  const all = [first, ...(active ? await homeserverFoci(active) : []), ...callMemberships(get(rooms)[roomId]).map((member) => selectTransport(member.foci))].filter((focus): focus is LiveKitFocus => !!focus);
+  return [...new Map(all.map((focus) => [transportKey(focus), focus])).values()];
+};
+
+const publishVia = async (current: Live, foci: LiveKitFocus[]): Promise<Link> => {
+  const [focus, ...rest] = foci;
+  current.focus = focus;
+  return openLink(current, focus, true).catch((error) =>
+    rest.length && live === current ? (vlog("trying the next call server", rest[0].livekit_service_url ?? rest[0].url ?? "?"), closeLink(current, transportKey(focus)), publishVia(current, rest)) : Promise.reject(error),
+  );
+};
+
 export const joinVoice = async (roomId: RoomId, startedAt = Date.now()) => {
   const active = get(session);
   const summary = get(rooms)[roomId];
@@ -913,7 +928,7 @@ export const joinVoice = async (roomId: RoomId, startedAt = Date.now()) => {
   try {
     const ownHash = await hashIdentity(active.userId, ownLegacy());
     identityHashes.update((hashes) => ({ ...hashes, [hashKey(active.userId, ownLegacy())]: ownHash }));
-    const link = await openLink(current, focus, true);
+    const link = await Promise.race([publishVia(current, await fallbackFoci(roomId, focus)), new Promise<never>((_, fail) => setTimeout(() => fail(new Error("sfu_timeout")), 25000))]);
     await link.room.localParticipant.setMicrophoneEnabled(micOpen()).catch((error) => (console.warn("Skye could not open the microphone", error), blockMic()));
     live === current && (patch({ status: "connected" }), vlog("joined"));
     current.stop.push(watchMembers(current));
@@ -923,7 +938,7 @@ export const joinVoice = async (roomId: RoomId, startedAt = Date.now()) => {
   } catch (error) {
     console.warn("Skye could not join voice", error);
     vlog("join failed", error);
-    live === current && voiceError.set((error as Error)?.message === "sfu_failed" ? "sfu_failed" : "join_failed");
+    live === current && voiceError.set(["sfu_failed", "sfu_down", "sfu_timeout"].includes((error as Error)?.message) ? (error as Error).message : "join_failed");
     live === current && (await disconnect());
   }
 };

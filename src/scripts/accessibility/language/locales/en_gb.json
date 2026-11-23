@@ -1640,6 +1640,8 @@
         "no_focus": "Your homeserver doesn't advertise a MatrixRTC server, so group voice isn't available here.",
         "sfu_failed": "The MatrixRTC server didn't let Skye in.",
         "join_failed": "Skye couldn't connect to voice.",
+        "sfu_down": "The call server isn't answering right now. Try again in a bit.",
+        "sfu_timeout": "Joining took too long, so Skye gave up. Try again in a bit.",
         "mic": "Skye couldn't use your microphone.",
         "camera": "Skye couldn't use your camera.",
         "screen": "Skye couldn't share your screen."

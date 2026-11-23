@@ -100,6 +100,7 @@
   let pressed = $state<string | null>(null);
   let joinedRoom = $state<string | null>(null);
   $effect(() => {
+    if (pressed && !$voice) return void ((pressed = null), (joinedRoom = null));
     if (!pressed || $voice?.roomId !== pressed || $voice.status !== "connected") return;
     if (reducesMotion()) return void (pressed = null);
     joinedRoom = pressed;
