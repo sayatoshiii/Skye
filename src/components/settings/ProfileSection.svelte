@@ -1,4 +1,6 @@
 <script lang="ts">
+  import Button from "../ui/Button.svelte";
+  import UnsavedBar from "./UnsavedBar.svelte";
   import { onMount } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { setAvatarUrl, setBanner, setDisplayName, uploadImage } from "../../scripts/matrix/utilities/account";
@@ -16,7 +18,6 @@
   import ProfileIdentity from "../profile/ProfileIdentity.svelte";
   import EmojiText from "../ui/EmojiText.svelte";
   import ImageCropper from "../ui/ImageCropper.svelte";
-  import Icon from "./Icon.svelte";
 
   type Part = "avatar" | "banner";
   type Staged = { blob: Blob; link: string } | "removed" | null;
@@ -40,7 +41,7 @@
   let crop = $state.raw<{ file: File; part: Part } | null>(null);
   let saving = $state(false);
   let editingStatus = $state(false);
-  let bar: HTMLElement | undefined = $state();
+  let bar: { nudge: () => void } | undefined = $state();
   let picker: HTMLInputElement | undefined = $state();
   let picking: Part = "avatar";
   let firstNudge = true;
@@ -53,7 +54,7 @@
     unsavedNudge.subscribe(() => {
       const skip = firstNudge;
       firstNudge = false;
-      !skip && bar && (bar.classList.remove("nudged"), void bar.offsetWidth, bar.classList.add("nudged"));
+      !skip && bar?.nudge();
     }),
   );
 
@@ -172,7 +173,7 @@
 <input type="file" accept="image/*" bind:this={picker} onchange={picked} hidden />
 
 <div class="layout">
-  <div class="form col">
+  <div class="set-form col" data-glide>
     <section class="set-section" data-part="name">
       <label class="set-heading" for="settings-name">{account("display_name")}</label>
       <div class="set-input" use:menu={nameItems}>
@@ -183,9 +184,9 @@
     <section class="set-section" data-part="avatar" use:menu={imageItems("avatar")}>
       <h3 class="set-heading">{account("avatar")}</h3>
       <div class="row gap-sm">
-        <button type="button" class="set-button ghost press" onclick={() => pick("avatar")}>{account("change_avatar")}</button>
+        <Button variant="outline" icon={MENU_ICONS.image} onclick={() => pick("avatar")}>{account("change_avatar")}</Button>
         {#if has.avatar}
-          <button type="button" class="set-button outline-danger ghost press remove-link" onclick={() => remove("avatar")}>{account("remove_avatar")}</button>
+          <button type="button" class="set-button quiet-danger ghost press" onclick={() => remove("avatar")}>{account("remove_avatar")}</button>
         {/if}
       </div>
     </section>
@@ -194,9 +195,9 @@
       <h3 class="set-heading">{account("banner")}</h3>
       {#if fields}
         <div class="row gap-sm">
-          <button type="button" class="set-button ghost press" onclick={() => pick("banner")}>{account("change_banner")}</button>
+          <Button variant="outline" icon={MENU_ICONS.image} onclick={() => pick("banner")}>{account("change_banner")}</Button>
           {#if has.banner}
-            <button type="button" class="set-button outline-danger ghost press remove-link" onclick={() => remove("banner")}>{account("remove_banner")}</button>
+            <button type="button" class="set-button quiet-danger ghost press" onclick={() => remove("banner")}>{account("remove_banner")}</button>
           {/if}
         </div>
       {:else}
@@ -208,33 +209,25 @@
       <h3 class="set-heading">{account("status")}</h3>
       <div class="status row-nw align-centre gap-md" use:menu={statusItems}>
         <span class="sm truncate flex-max status-text" class:empty={!message}><EmojiText text={message ?? account("no_status")} /></span>
-        <button type="button" class="set-button ghost press" onclick={() => (editingStatus = true)}><Icon name="edit" size={14} />{account("set_status")}</button>
+        <Button variant="outline" icon={MENU_ICONS.edit} onclick={() => (editingStatus = true)}>{account("set_status")}</Button>
       </div>
     </section>
   </div>
 
-  <aside class="preview col gap-sm">
+  <aside class="preview col gap-sm" data-glide>
     <h3 class="set-label">{account("preview")}</h3>
     <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
     <div class="card editable" onclick={editFrom}>
       {#key `${shownAvatar}|${shownBanner}`}
-        <div class="swap">
-          <ProfileIdentity {userId} displayName={shownName} avatar={shownAvatar} banner={shownBanner} status={message ?? undefined} size="sm" surface="var(--colours-foreground)" />
+        <div class="blur-swap" style:--swap-blur="12px" style:--swap-scale="0.98">
+          <ProfileIdentity {userId} displayName={shownName} avatar={shownAvatar} banner={shownBanner} status={message ?? undefined} size="sm" surface="var(--colours-foreground)" live />
         </div>
       {/key}
     </div>
   </aside>
 </div>
 
-{#if dirty || saving}
-  <div class="unsaved-dock">
-    <div class="unsaved motion-keep row-nw align-centre gap-sm" bind:this={bar} role="status" onanimationend={(event) => event.target === bar && event.animationName.includes("flash") && bar?.classList.remove("nudged")}>
-      <span class="unsaved-text truncate">{text("unsaved")}</span>
-      <button type="button" class="unsaved-reset ghost press" disabled={saving} onclick={reset}>{text("reset")}</button>
-      <button type="button" class="unsaved-save ghost press" disabled={saving} onclick={save}>{saving ? account("uploading") : text("save")}</button>
-    </div>
-  </div>
-{/if}
+<UnsavedBar bind:this={bar} open={dirty} busy={saving} message={text("unsaved")} resetLabel={text("reset")} saveLabel={saving ? account("uploading") : text("save")} onreset={reset} onsave={save} />
 
 {#if crop}
   <ImageCropper file={crop.file} {...CROP[crop.part]} onapply={applied} oncancel={() => (crop = null)} />
@@ -261,15 +254,6 @@
     align-items: start;
   }
 
-  .form .set-section {
-    gap: var(--azure-spacing-md);
-    padding-bottom: 32px;
-  }
-
-  .form .set-section + .set-section {
-    padding-top: 32px;
-  }
-
   .status-text {
     color: var(--colours-text);
   }
@@ -293,200 +277,22 @@
     box-shadow: 0 16px 40px -18px black;
   }
 
-  .unsaved-dock {
-    position: sticky;
-    bottom: var(--azure-spacing-lg);
-    z-index: 4;
-    margin-top: auto;
-    display: flex;
-    justify-content: center;
-    pointer-events: none;
+  :global(.stacked) .layout {
+    grid-template-columns: minmax(0, 1fr);
   }
 
-  .swap {
-    animation: image-swap 520ms cubic-bezier(0.32, 0.72, 0, 1);
+  :global(.stacked) .preview {
+    position: static;
+    order: -1;
+    align-items: center;
   }
 
-  @keyframes image-swap {
-    from {
-      opacity: 0.35;
-      filter: blur(12px);
-      transform: scale(0.98);
-    }
+  :global(.stacked) .preview .set-label {
+    align-self: flex-start;
   }
 
-  .unsaved {
+  :global(.stacked) .card {
     max-width: 100%;
-    pointer-events: auto;
-    padding: 6px 6px 6px 16px;
-    border-radius: var(--azure-radius-pill);
-    background-color: var(--colours-foreground);
-    border: 1px solid var(--colours-outline-hairline);
-    box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
-    color: var(--colours-text);
-    font-size: var(--text-sm);
-    font-weight: 500;
-    white-space: nowrap;
-    animation: unsaved-in 460ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
   }
 
-  .unsaved-reset,
-  .set-button.remove-link {
-    border-color: transparent;
-  }
-
-  .unsaved-save {
-    flex: none;
-    min-height: 30px;
-    padding: 0 12px;
-    border-radius: var(--azure-radius-pill);
-    font-size: var(--text-sm);
-    font-weight: 600;
-  }
-
-  .unsaved-reset {
-    margin: 0 10px 0 20px;
-    color: var(--colours-text-muted);
-  }
-
-  .unsaved-reset:hover:not(:disabled) {
-    color: var(--colours-text-strong);
-    text-decoration: underline;
-  }
-
-  .unsaved-save {
-    padding: 0 16px;
-    color: var(--colours-on-accent);
-    background-color: color-mix(in oklab, var(--colours-accent) 78%, var(--colours-surface-raised));
-  }
-
-  .unsaved-save:hover:not(:disabled) {
-    background-color: var(--colours-accent);
-  }
-
-  .unsaved button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .unsaved:global(.nudged) {
-    animation:
-      unsaved-in 460ms cubic-bezier(0.34, 1.56, 0.64, 1) both,
-      unsaved-shake 500ms linear,
-      unsaved-flash 600ms var(--azure-ease-out);
-  }
-
-  .unsaved:global(.nudged) .unsaved-text {
-    animation: unsaved-bold 600ms var(--azure-ease-out);
-  }
-
-  .unsaved:global(.nudged) .unsaved-reset {
-    animation: unsaved-reset-flash 600ms var(--azure-ease-out);
-  }
-
-  .unsaved:global(.nudged) .unsaved-save {
-    animation: unsaved-save-flash 600ms var(--azure-ease-out);
-  }
-
-  @keyframes unsaved-bold {
-    0%,
-    35% {
-      font-weight: 700;
-    }
-  }
-
-  @keyframes unsaved-reset-flash {
-    0%,
-    35% {
-      color: white;
-    }
-  }
-
-  @keyframes unsaved-save-flash {
-    0%,
-    35% {
-      color: var(--colours-danger);
-      background-color: white;
-    }
-  }
-
-  @keyframes unsaved-in {
-    from {
-      opacity: 0;
-      transform: translateY(24px) scale(0.92);
-    }
-  }
-
-  @keyframes unsaved-shake {
-    10% {
-      transform: translateX(-10px) scale(1.03);
-    }
-    22% {
-      transform: translateX(9px) scale(1.02);
-    }
-    34% {
-      transform: translateX(-7px) scale(1.01);
-    }
-    46% {
-      transform: translateX(6px);
-    }
-    58% {
-      transform: translateX(-4px);
-    }
-    70% {
-      transform: translateX(3px);
-    }
-    84% {
-      transform: translateX(-1px);
-    }
-  }
-
-  @keyframes unsaved-flash {
-    0%,
-    35% {
-      background-color: color-mix(in oklab, var(--colours-danger) 85%, var(--colours-surface-raised));
-      border-color: var(--colours-danger);
-      color: white;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .unsaved:global(.nudged) {
-      animation: unsaved-flash 600ms var(--azure-ease-out);
-    }
-  }
-
-  :global(:root[data-motion="reduce"]) .unsaved:global(.nudged) {
-    animation: unsaved-flash 600ms var(--azure-ease-out);
-  }
-
-  @media (max-width: 1023px) {
-    .layout {
-      grid-template-columns: minmax(0, 1fr);
-    }
-
-    .preview {
-      position: static;
-      order: -1;
-      align-items: center;
-    }
-
-    .preview .set-label {
-      align-self: flex-start;
-    }
-
-    .card {
-      max-width: 100%;
-    }
-  }
-
-  @media (max-width: 767px) {
-    .unsaved-dock {
-      bottom: calc(var(--azure-spacing-md) + env(safe-area-inset-bottom));
-    }
-
-    .unsaved-text {
-      font-size: var(--text-xs);
-    }
-  }
 </style>

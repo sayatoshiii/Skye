@@ -197,7 +197,7 @@
       <input class="field" type="password" bind:value={password} autocomplete="current-password" aria-label={text("password")} placeholder={text("password")} />
     </form>
     {#snippet actions()}
-      <button type="submit" form="settings-recovery-password" class="dialog-button ghost press sm bold primary" disabled={!password}>{text("continue")}</button>
+      <button type="submit" form="settings-recovery-password" class="button primary" disabled={!password}>{text("continue")}</button>
     {/snippet}
   </ConfirmDialog>
 {/if}
@@ -221,7 +221,7 @@
       <input class="field" bind:value={entered} autocomplete="off" spellcheck="false" aria-label={text("recovery")} placeholder={text("enter_placeholder")} />
     </form>
     {#snippet actions()}
-      <button type="submit" form="settings-recovery-enter" class="dialog-button ghost press sm bold primary" disabled={!entered.trim() || busy}>{text("unlock")}</button>
+      <button type="submit" form="settings-recovery-enter" class="button primary" disabled={!entered.trim() || busy}>{text("unlock")}</button>
     {/snippet}
   </ConfirmDialog>
 {/if}

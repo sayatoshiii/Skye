@@ -18,6 +18,15 @@
   border-top: 1px solid var(--line);
 }
 
+.set-form .set-section {
+  gap: var(--azure-spacing-md);
+  padding-bottom: 32px;
+}
+
+.set-form .set-section + .set-section {
+  padding-top: 32px;
+}
+
 .set-heading {
   margin: 0;
   font-size: 24px;
@@ -119,6 +128,10 @@
   background-color: var(--fill);
 }
 
+.set-mono {
+  font-family: ui-monospace, monospace;
+}
+
 .set-value.tight {
   flex: none;
 }
@@ -205,11 +218,12 @@
   background-color: var(--colours-danger);
 }
 
-.set-button.outline-danger {
+.set-button.quiet-danger {
+  border-color: transparent;
   color: var(--colours-danger);
 }
 
-.set-button.outline-danger:hover:not(:disabled) {
+.set-button.quiet-danger:hover:not(:disabled) {
   background-color: var(--colours-danger-soft);
 }
 
@@ -257,4 +271,54 @@
   .set-button {
     min-height: var(--azure-touch);
   }
+}
+
+.settings-layer :where(.button:not(.icon)) {
+  min-width: 100px;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 8px;
+}
+
+.set-row > .set-title {
+  flex: none;
+  white-space: nowrap;
+}
+
+.set-rows {
+  container-type: inline-size;
+}
+
+.set-row > .set-value > .truncate {
+  color: var(--colours-text-muted);
+}
+
+@container (max-width: 480px) {
+  .set-row {
+    display: grid;
+    grid-template: "title action" auto "value action" auto / minmax(0, 1fr) auto;
+    column-gap: var(--azure-spacing-md);
+    row-gap: 2px;
+  }
+
+  .set-row > .set-title {
+    grid-area: title;
+  }
+
+  .set-row > .set-value {
+    grid-area: value;
+    justify-content: flex-start;
+  }
+
+  .set-row > .set-value > .truncate {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    font-size: var(--text-sm);
+  }
+
+  .set-row > .set-action {
+    grid-area: action;
+    align-self: center;
+  }
+
 }

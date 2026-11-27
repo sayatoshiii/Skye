@@ -1,2 +1,4 @@
-declare const __SKYE_VERSION__: string;
-declare const __SKYE_COMMIT__: string;
+interface ImportMetaEnv {
+  readonly SKYE_VERSION: string;
+  readonly SKYE_COMMIT: string;
+}

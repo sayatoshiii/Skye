@@ -1,7 +1,9 @@
 <script lang="ts">
+  import Button from "../ui/Button.svelte";
+  import { haze } from "../../scripts/misc/haze";
   import { onMount } from "svelte";
   import { flip } from "svelte/animate";
-  import { blur, fade } from "svelte/transition";
+  import { fade } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { accountManagement, clientInfo, deleteDevice, deleteDevices, deviceKind, listDevices, manageLink, renameDevice, type AccountManagement, type ClientInfo, type Device } from "../../scripts/matrix/utilities/account";
@@ -149,7 +151,7 @@
       {#if isCurrent(device)}<span class="tag xs bold">{dev("current")}</span>{/if}
     </span>
     <span class="meta row-nw align-centre gap-xs xs min-0">
-      {#if live(device)}<span class="live row-nw align-centre bold" transition:blur={{ amount: 4, duration: 320, easing: cubicOut }}><span class="live-dot"></span>{dev("active_now")}</span><span class="faint">·</span>{/if}
+      {#if live(device)}<span class="live row-nw align-centre bold" transition:haze={{ blur: 4, duration: 320, easing: cubicOut, scale: 1 }}><span class="live-dot"></span>{dev("active_now")}</span><span class="faint">·</span>{/if}
       {#key details(device).join(" · ")}<span class="faint truncate" in:fade={{ duration: 260, easing: cubicOut }}>{details(device).join(" · ")}</span>{/key}
     </span>
   </span>
@@ -167,7 +169,7 @@
     <div class="notice row-nw align-centre gap-md" role="note">
       <svg class="notice-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" /><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M12 11v5M12 8h.01" /></svg>
       <p class="sm flex-max min-0">{dev("managed")}</p>
-      <button type="button" class="set-button notice-button ghost press" onclick={() => external(["org.matrix.devices_list", "org.matrix.sessions_list"])}>{dev("open_account")}</button>
+      <Button variant="link" onclick={() => external(["org.matrix.devices_list", "org.matrix.sessions_list"])}>{dev("open_account")}</Button>
     </div>
   {/if}
   {#if mine}
@@ -191,7 +193,7 @@
     {#if others.length}
       <ul class="list col">
         {#each others as device (device.device_id)}
-          <li class="device" animate:flip={{ duration: 380, easing: cubicOut }} in:blur={{ amount: 6, duration: 360, easing: cubicOut }} out:blur={{ amount: 6, duration: 260, easing: cubicOut }} use:menu={editing === device.device_id ? undefined : deviceItems(device)}>
+          <li class="device" animate:flip={{ duration: 380, easing: cubicOut }} in:haze={{ blur: 6, duration: 360, easing: cubicOut, scale: 1 }} out:haze={{ blur: 6, duration: 260, easing: cubicOut, scale: 1 }} use:menu={editing === device.device_id ? undefined : deviceItems(device)}>
             {#if editing === device.device_id}
               {@render rename(device)}
             {:else}
@@ -199,7 +201,7 @@
                 {@render info(device)}
                 <span class="row-nw gap-xs actions">
                   <button type="button" class="set-button ghost press" onclick={() => startRename(device)}>{dev("rename")}</button>
-                  <button type="button" class="set-button outline-danger ghost press" onclick={() => askRemove(device)}>{dev("sign_out")}</button>
+                  <button type="button" class="set-button quiet-danger ghost press" onclick={() => askRemove(device)}>{dev("sign_out")}</button>
                 </span>
               </div>
             {/if}
@@ -225,7 +227,7 @@
       <input class="field" type="password" bind:value={password} autocomplete="current-password" aria-label={dev("password")} placeholder={dev("password")} />
     </form>
     {#snippet actions()}
-      <button type="submit" form="settings-device-password" class="dialog-button ghost press sm bold danger" disabled={!password}>{dev("confirm")}</button>
+      <button type="submit" form="settings-device-password" class="button danger" disabled={!password}>{dev("confirm")}</button>
     {/snippet}
   </ConfirmDialog>
 {/if}
@@ -265,16 +267,6 @@
 
   .notice p {
     margin: 0;
-  }
-
-  .notice-button {
-    border-color: transparent;
-    background-color: transparent;
-    color: var(--colours-accent);
-  }
-
-  .notice-button:hover {
-    background-color: color-mix(in oklab, var(--colours-accent) 10%, transparent);
   }
 
   .notice-icon {

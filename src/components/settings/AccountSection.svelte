@@ -1,4 +1,6 @@
 <script lang="ts">
+  import SettingsRow from "./SettingsRow.svelte";
+  import SettingsSection from "./SettingsSection.svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { changePassword, deactivateAccount, listDevices, listThreepids, type ThreePid } from "../../scripts/matrix/utilities/account";
   import type { Session } from "../../scripts/matrix/types";
@@ -6,13 +8,13 @@
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { ROUTES } from "../../scripts/settings/config";
   import { ownProfile, session, signOut, type Profile } from "../../scripts/stores/matrix";
-  import type { SettingsSection } from "../../scripts/stores/settings";
+  import type { SettingsSection as SectionId } from "../../scripts/stores/settings";
   import { copied, toastKey } from "../../scripts/stores/toast";
   import type { MenuItem } from "../app/MessageMenu.svelte";
   import ConfirmDialog from "../ui/ConfirmDialog.svelte";
   import Icon from "./Icon.svelte";
 
-  let { go }: { go: (id: SettingsSection) => void } = $props();
+  let { go }: { go: (id: SectionId) => void } = $props();
 
   type Row = { id: string; label: string; value: string; mono?: boolean; masked?: string; action: "edit" | "copy" | null; run?: () => void; items: () => MenuItem[] };
 
@@ -36,7 +38,6 @@
   let next = $state("");
   let repeat = $state("");
   let typed = $state("");
-  let revealed = $state<Record<string, boolean>>({});
 
   $effect(() => ownProfile.subscribe((value) => (profile = value)));
   $effect(() => session.subscribe((value) => (active = value)));
@@ -131,49 +132,31 @@
 
 </script>
 
-<section class="set-section" data-part="info">
-  <h3 class="set-heading">{text("parts", "info")}</h3>
+<SettingsSection id="info" title={text("parts", "info")}>
   <div class="set-rows">
     {#each rows as row (row.id)}
-      {@const hidden = !!row.masked && !revealed[row.id]}
-      <div class="set-row" use:menu={row.items}>
-        <span class="set-title">{row.label}</span>
-        <span class="set-value">
-          <span class:mono={row.mono}>{hidden ? row.masked : row.value}</span>
-          {#if row.masked}
-            <button type="button" class="set-link ghost" onclick={() => (revealed = { ...revealed, [row.id]: hidden })}>{me(hidden ? "reveal" : "hide")}</button>
-          {/if}
-        </span>
-        {#if row.action}
-          <button type="button" class="set-button ghost press" onclick={row.run}>{me(row.action)}</button>
-        {/if}
-      </div>
+      <SettingsRow label={row.label} value={row.value} mono={row.mono} masked={row.masked} reveal={{ show: me("reveal"), hide: me("hide") }} action={row.action && me(row.action)} icon={row.action ? MENU_ICONS[row.action] : undefined} onaction={row.run} items={row.items} />
     {/each}
   </div>
-</section>
+</SettingsSection>
 
-<section class="set-section" data-part="password">
-  <h3 class="set-heading">{me("password_heading")}</h3>
+<SettingsSection id="password" title={me("password_heading")}>
   <div class="set-rows">
-    <div class="set-row">
-      <span class="set-title">{me("password_label")}</span>
-      <button type="button" class="set-button ghost press" onclick={() => open("password")}>{me("edit")}</button>
-    </div>
+    <SettingsRow label={me("password_label")} action={me("edit")} onaction={() => open("password")} />
     <button type="button" class="set-chevron ghost press row-nw align-centre gap-sm" onclick={() => go("devices")}>
       <span class="set-title flex-max">{me("devices")}</span>
       <span class="set-value">{devicesLabel}</span>
       <Icon name="next" size={22} />
     </button>
   </div>
-</section>
+</SettingsSection>
 
-<section class="set-section" data-part="removal">
-  <h3 class="set-heading">{me("removal")}</h3>
+<SettingsSection id="removal" title={me("removal")}>
   <div class="set-row">
     <p class="set-hint">{me("removal_hint")}</p>
     <button type="button" class="set-button danger ghost press" onclick={() => open("deactivate")}>{me("deactivate")}</button>
   </div>
-</section>
+</SettingsSection>
 
 {#if dialog === "password"}
   <ConfirmDialog title={text("password", "title")} body={text("password", "body")} cancelLabel={text("cancel")} {busy} onclose={close}>
@@ -184,7 +167,7 @@
       {#if mismatch || error}<p class="xs error">{mismatch ? text("password", "mismatch") : error}</p>{/if}
     </form>
     {#snippet actions()}
-      <button type="submit" form="settings-password" class="dialog-button ghost press sm bold primary" disabled={!canChange}>{me("change_password")}</button>
+      <button type="submit" form="settings-password" class="button primary" disabled={!canChange}>{me("change_password")}</button>
     {/snippet}
   </ConfirmDialog>
 {/if}
@@ -194,22 +177,18 @@
     <form id="settings-deactivate" class="col gap-sm" onsubmit={submitDeactivate}>
       <label class="col gap-xs">
         <span class="xs bold faint">{text("deactivate", "type_id").replace("{id}", userId)}</span>
-        <input class="field mono" bind:value={typed} autocomplete="off" autocapitalize="off" spellcheck="false" placeholder={userId} />
+        <input class="field set-mono" bind:value={typed} autocomplete="off" autocapitalize="off" spellcheck="false" placeholder={userId} />
       </label>
       <input class="field" type="password" bind:value={current} autocomplete="current-password" placeholder={text("deactivate", "password")} aria-label={text("deactivate", "password")} />
       {#if error}<p class="xs error">{error}</p>{/if}
     </form>
     {#snippet actions()}
-      <button type="submit" form="settings-deactivate" class="dialog-button ghost press sm bold danger" disabled={!canDeactivate}>{text("deactivate", "confirm")}</button>
+      <button type="submit" form="settings-deactivate" class="button danger" disabled={!canDeactivate}>{text("deactivate", "confirm")}</button>
     {/snippet}
   </ConfirmDialog>
 {/if}
 
 <style>
-  .mono {
-    font-family: ui-monospace, monospace;
-  }
-
   .field {
     width: 100%;
     min-height: 40px;

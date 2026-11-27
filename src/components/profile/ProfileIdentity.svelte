@@ -32,6 +32,7 @@
     role,
     namedRole,
     size = "md",
+    live = false,
     surface = "var(--colours-foreground)",
     onopen,
     actions,
@@ -47,6 +48,7 @@
     role?: "admin" | "moderator" | "member";
     namedRole?: { name: string; color?: string; icon?: string };
     size?: "sm" | "md" | "lg";
+    live?: boolean;
     surface?: string;
     onopen?: () => void;
     actions?: Snippet;
@@ -116,9 +118,9 @@
     </div>
 
     {#if onopen}
-      <button type="button" class="name-button ghost" use:usermenu={{ userId, roomId }} aria-label={openLabel} onclick={onopen}><h2 class="name bold" style:color={namedRole?.color}><EmojiText text={displayName} /></h2></button>
+      <button type="button" class="name-button ghost" use:usermenu={{ userId, roomId }} aria-label={openLabel} onclick={onopen}><h2 class="name bold" style:color={namedRole?.color}><EmojiText text={displayName} {live} /></h2></button>
     {:else}
-      <h2 class="name bold" style:color={namedRole?.color} use:usermenu={{ userId, roomId }}><EmojiText text={displayName} /></h2>
+      <h2 class="name bold" style:color={namedRole?.color} use:usermenu={{ userId, roomId }}><EmojiText text={displayName} {live} /></h2>
     {/if}
     <div class="handle row-nw align-centre gap-xs">
       <span class="id sm truncate">{userId}</span>

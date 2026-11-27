@@ -2,6 +2,18 @@
 import { defineConfig } from 'astro/config';
 
 import svelte from '@astrojs/svelte';
+import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
+
+const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+const git = (command) => {
+  try {
+    return execSync(`git ${command}`, { stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim();
+  } catch {
+    return '';
+  }
+};
+const commit = git('rev-parse --short HEAD');
 
 const APP_DEEP_LINK = /^\/app\/[^?#]+/;
 
@@ -35,6 +47,7 @@ export default defineConfig({
   server: { host: process.env.TAURI_DEV_HOST || false },
   vite: {
     clearScreen: false,
+    define: { 'import.meta.env.SKYE_VERSION': JSON.stringify(version), 'import.meta.env.SKYE_COMMIT': JSON.stringify(commit) },
     server: {
       hmr: process.env.TAURI_DEV_HOST
         ? { protocol: "ws", host: process.env.TAURI_DEV_HOST, port: 4322 }
