@@ -212,6 +212,161 @@
 
 /* Interactive */
 
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--azure-spacing-sm);
+  min-height: 36px;
+  padding: 0 var(--azure-spacing-lg);
+  border: 0;
+  border-radius: var(--azure-radius-sm);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  white-space: nowrap;
+  color: var(--colours-text-strong);
+  background-color: var(--colours-surface-raised);
+  transition:
+    background-color var(--azure-duration-fast) var(--azure-ease-out),
+    box-shadow var(--azure-duration-fast) var(--azure-ease-out),
+    opacity var(--azure-duration-md) var(--azure-ease-out),
+    transform var(--azure-duration-md) var(--azure-ease-spring);
+}
+
+.button.large {
+  min-height: 42px;
+  padding: 0 var(--azure-spacing-xl);
+  border-radius: var(--azure-radius-md);
+  font-weight: 500;
+}
+
+.button.icon {
+  width: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+
+.button:hover:not(:disabled) {
+  background-color: var(--colours-surface-active);
+}
+
+.button.quiet {
+  color: var(--colours-text-muted);
+  background-color: transparent;
+}
+
+.button.quiet:hover:not(:disabled) {
+  color: var(--colours-text-strong);
+  background-color: var(--colours-surface-hover);
+}
+
+.button.outline {
+  color: var(--colours-text-strong);
+  background-color: var(--fill, transparent);
+  box-shadow: inset 0 0 0 1px var(--line, var(--colours-outline-hairline));
+}
+
+.button.outline:hover:not(:disabled) {
+  background-color: color-mix(in oklab, white 10%, var(--card, transparent));
+}
+
+@container (max-width: 480px) {
+  .button.collapsible {
+    min-width: 40px;
+    padding: 0;
+    aspect-ratio: 1;
+  }
+
+  .button.collapsible .button-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
+.button.text {
+  min-width: 0;
+  padding: 0;
+  color: var(--colours-text-muted);
+  background-color: transparent;
+}
+
+.button.text:hover:not(:disabled) {
+  color: var(--colours-text-strong);
+  background-color: transparent;
+}
+
+.button.link {
+  color: var(--colours-accent);
+  background-color: transparent;
+}
+
+.button.link:hover:not(:disabled) {
+  background-color: color-mix(in oklab, var(--colours-accent) 10%, transparent);
+}
+
+.button.outlined {
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--colours-accent) 35%, transparent);
+}
+
+.button.quiet-danger {
+  color: var(--colours-danger);
+  background-color: transparent;
+}
+
+.button.quiet-danger:hover:not(:disabled) {
+  background-color: var(--colours-danger-soft);
+}
+
+.button.primary {
+  color: var(--colours-on-accent);
+  background-color: var(--colours-accent);
+}
+
+.button.primary:hover:not(:disabled) {
+  background-color: color-mix(in oklab, var(--colours-accent) 85%, white);
+  box-shadow: 0 0 20px -6px var(--colours-accent-glow);
+}
+
+.button.danger {
+  color: white;
+  background-color: var(--colours-danger);
+}
+
+.button.danger:hover:not(:disabled) {
+  background-color: color-mix(in oklab, var(--colours-danger) 85%, white);
+  box-shadow: 0 0 20px -6px var(--colours-danger);
+}
+
+.button:active:not(:disabled) {
+  transform: scale(var(--press, 0.97));
+  transition-duration: var(--azure-duration-instant);
+}
+
+.button:focus-visible {
+  outline: none;
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+@media (max-width: 767px) {
+  .button {
+    min-height: var(--azure-touch);
+  }
+
+  .button.icon {
+    width: var(--azure-touch);
+  }
+}
+
 .press {
   -webkit-tap-highlight-color: transparent;
   transition:
@@ -222,13 +377,13 @@
 }
 
 .press:active {
-  transform: scale(0.95);
+  transform: scale(var(--press, 0.97));
   transition-duration: var(--azure-duration-instant);
   transition-timing-function: var(--azure-ease-out);
 }
 
 .item.press:active {
-  transform: scale(0.985);
+  transform: scale(var(--press, 0.99));
   background-color: var(--colours-surface-pressed);
 }
 
@@ -290,12 +445,35 @@
 }
 
 .blur-swap {
-  animation: blur-swap 520ms cubic-bezier(0.32, 0.72, 0, 1);
+  animation: blur-swap var(--azure-duration-glide) var(--azure-ease-fluid);
+}
+
+.haze {
+  animation: haze var(--azure-duration-glide) var(--azure-ease-fluid) var(--haze-delay, 0ms) both;
+}
+
+@keyframes haze {
+  from {
+    opacity: 0;
+    filter: blur(var(--haze-blur, 12px));
+    scale: var(--haze-scale, 0.98);
+  }
 }
 
 @keyframes blur-swap {
   from {
     opacity: 0.35;
-    filter: blur(8px);
+    filter: blur(var(--swap-blur, 8px));
+    scale: var(--swap-scale, 1);
   }
+}
+
+.roll-slot {
+  display: grid;
+  overflow: clip;
+  overflow-clip-margin: 2px;
+}
+
+.roll-slot > * {
+  grid-area: 1 / 1;
 }

@@ -229,6 +229,51 @@ img.emoji {
   color: var(--colours-danger);
 }
 
+.modal-scrim {
+  animation: enter-fade var(--azure-duration-md) var(--azure-ease-out);
+}
+
+.modal-sheet {
+  animation: enter-pop var(--azure-duration-md) var(--azure-ease-spring);
+}
+
+.closing .modal-scrim {
+  animation: exit-fade var(--azure-duration-md) var(--azure-ease-out) forwards;
+}
+
+.closing .modal-sheet {
+  animation: exit-pop var(--azure-duration-md) var(--azure-ease-out) forwards;
+}
+
+@media (max-width: 767px) {
+  .modal-sheet {
+    animation: enter-slide var(--azure-duration-glide) var(--azure-ease-fluid);
+  }
+
+  .closing .modal-sheet {
+    animation: exit-sink var(--azure-duration-md) var(--azure-ease-out) forwards;
+  }
+}
+
+@keyframes enter-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes enter-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes enter-slide {
+  from {
+    transform: translateY(100%);
+  }
+}
+
 @keyframes exit-fade {
   to {
     opacity: 0;

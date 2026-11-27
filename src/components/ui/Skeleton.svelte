@@ -1,19 +1,13 @@
 <script lang="ts">
-  import { blur } from "svelte/transition";
+  import { drift, haze } from "../../scripts/misc/haze";
   import { cubicOut } from "svelte/easing";
 
   let { kind, count = 8 }: { kind: "rooms" | "rail" | "messages"; count?: number } = $props();
 
-  const lift = (node: HTMLElement) => {
-    const { offsetTop: top, offsetLeft: left, offsetWidth: width } = node;
-    Object.assign(node.style, { position: "absolute", top: `${top}px`, left: `${left}px`, width: `${width}px` });
-    return { duration: 280, easing: cubicOut, css: (t: number) => `opacity: ${t}; filter: blur(${(1 - t) * 8}px)` };
-  };
-
   const widths = [62, 48, 74, 40, 56, 68, 44, 52, 70, 38, 60, 50];
 </script>
 
-<div class="skeleton {kind}" aria-hidden="true" in:blur={{ amount: 8, duration: 420, easing: cubicOut }} out:lift>
+<div class="skeleton {kind}" aria-hidden="true" in:haze={{ blur: 8, duration: 420, easing: cubicOut, scale: 1 }} out:drift={{ blur: 8, duration: 280, easing: cubicOut, scale: 1 }}>
   {#each { length: count }, index}
     <div class="row" style:--delay={`${index * 45}ms`}>
       {#if kind === "rail"}

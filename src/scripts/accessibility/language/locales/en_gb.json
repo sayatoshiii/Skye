@@ -1005,9 +1005,18 @@
     },
     "room_settings": {
       "title": "Roles",
+      "title_room": "Room settings",
+      "title_space": "Space settings",
+      "details_name": "Name",
+      "picture": "Picture",
+      "change_picture": "Change picture",
+      "remove_picture": "Remove picture",
+      "preview": "Preview",
+      "details_topic": "Topic",
+      "details_topic_placeholder": "What's it about?",
       "close": "Close",
       "back": "Back",
-      "save": "Save changes",
+      "save": "Save",
       "saving": "Saving…",
       "reset_changes": "Reset",
       "unsaved": "Careful, you have unsaved changes!",
@@ -1091,6 +1100,10 @@
           "label": "Pin messages",
           "hint": "Pin and unpin messages for everyone."
         },
+        "rooms": {
+          "label": "Manage rooms",
+          "hint": "Create rooms in this space and add or remove existing ones."
+        },
         "state": {
           "label": "Change other settings",
           "hint": "Any room setting that does not have its own rule here."
@@ -1161,13 +1174,102 @@
       "no_candidates": "Everyone you can add already has this role.",
       "add_title": "Add members to {name}",
       "discard_title": "Discard your changes?",
-      "discard_body": "Your unsaved changes to roles will be lost.",
+      "discard_body": "Your unsaved changes will be lost.",
       "discard_confirm": "Discard",
       "demote_title": "Lower your own power level?",
       "demote_body": "You will not be able to undo this yourself. Someone with a higher power level would have to raise it again.",
       "demote_confirm": "Lower it",
       "cancel": "Cancel",
-      "saved": "Roles saved"
+      "saved": "Roles saved",
+      "sections": {
+        "general": "General",
+        "roles": "Roles",
+        "access": "Access",
+        "advanced": "Advanced"
+      },
+      "leave": {
+        "room": "Leave room",
+        "space": "Leave space"
+      },
+      "delete_room": "Delete room",
+      "address": "Main address",
+      "address_hint": "People can use this to find and join without an invite link.",
+      "copy": "Copy",
+      "join_title": "Who can join",
+      "join_hint": {
+        "room": "Pick who's allowed into this room.",
+        "space": "Pick who's allowed into this space."
+      },
+      "join": {
+        "invite": {
+          "name": "Invite only",
+          "hint": "Only people who've been invited can join"
+        },
+        "restricted": {
+          "name": "Space members",
+          "hint": "Anyone in the parent space can join"
+        },
+        "knock": {
+          "name": "Ask to join",
+          "hint": "Anyone can request to join, and someone lets them in"
+        },
+        "public": {
+          "name": "Anyone",
+          "hint": "Anyone who finds it can join"
+        }
+      },
+      "history_title": "Who can read history",
+      "history_hint": "Decide what new members can see from before they joined.",
+      "history": {
+        "shared": "Members",
+        "invited": "Since invited",
+        "joined": "Since joined",
+        "world_readable": "Anyone"
+      },
+      "encryption_title": "End-to-end encryption",
+      "encryption_hint": "Once turned on, encryption can't be turned off.",
+      "encryption_on": "Messages are encrypted. This can't be turned off.",
+      "facts": {
+        "id": "Room ID",
+        "version": "Room version",
+        "creator": "Created by",
+        "created": "Created"
+      },
+      "members_count": "{count} members",
+      "members_one": "1 member",
+      "sync": {
+        "offer_title": "Use one set of roles across this space",
+        "offer_body": "Roles and who has them are set here once and copied to every room in the space. Each room still picks what each role is allowed to do.",
+        "offer_room": "Roles in this room can come from {space}, so they're set once and every room follows. Each room keeps its own permissions.",
+        "empty_title": "Roles live in the space",
+        "empty_body": "This room uses the roles from {space}, so new roles are made there. You can still change what each role can do in this room.",
+        "open_space": "Open space roles",
+        "restored": "Restored earlier roles in {count} rooms",
+        "restore_partial": "Restored {synced} rooms, {skipped} need someone with a higher role",
+        "offer_short": "Set roles once in the space and every room follows. Rooms keep their own permissions.",
+        "enable": "Sync roles",
+        "syncing": "Syncing…",
+        "title": "Sync roles to rooms",
+        "on": "Roles are copied to {count} rooms",
+        "behind": "{count} rooms are out of sync",
+        "now": "Sync now",
+        "managed_title": "Roles come from {space}",
+        "managed_body": "Edit roles and who has them in the space. Permissions you set here only apply to this room.",
+        "managed_behind": "This room is out of sync with the space's roles.",
+        "done": "Roles synced to {count} rooms",
+        "partial": "Synced {synced} rooms, {skipped} need someone with a higher role"
+      },
+      "since": "Since {date}",
+      "parts": {
+        "name": "Name",
+        "picture": "Picture",
+        "topic": "Topic",
+        "address": "Address",
+        "join": "Who can join",
+        "history": "History",
+        "encryption": "Encryption",
+        "details": "Details"
+      }
     },
     "poll": {
       "votes": "{count} votes",
@@ -1322,7 +1424,8 @@
       "back": "Back",
       "create": "Create",
       "creating": "Creating",
-      "failed": "Couldn't create your space. Try again."
+      "failed": "Couldn't create your space. Try again.",
+      "remove": "Remove picture"
     },
     "join": {
       "title": "Join a space or room",
@@ -1426,6 +1529,7 @@
       "unpinned": "Message unpinned",
       "deleted": "Message deleted",
       "power_saved": "Permissions updated",
+      "settings_saved": "Settings saved",
       "marked_read": "Marked as read",
       "hidden": "Room hidden",
       "shown": "Room shown",
@@ -1433,7 +1537,6 @@
       "profile_saved": "Profile saved",
       "profile_failed": "Couldn't save your profile",
       "upload_failed": "Couldn't upload that image",
-      "settings_saved": "Settings saved",
       "settings_failed": "Couldn't save your settings",
       "device_renamed": "Device renamed",
       "device_signed_out": "Device signed out",
@@ -1501,12 +1604,65 @@
         "rate_limited": "Too many tries. Wait a moment and try again.",
         "failed": "Couldn't leave. Try again."
       },
-      "mark_unread": "Mark as unread"
+      "mark_unread": "Mark as unread",
+      "delete": "Delete room",
+      "delete_title": "Delete {name}?",
+      "delete_body": "Matrix rooms can't be fully deleted, so Skye closes this one down instead.",
+      "delete_steps": {
+        "unlist": {
+          "title": "Hide it from the space",
+          "body": "It disappears from everyone's room list."
+        },
+        "lock": {
+          "title": "Lock the door",
+          "body": "The room becomes invite only, so nobody can join it again."
+        },
+        "remove": {
+          "title": "Remove members",
+          "body": "Everyone you're allowed to remove is taken out."
+        },
+        "leave": {
+          "title": "Leave the room",
+          "body": "You leave and it's removed from your account."
+        }
+      },
+      "delete_caveats_title": "What stays behind",
+      "delete_caveats": {
+        "servers": {
+          "title": "Servers keep a copy",
+          "body": "Messages stay on every server that took part. Only their admins can purge them."
+        },
+        "history": {
+          "title": "History isn't wiped",
+          "body": "People keep anything they've already seen or saved."
+        },
+        "ranks": {
+          "title": "Some people may stay",
+          "body": "Anyone ranked the same as or above you can't be removed."
+        },
+        "invites": {
+          "title": "It can be reopened",
+          "body": "Someone still inside could invite people back in."
+        }
+      },
+      "delete_skipped": "{count} people can't be removed because their rank is the same as or higher than yours.",
+      "delete_progress": {
+        "unlist": "Removing from space",
+        "lock": "Locking the room",
+        "remove": "Removing people",
+        "leave": "Leaving"
+      },
+      "delete_reason": "This room was closed",
+      "delete_failed": "Couldn't finish deleting the room. Some steps may have already happened. Try again.",
+      "deleted": "Room deleted",
+      "deleted_partial": "Room deleted, but {count} people couldn't be removed",
+      "delete_steps_title": "What Skye does"
     },
     "space_menu": {
       "actions": "Space actions",
       "mark_read": "Mark all as read",
       "browse": "Browse rooms",
+      "settings": "Space settings",
       "copy_link": "Copy link",
       "copy_id": "Copy space ID",
       "leave": "Leave space",
@@ -1517,7 +1673,8 @@
       "leave_all_one": "Leave space and 1 room",
       "progress": "Leaving {done} of {total}",
       "failed": "{count} couldn't be left. Try again.",
-      "cancel": "Cancel"
+      "cancel": "Cancel",
+      "create_room": "Create room"
     },
     "gifs": {
       "picker": "GIF picker",
@@ -1723,6 +1880,146 @@
       "mini_reset": "Reset size",
       "mini_resize": "Resize player",
       "more": "More"
+    },
+    "create_room": {
+      "title": "Create room",
+      "in": "in {name}",
+      "close": "Close",
+      "type": "Room type",
+      "more": "{count} more",
+      "less": "Show less",
+      "soon": "Soon",
+      "preset": "Preset",
+      "custom": "Custom",
+      "custom_hint": "Your own mix of member permissions",
+      "customise": "Customise member permissions",
+      "name": "Room name",
+      "placeholder": "new-room",
+      "private": "Private room",
+      "private_hint": "Only people you invite can see and join this room",
+      "advanced": "Advanced settings",
+      "encryption": "End-to-end encryption",
+      "encryption_hint": "Can't be turned off once the room is created",
+      "history": "New members can read",
+      "histories": {
+        "shared": "Everything",
+        "invited": "Since invited",
+        "joined": "Since joined"
+      },
+      "cancel": "Cancel",
+      "create": "Create room",
+      "creating": "Creating",
+      "failed": "Couldn't create the room. Try again.",
+      "add": "Create room in {name}",
+      "kinds": {
+        "text": {
+          "name": "Text",
+          "hint": "Messages, media and chat"
+        },
+        "voice": {
+          "name": "Voice",
+          "hint": "Talk, video and screen share"
+        },
+        "forum": {
+          "name": "Forum",
+          "hint": "Organised posts and threads"
+        },
+        "calendar": {
+          "name": "Calendar",
+          "hint": "Events with RSVPs"
+        },
+        "gallery": {
+          "name": "Gallery",
+          "hint": "Photos, video and albums"
+        },
+        "wiki": {
+          "name": "Wiki",
+          "hint": "Shared, versioned pages"
+        },
+        "board": {
+          "name": "Board",
+          "hint": "Tasks, cards and columns"
+        },
+        "library": {
+          "name": "Library",
+          "hint": "Files, links and folders"
+        }
+      },
+      "presets": {
+        "general": {
+          "name": "General",
+          "hint": "Everyone can chat and react"
+        },
+        "announcements": {
+          "name": "Announcements",
+          "hint": "Moderators post, everyone reacts"
+        },
+        "readonly": {
+          "name": "Read only",
+          "hint": "Only moderators can post or react"
+        },
+        "open": {
+          "name": "Open",
+          "hint": "Anyone can join and talk"
+        },
+        "listen": {
+          "name": "Listen in",
+          "hint": "Anyone can join, moderators chat"
+        }
+      },
+      "access": {
+        "send": "Send messages",
+        "react": "Add reactions",
+        "invite": "Invite people",
+        "call": "Join calls"
+      }
+    },
+    "role_sync": {
+      "title": "Sync roles across {name}?",
+      "body": "Roles you set in the space will be copied to every room in it, so you only manage them once.",
+      "steps_title": "What Skye does",
+      "steps": {
+        "copy": {
+          "title": "Copies your roles",
+          "body": "Every room gets the space's roles with the same names, colours and icons."
+        },
+        "match": {
+          "title": "Matches people's ranks",
+          "body": "Anyone with a role in the space gets the same role in each room."
+        },
+        "follow": {
+          "title": "Keeps rooms in step",
+          "body": "Future role changes in the space are applied to every room automatically."
+        }
+      },
+      "caveats_title": "Good to know",
+      "caveats": {
+        "permissions": {
+          "title": "Permissions stay per room",
+          "body": "Each room still decides what each role is allowed to do there."
+        },
+        "skipped": {
+          "title": "Some rooms may be skipped",
+          "body": "Rooms where you don't have a high enough role can't be updated by you."
+        },
+        "clients": {
+          "title": "Other apps don't know about this",
+          "body": "Changes made in other Matrix apps can drift. Skye shows when a room is out of sync."
+        },
+        "undo": {
+          "title": "You can undo it",
+          "body": "Skye saves each room's current roles first, so you can turn sync off and restore them."
+        }
+      },
+      "confirm": "Sync roles",
+      "syncing": "Syncing…",
+      "failed": "Something went wrong. Nothing else was changed, so you can try again.",
+      "stop_title": "Stop syncing roles?",
+      "stop_body": "Rooms will stop following the space's roles. You can keep the ranks people have now, or put back the roles each room had before syncing.",
+      "stop_body_plain": "Rooms will stop following the space's roles and keep the ranks people have now.",
+      "restore": "Restore earlier roles",
+      "keep": "Keep current roles",
+      "stopped": "Roles are no longer synced"
     }
   }
 }
