@@ -8,7 +8,7 @@
   import { tooltip } from "../../scripts/misc/tooltip";
   import { zoomable, zoomBy } from "../../scripts/misc/zoom";
   import { idle, pictureInPicture, pipSupported } from "../../scripts/misc/screen";
-  import { userMenuItems } from "../../scripts/misc/usermenu";
+  import { userActions } from "../../scripts/menus/user";
   import { mediaSettings, setShowCallEvents } from "../../scripts/settings/media";
   import { leaveCall, placeCall, ringAgain, ringing, stopRinging } from "../../scripts/stores/calls";
   import { rooms, session } from "../../scripts/stores/matrix";
@@ -252,7 +252,7 @@
     ...(tile.video && pipSupported ? [{ id: "tile-pip", label: text("pip"), icon: MENU_ICONS.pip, run: () => pip(tile.id) }] : []),
     { id: "tile-spot", label: text(focused === tile.id ? "unspotlight" : "spotlight"), icon: focused === tile.id ? SETTINGS_ICONS.collapse : SETTINGS_ICONS.expand, run: () => toggleSpot(tile.id) },
     ...(tile.video ? zoomItems(tile) : []),
-    ...(tile.screen ? volumeItems(tile.userId).filter((item) => item.id === "voice-stream-volume").map((item) => ({ ...item, separated: true })) : [...userMenuItems(tile.userId, roomId).map((item, index) => (index ? item : { ...item, separated: true })), ...volumeItems(tile.userId)]),
+    ...(tile.screen ? volumeItems(tile.userId).filter((item) => item.id === "voice-stream-volume").map((item) => ({ ...item, separated: true })) : [...userActions(tile.userId, { roomId }).map((item, index) => (index ? item : { ...item, separated: true })), ...volumeItems(tile.userId)]),
   ];
   const cameraItems = (): MenuItem[] => [
     { id: "stage-camera", label: text($cameraOn ? "camera_off" : "camera_on"), icon: $cameraOn ? SETTINGS_ICONS.cameraOff : SETTINGS_ICONS.camera, run: toggleCamera },
@@ -918,7 +918,7 @@
   .bars {
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: var(--bar-gap);
     width: 0;
     height: 12px;
     margin-inline-start: 0;
@@ -938,7 +938,7 @@
   }
 
   .tile:not(.video) .bars.shown {
-    margin-inline-end: -18px;
+    margin-inline-end: calc(-1 * (var(--bars) + 6px));
   }
 
   .tile:not(.video) .flag.shown {
@@ -950,11 +950,11 @@
   }
 
   .tile:not(.video) .bars.shown ~ .flag.shown {
-    margin-inline-end: -36px;
+    margin-inline-end: calc(-1 * (var(--bars) + 6px) - 18px);
   }
 
   .bars.shown {
-    width: 12px;
+    width: var(--bars);
     margin-inline-start: 6px;
     opacity: 1;
     scale: 1;
@@ -962,7 +962,7 @@
 
   .bars i {
     flex: none;
-    width: 3px;
+    width: var(--bar);
     height: max(3px, calc(var(--level) * 100%));
     border-radius: 999px;
     background: var(--colours-success);
@@ -987,6 +987,9 @@
   }
 
   .tile-name {
+    --bar: 3px;
+    --bar-gap: 2px;
+    --bars: calc(var(--bar) * 3 + var(--bar-gap) * 2);
     max-width: 100%;
     color: var(--colours-text-strong);
   }

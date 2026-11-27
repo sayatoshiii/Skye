@@ -1,7 +1,8 @@
 <script lang="ts">
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { openDirect, userMenu } from "../../scripts/stores/navigation.svelte";
-  import { moderate, userMenuItems } from "../../scripts/misc/usermenu";
+  import { moderate } from "../../scripts/misc/usermenu";
+  import { userActions } from "../../scripts/menus/user";
   import { rooms } from "../../scripts/stores/matrix";
   import { toastKey } from "../../scripts/stores/toast";
   import MessageMenu from "./MessageMenu.svelte";
@@ -34,7 +35,7 @@
 
 {#if userMenu.request}
   {@const menu = userMenu.request}
-  <MessageMenu items={userMenuItems(menu.userId, menu.roomId)} x={menu.x} y={menu.y} label={text("actions")} onclose={() => (userMenu.request = null)} />
+  <MessageMenu items={userActions(menu.userId, { roomId: menu.roomId })} x={menu.x} y={menu.y} label={text("actions")} onclose={() => (userMenu.request = null)} />
 {/if}
 
 {#if userMenu.confirm}

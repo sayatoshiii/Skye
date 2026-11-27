@@ -186,7 +186,7 @@
   </div>
   </div>
   {#snippet actions()}
-    <button type="button" class="dialog-button ghost press sm bold primary" disabled={!ready} onclick={create} use:menu={() => [{ id: "poll-create", label: text("create_action"), icon: MENU_ICONS.poll, disabled: !ready, run: create }]}>{text(busy ? "creating" : "create_action")}</button>
+    <button type="button" class="button primary" disabled={!ready} onclick={create} use:menu={() => [{ id: "poll-create", label: text("create_action"), icon: MENU_ICONS.poll, disabled: !ready, run: create }]}>{text(busy ? "creating" : "create_action")}</button>
   {/snippet}
 </ConfirmDialog>
 
@@ -330,7 +330,7 @@
 
   .add:active:not(:disabled) {
     opacity: 0.7;
-    transform: scale(0.97);
+    transform: scale(var(--press, 0.97));
   }
 
   .add:disabled {

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { haze } from "../../scripts/misc/haze";
   import { tooltip } from "../../scripts/misc/tooltip";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { ownProfile, presenceDetails } from "../../scripts/stores/matrix";
@@ -10,7 +11,7 @@
   import EmojiText from "../ui/EmojiText.svelte";
   import PresenceDot from "../ui/PresenceDot.svelte";
   import { selfSpeaking } from "../../scripts/stores/voice";
-  import { blur, fade } from "svelte/transition";
+  import { fade } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
 
   let settled = $state(false);
@@ -87,7 +88,7 @@
     </div>
   {:else}
   <button
-    in:blur={{ amount: 6, duration: 360, easing: cubicOut }}
+    in:haze={{ blur: 6, duration: 360, easing: cubicOut, scale: 1 }}
     type="button"
     class="trigger ghost press row-nw gap-md align-centre min-0 flex-max"
     aria-haspopup="menu"

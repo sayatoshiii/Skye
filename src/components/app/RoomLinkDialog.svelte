@@ -82,7 +82,7 @@
   </div>
   {#snippet actions()}
     {#if !blocked && !requested}
-      <button type="button" class="dialog-button ghost press sm bold primary" disabled={looking || busy} onclick={join}>{busy ? text("joining") : label}</button>
+      <button type="button" class="button primary" disabled={looking || busy} onclick={join}>{busy ? text("joining") : label}</button>
     {/if}
   {/snippet}
 </ConfirmDialog>

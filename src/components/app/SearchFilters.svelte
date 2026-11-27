@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { blur, fly, slide } from "svelte/transition";
+  import { haze } from "../../scripts/misc/haze";
+  import { fly, slide } from "svelte/transition";
   import { flip } from "svelte/animate";
   import { cubicOut } from "svelte/easing";
   import { tick, untrack } from "svelte";
@@ -130,9 +131,9 @@
                 <ul class="col" role="listbox" aria-multiselectable="true">
                   {#each visible(section.kind) as choice (choice.id)}
                     {@const on = picked(section.kind).includes(choice.id)}
-                    <li animate:flip={{ duration: 240, easing: ease }} in:blur={{ duration: 160, amount: 3 }}>
+                    <li animate:flip={{ duration: 240, easing: ease }} in:haze={{ duration: 160, blur: 3, scale: 1 }}>
                       <button type="button" class="ghost choice row-nw align-centre gap-sm" role="option" aria-selected={on} onmousedown={(event) => event.preventDefault()} onclick={() => toggle(section.kind, choice.id)} use:menu={() => choiceItems(section.kind, choice)}>
-                        <span class="check row centre" class:on aria-hidden="true">{#if on}<svg viewBox="0 0 24 24" width="12" height="12" in:blur={{ duration: 140 }}><path fill="currentColor" d={MENU_ICONS.read} /></svg>{/if}</span>
+                        <span class="check row centre" class:on aria-hidden="true">{#if on}<svg viewBox="0 0 24 24" width="12" height="12" in:haze={{ blur: 5, duration: 140, scale: 1 }}><path fill="currentColor" d={MENU_ICONS.read} /></svg>{/if}</span>
                         {#if choice.avatar}<Avatar name={choice.avatar.name} url={choice.avatar.avatar} size="22px" radius="50%" />{:else if choice.icon}<svg class="faint" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d={choice.icon} /></svg>{/if}
                         <span class="sm truncate"><EmojiText text={choice.label} /></span>
                         {#if choice.sub}<span class="xs faint truncate">{choice.sub}</span>{/if}

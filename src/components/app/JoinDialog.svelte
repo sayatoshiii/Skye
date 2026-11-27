@@ -24,7 +24,7 @@
   import { toMatrixTo } from "../../scripts/matrix/utilities/links";
   import type { MenuItem } from "./MessageMenu.svelte";
   import EmojiText from "../ui/EmojiText.svelte";
-  import ImageCropper from "../ui/ImageCropper.svelte";
+  import AvatarPicker from "../ui/AvatarPicker.svelte";
 
   let { onclose }: { onclose: () => void } = $props();
 
@@ -51,9 +51,6 @@
   let nameTouched = $state(false);
   let icon: Blob | null = $state.raw(null);
   let original: File | null = $state.raw(null);
-  let cropping: File | null = $state.raw(null);
-  let picker: HTMLInputElement | undefined = $state();
-  let iconPreview: string | undefined = $state();
   let audience: SpaceAudience | undefined = $state();
   let creating = $state(false);
   let createError = $state(false);
@@ -71,31 +68,6 @@
   const choose = (value?: SpaceAudience) => {
     audience = value;
     go("create");
-  };
-
-  const onicon = (event: Event & { currentTarget: HTMLInputElement }) => {
-    const file = event.currentTarget.files?.[0];
-    event.currentTarget.value = "";
-    if (!file || !file.type.startsWith("image/")) return;
-    if (file.type === "image/gif") return seticon(file, file);
-    cropping = file;
-  };
-
-  const seticon = (blob: Blob, source: File) => {
-    if (iconPreview) URL.revokeObjectURL(iconPreview);
-    icon = blob;
-    original = source;
-    iconPreview = URL.createObjectURL(blob);
-  };
-
-  const oncrop = (blob: Blob) => {
-    if (cropping) seticon(blob, cropping);
-    cropping = null;
-  };
-
-  const onupload = () => {
-    if (original && original.type !== "image/gif") cropping = original;
-    else picker?.click();
   };
 
   const create = async (event: SubmitEvent) => {
@@ -207,10 +179,7 @@
 
   let moved = $state(false);
 
-  const exit = dismissible(() => {
-    if (iconPreview) URL.revokeObjectURL(iconPreview);
-    onclose();
-  });
+  const exit = dismissible(() => onclose());
 
   const dismiss = () => {
     clearTimeout(timer);
@@ -243,14 +212,11 @@
   );
 </script>
 
-{#if cropping}
-  <ImageCropper file={cropping} shape="squircle" onapply={oncrop} oncancel={() => (cropping = null)} />
-{/if}
 
 <span class="portal-anchor" hidden></span>
 <div class="layer col centre" class:closing={exit.closing} role="presentation" use:portal>
-  <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
-  <div class="dialog col" onanimationend={exit.onanimationend} inert={exit.closing} role="dialog" aria-modal="true" aria-labelledby="join-title" tabindex="-1" onkeydown={(event) => event.key === "Escape" && close()}>
+  <button type="button" class="scrim modal-scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
+  <div class="dialog modal-sheet col" onanimationend={exit.onanimationend} inert={exit.closing} role="dialog" aria-modal="true" aria-labelledby="join-title" tabindex="-1" onkeydown={(event) => event.key === "Escape" && close()}>
     <span class="handle" aria-hidden="true"></span>
     <button type="button" class="close ghost press row centre" aria-label={text("join", "close")} onclick={close}>
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6 6 18" /></svg>
@@ -280,7 +246,7 @@
           </div>
           <footer class="foot col gap-md centre">
             <span class="md bold strong">{text("create", "have_invite")}</span>
-            <button type="button" class="button secondary wide ghost press md bold" onclick={() => go("join")}>{text("create", "join_space")}</button>
+            <button type="button" class="button large wide" onclick={() => go("join")}>{text("create", "join_space")}</button>
           </footer>
         {:else if step === "join"}
           <form class="col flex-max min-0" {onsubmit}>
@@ -346,7 +312,7 @@
             </div>
             <footer class="foot row-nw align-centre gap-sm">
               <button type="button" class="link ghost press md bold" onclick={() => go("start")} disabled={busy}>{text("create", "back")}</button>
-              <button type="submit" class="button primary ghost press md bold row-nw align-centre gap-sm" disabled={status !== "ready" && !busy} aria-busy={busy}>
+              <button type="submit" class="button large primary row-nw align-centre gap-sm" disabled={status !== "ready" && !busy} aria-busy={busy}>
                 {#if busy}<span class="spinner" aria-hidden="true"></span>{text("join", "joining")}{:else}{actionLabel}{/if}
               </button>
             </footer>
@@ -376,17 +342,8 @@
               <p class="sm muted">{text("create", "customise_subtitle")}</p>
             </header>
             <div class="body col gap-lg scroll">
-              <div class="upload-wrap">
-              <input class="sr-only" type="file" accept="image/*" bind:this={picker} onchange={onicon} disabled={creating} tabindex="-1" />
-              <button type="button" class="upload ghost col centre press" aria-label={text("create", iconPreview ? "crop" : "upload", ...(iconPreview ? ["title"] : []))} onclick={onupload} disabled={creating}>
-                {#if iconPreview}
-                  <img class="upload-preview" src={iconPreview} alt="" />
-                {:else}
-                  <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 8h3l2-3h6l2 3h3v11H4zM12 16a3 3 0 1 0 0-6 3 3 0 0 0 0 6z" /></svg>
-                  <span class="xs bold">{text("create", "upload")}</span>
-                {/if}
-              </button>
-              <button type="button" class="badge ghost press row centre" aria-label={text("create", "crop", "change")} onclick={() => picker?.click()} disabled={creating}><svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" d="M12 6v12M6 12h12" /></svg></button>
+              <div class="avatar-slot row-nw centre">
+                <AvatarPicker disabled={creating} onpick={(blob, file) => ((icon = blob), (original = file))} />
               </div>
               <label class="field col gap-xs">
                 <span class="xs bold faint label">{text("create", "name_label")} <span class="required" aria-hidden="true">*</span></span>
@@ -410,7 +367,7 @@
             </div>
             <footer class="foot row-nw align-centre gap-sm">
               <button type="button" class="link ghost press md bold" onclick={() => go("audience")} disabled={creating}>{text("create", "back")}</button>
-              <button type="submit" class="button primary ghost press md bold row-nw align-centre gap-sm" disabled={!effectiveName.trim() || creating} aria-busy={creating}>
+              <button type="submit" class="button large primary row-nw align-centre gap-sm" disabled={!effectiveName.trim() || creating} aria-busy={creating}>
                 {#if creating}<span class="spinner" aria-hidden="true"></span>{text("create", "creating")}{:else}{text("create", "create")}{/if}
               </button>
             </footer>
@@ -436,7 +393,6 @@
     cursor: default;
     background-color: var(--colours-scrim);
     backdrop-filter: blur(4px);
-    animation: fade var(--azure-duration-md) var(--azure-ease-out);
   }
 
   .dialog {
@@ -447,12 +403,10 @@
     gap: var(--azure-spacing-lg);
     border-radius: var(--azure-radius-lg);
     border: 1px solid var(--colours-outline-hairline);
-    background-color: var(--colours-surface-raised);
-    box-shadow:
-      0 24px 64px -16px black,
-      0 0 40px -20px var(--colours-accent-glow);
+    background-color: var(--colours-foreground);
+    box-shadow: 0 24px 64px -16px black;
     outline: none;
-    animation: pop var(--azure-duration-md) var(--azure-ease-spring);
+    overflow: hidden;
   }
 
   .handle {
@@ -508,12 +462,8 @@
     min-height: 44px;
     border-radius: var(--azure-radius-md);
     border: 1px solid var(--colours-outline-hairline);
-    background-color: var(--colours-surface-hover);
+    background-color: var(--colours-background);
     transition: border-color var(--azure-duration-fast) var(--azure-ease-out);
-  }
-
-  .input:focus-within {
-    border-color: color-mix(in oklab, var(--colours-accent) 55%, transparent);
   }
 
   .input.invalid {
@@ -538,7 +488,7 @@
     padding: var(--azure-spacing-lg);
     border-radius: var(--azure-radius-md);
     border: 1px solid var(--colours-outline-hairline);
-    background-color: var(--colours-surface-hover);
+    background-color: var(--colours-background);
     animation: rise var(--azure-duration-md) var(--azure-ease-out);
   }
 
@@ -560,31 +510,6 @@
     justify-content: flex-end;
   }
 
-  .button {
-    min-height: 42px;
-    padding: 0 var(--azure-spacing-xl);
-    border-radius: var(--azure-radius-md);
-    color: var(--colours-text);
-  }
-
-  .button:hover:not(:disabled) {
-    background-color: var(--colours-surface-hover);
-  }
-
-  .button.primary {
-    color: var(--colours-on-accent);
-    background-color: color-mix(in oklab, var(--colours-accent) 78%, var(--colours-surface-raised));
-  }
-
-  .button.primary:hover:not(:disabled) {
-    background-color: var(--colours-accent);
-  }
-
-  .button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
   .spinner {
     width: 14px;
     height: 14px;
@@ -601,29 +526,10 @@
     }
   }
 
-  @keyframes pop {
-    from {
-      opacity: 0;
-      transform: scale(0.96);
-    }
-  }
-
   @keyframes rise {
     from {
       opacity: 0;
       transform: translateY(6px);
-    }
-  }
-
-  @keyframes slide {
-    from {
-      transform: translateY(100%);
-    }
-  }
-
-  @keyframes fade {
-    from {
-      opacity: 0;
     }
   }
 
@@ -644,7 +550,6 @@
       max-height: 90dvh;
       padding: var(--azure-spacing-sm) var(--azure-spacing-lg) calc(var(--azure-spacing-xl) + env(safe-area-inset-bottom));
       border-radius: var(--azure-radius-lg) var(--azure-radius-lg) 0 0;
-      animation: slide var(--azure-duration-glide) var(--azure-ease-fluid);
     }
 
     .handle {
@@ -656,14 +561,10 @@
       background-color: var(--colours-outline-strong);
     }
 
-    .button,
     .close {
       min-height: var(--azure-touch);
       min-width: var(--azure-touch);
     }
-  }
-  .dialog {
-    overflow: hidden;
   }
 
   .close {
@@ -718,15 +619,15 @@
     text-align: left;
     border-radius: var(--azure-radius-md);
     border: 1px solid var(--colours-outline-hairline);
-    background-color: var(--colours-surface-hover);
+    background-color: var(--colours-background);
   }
 
   .option:hover {
-    background-color: var(--colours-surface-active);
+    background-color: var(--colours-surface);
   }
 
   .option.press:active {
-    transform: scale(0.985);
+    transform: scale(var(--press, 0.99));
     background-color: var(--colours-surface-pressed);
   }
 
@@ -750,7 +651,7 @@
   .foot {
     margin: 0 calc(var(--azure-spacing-xl) * -1) calc(var(--azure-spacing-xl) * -1);
     padding: var(--azure-spacing-lg) var(--azure-spacing-xl);
-    background-color: var(--colours-surface-hover);
+    background-color: var(--colours-background);
     border-top: 1px solid var(--colours-outline-hairline);
   }
 
@@ -760,10 +661,6 @@
 
   .wide {
     width: 100%;
-  }
-
-  .button.secondary {
-    background-color: var(--colours-surface-active);
   }
 
   .link,
@@ -799,56 +696,6 @@
     overflow-wrap: anywhere;
   }
 
-  .upload-wrap {
-    position: relative;
-    align-self: center;
-    flex: none;
-    margin-inline: auto;
-    width: 80px;
-    height: 80px;
-  }
-
-  .upload {
-    position: relative;
-    flex: none;
-    width: 80px;
-    height: 80px;
-    aspect-ratio: 1;
-    overflow: hidden;
-    gap: 2px;
-    cursor: pointer;
-    border-radius: 50%;
-    border: 2px dashed var(--colours-outline-hairline);
-    background-color: var(--colours-surface-hover);
-    color: var(--colours-text-faint);
-  }
-
-  .upload:hover {
-    color: var(--colours-text-muted);
-    border-color: var(--colours-outline-strong);
-  }
-
-  .upload-preview {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    border-radius: 50%;
-  }
-
-  .badge {
-    position: absolute;
-    top: -2px;
-    right: -2px;
-    z-index: 1;
-    width: 22px;
-    height: 22px;
-    border-radius: 50%;
-    color: var(--colours-on-accent);
-    background-color: var(--colours-accent);
-  }
-
   @keyframes step-in {
     from {
       opacity: 0;
@@ -863,42 +710,9 @@
     }
   }
 
-  .closing .scrim {
-    animation: fade-out var(--azure-duration-md) var(--azure-ease-out) forwards;
-  }
-
-  .closing .dialog {
-    animation: pop-out var(--azure-duration-md) var(--azure-ease-out) forwards;
-  }
-
-  @keyframes fade-out {
-    to {
-      opacity: 0;
-    }
-  }
-
-  @keyframes pop-out {
-    to {
-      opacity: 0;
-      transform: scale(0.96);
-    }
-  }
-
-  @keyframes sink {
-    to {
-      transform: translateY(100%);
-    }
-  }
-
-  @media (max-width: 767px) {
-    .closing .dialog {
-      animation: sink var(--azure-duration-md) var(--azure-ease-out) forwards;
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .step.enter {
-      animation-name: fade;
+      animation-name: enter-fade;
     }
   }
 

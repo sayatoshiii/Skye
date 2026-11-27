@@ -126,7 +126,7 @@
     </div>
   </div>
   {#snippet actions()}
-    <button type="button" class="dialog-button ghost press sm bold primary" disabled={!pin} onclick={send}>{text("share")}</button>
+    <button type="button" class="button primary" disabled={!pin} onclick={send}>{text("share")}</button>
   {/snippet}
 </ConfirmDialog>
 

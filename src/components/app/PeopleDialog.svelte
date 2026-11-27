@@ -44,8 +44,8 @@
 
 <span class="portal-anchor" hidden></span>
 <div class="people-layer col centre" class:closing={exit.closing} role="presentation" use:portal>
-  <button type="button" class="people-scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
-  <div class="people-dialog col" class:split={!!groups} onanimationend={exit.onanimationend} inert={exit.closing} role="dialog" aria-modal="true" aria-label={title} tabindex="-1" onkeydown={(event) => event.key === "Escape" && close()}>
+  <button type="button" class="people-scrim modal-scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
+  <div class="people-dialog modal-sheet col" class:split={!!groups} onanimationend={exit.onanimationend} inert={exit.closing} role="dialog" aria-modal="true" aria-label={title} tabindex="-1" onkeydown={(event) => event.key === "Escape" && close()}>
     <span class="people-handle" aria-hidden="true"></span>
     <header class="people-head row-nw align-centre justify-between gap-md">
       <h2 class="lg bold truncate">{title}</h2>
@@ -101,7 +101,6 @@
     cursor: default;
     background-color: var(--colours-scrim);
     backdrop-filter: blur(4px);
-    animation: fade var(--azure-duration-md) var(--azure-ease-out);
   }
 
   .people-dialog {
@@ -117,7 +116,6 @@
       0 24px 64px -16px black,
       0 0 40px -20px var(--colours-accent-glow);
     outline: none;
-    animation: pop var(--azure-duration-md) var(--azure-ease-spring);
   }
 
   .people-dialog.split {
@@ -199,14 +197,6 @@
     background-color: var(--colours-danger-soft);
   }
 
-  .closing .people-scrim {
-    animation: fade-out var(--azure-duration-md) var(--azure-ease-out) forwards;
-  }
-
-  .closing .people-dialog {
-    animation: pop-out var(--azure-duration-md) var(--azure-ease-out) forwards;
-  }
-
   @media (max-width: 767px) {
     .people-layer {
       justify-content: flex-end;
@@ -220,11 +210,6 @@
       max-height: 80dvh;
       padding: var(--azure-spacing-sm) var(--azure-spacing-lg) calc(var(--azure-spacing-lg) + env(safe-area-inset-bottom));
       border-radius: var(--azure-radius-lg) var(--azure-radius-lg) 0 0;
-      animation: slide var(--azure-duration-glide) var(--azure-ease-fluid);
-    }
-
-    .closing .people-dialog {
-      animation: sink var(--azure-duration-md) var(--azure-ease-out) forwards;
     }
 
     .people-handle {
@@ -262,41 +247,4 @@
     }
   }
 
-  @keyframes pop {
-    from {
-      opacity: 0;
-      transform: scale(0.96);
-    }
-  }
-
-  @keyframes slide {
-    from {
-      transform: translateY(100%);
-    }
-  }
-
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
-  }
-
-  @keyframes fade-out {
-    to {
-      opacity: 0;
-    }
-  }
-
-  @keyframes pop-out {
-    to {
-      opacity: 0;
-      transform: scale(0.96);
-    }
-  }
-
-  @keyframes sink {
-    to {
-      transform: translateY(100%);
-    }
-  }
 </style>

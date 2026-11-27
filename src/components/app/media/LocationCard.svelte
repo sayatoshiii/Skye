@@ -80,7 +80,7 @@
       <span class="xs faint selectable" use:menu={items}>{formatCoordinates(location)}{location.uncertainty ? ` · ${text("location", "accuracy").replace("{metres}", String(Math.round(location.uncertainty)))}` : ""}</span>
     </div>
     {#snippet actions()}
-      <button type="button" class="dialog-button ghost press sm bold primary" onclick={() => open(location!)} use:menu={items}>{text("location", "open_osm")}</button>
+      <button type="button" class="button primary" onclick={() => open(location!)} use:menu={items}>{text("location", "open_osm")}</button>
     {/snippet}
   </ConfirmDialog>
 {/if}

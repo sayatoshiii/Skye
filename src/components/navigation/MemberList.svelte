@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { drift, haze } from "../../scripts/misc/haze";
   import { tooltip } from "../../scripts/misc/tooltip";
   import EmojiText from "../ui/EmojiText.svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
@@ -11,7 +12,6 @@
   import { openMiniProfile } from "../../scripts/stores/profile";
   import { usermenu } from "../../scripts/misc/usermenu";
   import { flip } from "svelte/animate";
-  import { blur } from "svelte/transition";
   import { cubicOut } from "svelte/easing";
 
   let { onclose }: { onclose?: () => void } = $props();
@@ -115,12 +115,6 @@
     });
   });
   const rows = $derived(shown.flatMap((group) => (group.visible.length ? [{ key: group.id, name: group.name, count: group.members.length, member: null }, ...group.visible.map((member) => ({ key: member.userId, name: "", count: 0, member }))] : [])));
-  const lift = (node: HTMLElement, { duration }: { duration: number }) => {
-    const { top, left, width, height } = node.getBoundingClientRect();
-    const parent = (node.offsetParent ?? node.parentElement)!.getBoundingClientRect();
-    Object.assign(node.style, { position: "absolute", top: `${top - parent.top}px`, left: `${left - parent.left}px`, width: `${width}px`, height: `${height}px` });
-    return { duration, easing: cubicOut, css: (t: number) => `opacity: ${t}; filter: blur(${(1 - t) * 6}px)` };
-  };
 
   let calm = $state(false);
   let settle: ReturnType<typeof setTimeout> | undefined;
@@ -148,9 +142,9 @@
     </header>
   {/if}
   {#key room?.roomId}
-  <ul class="col" in:blur={{ amount: 6, duration: 360, easing: cubicOut }}>
+  <ul class="col" in:haze={{ blur: 6, duration: 360, easing: cubicOut, scale: 1 }}>
     {#each rows as row (row.key)}
-      <li class={row.member ? "member-row" : "heading-row"} animate:flip={{ duration: calm ? 380 : 0, easing: cubicOut }} in:blur={{ amount: 6, duration: calm ? 320 : 0, easing: cubicOut }} out:lift={{ duration: calm ? 200 : 0 }}>
+      <li class={row.member ? "member-row" : "heading-row"} animate:flip={{ duration: calm ? 380 : 0, easing: cubicOut }} in:haze={{ blur: 6, duration: calm ? 320 : 0, easing: cubicOut, scale: 1 }} out:drift={{ blur: 6, duration: calm ? 200 : 0, easing: cubicOut, scale: 1 }}>
         {#if row.member}
           {@const member = row.member}
           <button type="button" class="member item press ghost row-nw align-centre gap-md" class:offline={member.presence === "offline"} use:tooltip={member.userId} use:usermenu={{ userId: member.userId, roomId: room?.roomId }} data-profile-trigger aria-label={text("user_profile", "open").replace("{name}", member.displayName)} onclick={(event) => room && openMiniProfile(member.userId, event.currentTarget, "left", room.roomId)}>

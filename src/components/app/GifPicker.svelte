@@ -42,9 +42,10 @@
 </script>
 
 <script lang="ts">
+  import { haze } from "../../scripts/misc/haze";
   import { tick } from "svelte";
   import { flip } from "svelte/animate";
-  import { cubicOut, quartOut } from "svelte/easing";
+  import { quartOut } from "svelte/easing";
   import { reducedMotion, spring } from "../../scripts/misc/spring";
   import { starburst } from "../../scripts/misc/starburst";
   import { dismissible } from "../../scripts/misc/dismiss.svelte";
@@ -203,7 +204,6 @@
   };
 
   const settle = spring(0.45, 0.7);
-  const leave = (_: Element) => ({ duration: reducedMotion() ? 0 : 350, css: (t: number) => `opacity: ${cubicOut(t)}; transform: scale(${0.8 + quartOut(t) * 0.2}); filter: blur(${(1 - quartOut(t)) * 6}px)` });
   const swap = (_: Element) => ({ duration: reducedMotion() ? 0 : 320, css: (t: number) => `opacity: ${t}; transform: scale(${0.6 + quartOut(t) * 0.4}) rotate(${(1 - quartOut(t)) * -30}deg)` });
 
   const ratio = (gif: GifFavourite) => (gif.kind === "mxc" ? `${Number(gif.info.w) || 1} / ${Number(gif.info.h) || 1}` : `${gif.w ?? 1} / ${gif.h ?? 1}`);
@@ -325,7 +325,7 @@
       {:else}
         <div class="saved-grid">
           {#each shown as gif (gif.id)}
-            <div class="tile square" animate:flip={{ duration: reducedMotion() ? 0 : settle.duration, easing: settle.ease }} out:leave>{@render tile(gif)}</div>
+            <div class="tile square" animate:flip={{ duration: reducedMotion() ? 0 : settle.duration, easing: settle.ease }} out:haze={{ blur: 6, scale: 0.8, duration: 350, easing: quartOut }}>{@render tile(gif)}</div>
           {/each}
         </div>
       {/if}

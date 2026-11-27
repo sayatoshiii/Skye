@@ -94,9 +94,9 @@
 
 <span class="portal-anchor" hidden></span>
 <div class="layer col centre" class:closing={exit.closing} role="presentation" use:portal>
-  <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
+  <button type="button" class="scrim modal-scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
   <form
-    class="dialog col"
+    class="dialog modal-sheet col"
     onanimationend={exit.onanimationend}
     inert={exit.closing}
     role="dialog"
@@ -172,7 +172,7 @@
         <span>{labelOf(clear)}</span>
         <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="m6 9 6 6 6-6" /></svg>
       </button>
-      <button type="submit" class="button primary ghost press md bold">{text("status", "save")}</button>
+      <button type="submit" class="button large primary">{text("status", "save")}</button>
     </footer>
   </form>
 </div>
@@ -208,7 +208,6 @@
     cursor: default;
     background-color: var(--colours-scrim);
     backdrop-filter: blur(4px);
-    animation: fade var(--azure-duration-md) var(--azure-ease-out);
   }
 
   .dialog {
@@ -225,7 +224,6 @@
       0 24px 64px -16px black,
       0 0 40px -20px var(--colours-accent-glow);
     outline: none;
-    animation: pop var(--azure-duration-md) var(--azure-ease-spring);
   }
 
   .handle {
@@ -361,74 +359,6 @@
     background-color: var(--colours-surface-hover);
   }
 
-  .button {
-    min-height: 42px;
-    padding: 0 var(--azure-spacing-xl);
-    border-radius: var(--azure-radius-md);
-  }
-
-  .button.primary {
-    color: var(--colours-on-accent);
-    background-color: color-mix(in oklab, var(--colours-accent) 78%, var(--colours-surface-raised));
-  }
-
-  .button.primary:hover {
-    background-color: var(--colours-accent);
-  }
-
-  .closing .scrim {
-    animation: fade-out var(--azure-duration-md) var(--azure-ease-out) forwards;
-  }
-
-  .closing .dialog {
-    animation: pop-out var(--azure-duration-md) var(--azure-ease-out) forwards;
-  }
-
-  @keyframes pop {
-    from {
-      opacity: 0;
-      transform: scale(0.96);
-    }
-  }
-
-  @keyframes pop-out {
-    to {
-      opacity: 0;
-      transform: scale(0.96);
-    }
-  }
-
-  @keyframes rise {
-    from {
-      opacity: 0;
-      transform: translateY(4px);
-    }
-  }
-
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
-  }
-
-  @keyframes fade-out {
-    to {
-      opacity: 0;
-    }
-  }
-
-  @keyframes slide {
-    from {
-      transform: translateY(100%);
-    }
-  }
-
-  @keyframes sink {
-    to {
-      transform: translateY(100%);
-    }
-  }
-
   @media (max-width: 767px) {
     .layer {
       justify-content: flex-end;
@@ -440,11 +370,6 @@
       max-height: 90dvh;
       padding: var(--azure-spacing-sm) var(--azure-spacing-lg) calc(var(--azure-spacing-xl) + env(safe-area-inset-bottom));
       border-radius: var(--azure-radius-lg) var(--azure-radius-lg) 0 0;
-      animation: slide var(--azure-duration-glide) var(--azure-ease-fluid);
-    }
-
-    .closing .dialog {
-      animation: sink var(--azure-duration-md) var(--azure-ease-out) forwards;
     }
 
     .handle {
@@ -465,7 +390,6 @@
       padding: var(--azure-spacing-lg) var(--azure-spacing-lg) calc(var(--azure-spacing-lg) + env(safe-area-inset-bottom));
     }
 
-    .button,
     .close {
       min-height: var(--azure-touch);
       min-width: var(--azure-touch);

@@ -199,8 +199,8 @@
 
 <span class="portal-anchor" hidden></span>
 <div class="layer col centre" class:closing={exit.closing} role="presentation" use:portal>
-  <button type="button" class="scrim ghost" tabindex="-1" aria-hidden="true" onclick={cancel}></button>
-  <div class="dialog col" onanimationend={exit.onanimationend} inert={exit.closing} role="dialog" aria-modal="true" aria-labelledby="crop-title" tabindex="-1" onkeydown={(event) => event.key === "Escape" && (event.stopPropagation(), cancel())}>
+  <button type="button" class="scrim modal-scrim ghost" tabindex="-1" aria-hidden="true" onclick={cancel}></button>
+  <div class="dialog modal-sheet col" onanimationend={exit.onanimationend} inert={exit.closing} role="dialog" aria-modal="true" aria-labelledby="crop-title" tabindex="-1" onkeydown={(event) => event.key === "Escape" && (event.stopPropagation(), cancel())}>
     <header class="row-nw align-centre">
       <h2 id="crop-title" class="lg bold flex-max">{text("title")}</h2>
       <button type="button" class="close ghost press row centre" aria-label={text("close")} onclick={cancel}>
@@ -254,8 +254,8 @@
     <footer class="foot row-nw align-centre gap-sm">
       <button type="button" class="link ghost press md bold" onclick={reset}>{text("reset")}</button>
       <span class="flex-max"></span>
-      <button type="button" class="button secondary ghost press md bold" onclick={cancel}>{text("cancel")}</button>
-      <button type="button" class="button primary ghost press md bold" onclick={apply} disabled={!natural.width || busy} aria-busy={busy}>{text("apply")}</button>
+      <button type="button" class="button large" onclick={cancel}>{text("cancel")}</button>
+      <button type="button" class="button large primary" onclick={apply} disabled={!natural.width || busy} aria-busy={busy}>{text("apply")}</button>
     </footer>
   </div>
 </div>
@@ -275,7 +275,6 @@
     cursor: default;
     background-color: var(--colours-scrim);
     backdrop-filter: blur(4px);
-    animation: fade var(--azure-duration-md) var(--azure-ease-out);
   }
 
   .dialog {
@@ -287,11 +286,10 @@
     overflow: hidden;
     border-radius: var(--azure-radius-lg);
     border: 1px solid var(--colours-outline-hairline);
-    background-color: var(--colours-surface-raised);
+    background-color: var(--colours-foreground);
     box-shadow: 0 24px 64px -16px black;
     outline: none;
     color: var(--colours-text-faint);
-    animation: pop var(--azure-duration-md) var(--azure-ease-spring);
   }
 
   h2 {
@@ -324,6 +322,7 @@
     user-select: none;
     border-radius: var(--azure-radius-md);
     background-color: black;
+    box-shadow: inset 0 0 0 1px var(--colours-outline-hairline);
   }
 
   .stage:active {
@@ -500,81 +499,6 @@
     opacity: 0.75;
   }
 
-  .button {
-    min-height: 42px;
-    padding: 0 var(--azure-spacing-xl);
-    border-radius: var(--azure-radius-md);
-    color: var(--colours-text);
-  }
-
-  .button.secondary {
-    background-color: var(--colours-surface-active);
-  }
-
-  .button.secondary:hover {
-    background-color: var(--colours-surface-pressed);
-  }
-
-  .button.primary {
-    color: var(--colours-on-accent);
-    background-color: color-mix(in oklab, var(--colours-accent) 78%, var(--colours-surface-raised));
-  }
-
-  .button.primary:hover:not(:disabled) {
-    background-color: var(--colours-accent);
-  }
-
-  .button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .closing .scrim {
-    animation: fade-out var(--azure-duration-md) var(--azure-ease-out) forwards;
-  }
-
-  .closing .dialog {
-    animation: pop-out var(--azure-duration-md) var(--azure-ease-out) forwards;
-  }
-
-  @keyframes pop {
-    from {
-      opacity: 0;
-      transform: scale(0.96);
-    }
-  }
-
-  @keyframes pop-out {
-    to {
-      opacity: 0;
-      transform: scale(0.96);
-    }
-  }
-
-  @keyframes fade {
-    from {
-      opacity: 0;
-    }
-  }
-
-  @keyframes fade-out {
-    to {
-      opacity: 0;
-    }
-  }
-
-  @keyframes slide {
-    from {
-      transform: translateY(100%);
-    }
-  }
-
-  @keyframes sink {
-    to {
-      transform: translateY(100%);
-    }
-  }
-
   @media (prefers-reduced-motion: reduce) {
     .stage img,
     .stage img.turning {
@@ -593,11 +517,6 @@
       max-height: 100dvh;
       padding: var(--azure-spacing-lg);
       border-radius: var(--azure-radius-lg) var(--azure-radius-lg) 0 0;
-      animation: slide var(--azure-duration-glide) var(--azure-ease-fluid);
-    }
-
-    .closing .dialog {
-      animation: sink var(--azure-duration-md) var(--azure-ease-out) forwards;
     }
 
     .foot {
@@ -605,7 +524,6 @@
       padding: var(--azure-spacing-lg) var(--azure-spacing-lg) calc(var(--azure-spacing-lg) + env(safe-area-inset-bottom));
     }
 
-    .button,
     .close,
     .turn {
       min-height: var(--azure-touch);

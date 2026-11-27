@@ -39,9 +39,9 @@
 
 <span class="portal-anchor" hidden></span>
 <div class="viewer-layer col centre" class:closing={exit.closing} role="presentation" use:portal>
-  <button type="button" class="viewer-scrim ghost" tabindex="-1" aria-hidden="true" onclick={exit.close}></button>
+  <button type="button" class="viewer-scrim modal-scrim ghost" tabindex="-1" aria-hidden="true" onclick={exit.close}></button>
   <div
-    class="viewer col"
+    class="viewer modal-sheet col"
     role="dialog"
     aria-modal="true"
     aria-label={language || text("chat", "view_code")}
@@ -85,7 +85,6 @@
     inset: 0;
     background-color: var(--colours-scrim);
     backdrop-filter: blur(4px);
-    animation: fade-in var(--azure-duration-md) var(--azure-ease-out);
   }
 
   .viewer {
@@ -98,7 +97,6 @@
     background-color: var(--colours-foreground);
     box-shadow: 0 24px 64px -16px black;
     outline: none;
-    animation: rise-in var(--azure-duration-md) var(--azure-ease-spring);
   }
 
   .viewer-head {
@@ -201,27 +199,6 @@
 
   .viewer-scroll :global(.hljs-strong) {
     font-weight: 700;
-  }
-
-  .closing .viewer-scrim {
-    animation: exit-fade var(--azure-duration-md) var(--azure-ease-out) forwards;
-  }
-
-  .closing .viewer {
-    animation: exit-drop var(--azure-duration-md) var(--azure-ease-out) forwards;
-  }
-
-  @keyframes fade-in {
-    from {
-      opacity: 0;
-    }
-  }
-
-  @keyframes rise-in {
-    from {
-      opacity: 0;
-      transform: translateY(6px);
-    }
   }
 
   @media (max-width: 767px) {

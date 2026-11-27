@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { blur, fly } from "svelte/transition";
+  import { haze } from "../../scripts/misc/haze";
+  import { fly } from "svelte/transition";
   import { flip } from "svelte/animate";
   import { cubicOut } from "svelte/easing";
   import { tick, untrack } from "svelte";
@@ -204,13 +205,13 @@
   aria-label={text("chat", "search_results")}
   style:top="{top}px"
   in:fly={{ x: 24, duration: 420, easing: ease, opacity: 0 }}
-  out:blur={{ duration: 220, amount: 6 }}
+  out:haze={{ duration: 220, blur: 6, scale: 1 }}
   {onkeydown}
 >
   <header class="head row-nw align-centre gap-md" use:menu={headItems}>
     <h3 class="md bold flex-max truncate" aria-live="polite">
       {#key status === "loading" ? "loading" : count}
-        <span in:blur={{ duration: 200, amount: 3 }}>{status === "loading" ? text("chat", "search_searching") : text("chat", count === 1 ? "search_result_one" : "search_result_many").replace("{count}", count.toLocaleString())}</span>
+        <span in:haze={{ duration: 200, blur: 3, scale: 1 }}>{status === "loading" ? text("chat", "search_searching") : text("chat", count === 1 ? "search_result_one" : "search_result_many").replace("{count}", count.toLocaleString())}</span>
       {/key}
     </h3>
     <button type="button" class="ghost pill sm bold press" class:on={filterCount(query) > 0} onclick={onfilters} use:tooltip={text("chat", "search_filters")}>
@@ -233,7 +234,7 @@
 
   <div class="list col" bind:this={list}>
     {#if status === "loading"}
-      <div class="col" in:blur={{ duration: 260, amount: 6 }} out:blur={{ duration: 160, amount: 4 }} aria-busy="true">
+      <div class="col" in:haze={{ duration: 260, blur: 6, scale: 1 }} out:haze={{ duration: 160, blur: 4, scale: 1 }} aria-busy="true">
         {#each [0, 1, 2, 3] as index (index)}
           <div class="card row-nw gap-md">
             <span class="skeleton avatar"></span>
@@ -246,12 +247,12 @@
         {/each}
       </div>
     {:else if status === "error"}
-      <div class="empty col centre gap-sm" in:blur={{ duration: 260, amount: 6 }}>
+      <div class="empty col centre gap-sm" in:haze={{ duration: 260, blur: 6, scale: 1 }}>
         <p class="md bold">{text("chat", "search_error")}</p>
         <button type="button" class="ghost pill xs bold press" onclick={run} use:menu={() => [{ id: "search-retry", label: text("chat", "search_retry"), icon: MENU_ICONS.retry, run }]}>{text("chat", "search_retry")}</button>
       </div>
     {:else if !results.length && status === "ready" && !walking}
-      <div class="empty col centre gap-sm" in:blur={{ duration: 260, amount: 6 }}>
+      <div class="empty col centre gap-sm" in:haze={{ duration: 260, blur: 6, scale: 1 }}>
         <span class="badge row centre" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d={SETTINGS_ICONS.search} /></svg></span>
         <p class="md bold">{text("chat", "search_none")}</p>
         <p class="sm muted">{text("chat", encrypted ? "search_none_encrypted" : "search_none_hint")}</p>
@@ -260,7 +261,7 @@
       <ul class="col gap-sm">
         {#each results as event (event.event_id)}
           {@const sender = getSender(event.sender)}
-          <li animate:flip={{ duration: 320, easing: ease }} in:blur={{ duration: 240, amount: 5 }} out:blur={{ duration: 160, amount: 4 }}>
+          <li animate:flip={{ duration: 320, easing: ease }} in:haze={{ duration: 240, blur: 5, scale: 1 }} out:haze={{ duration: 160, blur: 4, scale: 1 }}>
             <button type="button" class="ghost card row-nw gap-md" onclick={() => jump(event.event_id)} use:menu={() => resultItems(event)} aria-label={`${text("chat", "jump")}: ${sender.name}`}>
               <Avatar name={sender.name} url={sender.avatar} size="32px" radius="50%" />
               <span class="col min-0 flex-max gap-xs">
@@ -281,13 +282,13 @@
         {/each}
       </ul>
       {#if server && next}
-        <div class="more row centre" bind:this={sentinel}>{#if status === "more"}<span in:blur={{ duration: 200 }}><LoadingDots /></span>{/if}</div>
+        <div class="more row centre" bind:this={sentinel}>{#if status === "more"}<span in:haze={{ blur: 5, duration: 200, scale: 1 }}><LoadingDots /></span>{/if}</div>
       {/if}
     {/if}
     {#if walking}
       <p class="walking xs muted col align-centre gap-sm" in:fly={{ y: 4, duration: 220, easing: ease, opacity: 0 }}><LoadingDots label={text("chat", "search_older_loading")} />{text("chat", "search_older_loading")}</p>
     {:else if !server && older && status !== "loading" && status !== "error"}
-      <button type="button" class="ghost older sm bold press" disabled={status === "more"} onclick={more} in:blur={{ duration: 220 }} use:menu={() => [{ id: "search-older", label: text("chat", "search_older"), icon: MENU_ICONS.retry, run: more }]}>
+      <button type="button" class="ghost older sm bold press" disabled={status === "more"} onclick={more} in:haze={{ blur: 5, duration: 220, scale: 1 }} use:menu={() => [{ id: "search-older", label: text("chat", "search_older"), icon: MENU_ICONS.retry, run: more }]}>
         {text("chat", status === "more" ? "search_older_loading" : "search_older")}
       </button>
     {/if}
@@ -407,7 +408,7 @@
   }
 
   button.card:active {
-    scale: 0.99;
+    scale: var(--press, 0.99);
   }
 
   .card > :global(:first-child) {

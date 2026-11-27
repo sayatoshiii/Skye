@@ -4,7 +4,7 @@
   import { fetchProfile } from "../../scripts/matrix/utilities/profile";
   import { volumeItems } from "../../scripts/misc/voicemenu";
   import { menu } from "../../scripts/misc/entitymenu.svelte";
-  import { userMenuItems } from "../../scripts/misc/usermenu";
+  import { userActions } from "../../scripts/menus/user";
   import { openMiniProfile } from "../../scripts/stores/profile";
   import { rooms, session } from "../../scripts/stores/matrix";
   import { callMembers, deafened, memberIdentities, muted, speaking, talkingUsers, userOfIdentity, voice } from "../../scripts/stores/voice";
@@ -40,7 +40,7 @@
   <ul class="members col" aria-label={text("in_voice").replace("{count}", String(people.length))}>
     {#each people as person (person.userId)}
       <li transition:reveal>
-        <button type="button" class="member ghost row-nw align-centre gap-md sm" class:talking={person.talking} data-profile-trigger onclick={(event) => (event.stopPropagation(), openMiniProfile(person.userId, event.currentTarget, "right", roomId))} use:menu={() => [...userMenuItems(person.userId, roomId), ...volumeItems(person.userId)]}>
+        <button type="button" class="member ghost row-nw align-centre gap-md sm" class:talking={person.talking} data-profile-trigger onclick={(event) => (event.stopPropagation(), openMiniProfile(person.userId, event.currentTarget, "right", roomId))} use:menu={() => [...userActions(person.userId, { roomId }), ...volumeItems(person.userId)]}>
           <span class="ring">
             <Avatar name={person.name} url={person.avatar} size="24px" radius="50%" />
           </span>
