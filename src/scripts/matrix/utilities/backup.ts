@@ -109,6 +109,16 @@ const matchesKeyInfo = async (key: Uint8Array<ArrayBuffer>, info: SecretStorageK
   return trimEquals(check.mac) === trimEquals(info.mac);
 };
 
+const unlockKey = async (secret: string, info: SecretStorageKeyInfo) => {
+  const direct = await Promise.resolve().then(() => decodeKey(secret)).catch(() => null);
+  const derived = () => Promise.resolve().then(() => (info.passphrase ? deriveFromPassphrase(secret, info.passphrase) : null)).catch(() => null);
+  for (const candidate of [() => direct, derived]) {
+    const key = await candidate();
+    if (key && (await matchesKeyInfo(key, info))) return key;
+  }
+  throw backupError("wrong_key");
+};
+
 const toBackupKey = (bytes: Uint8Array) => {
   try {
     return BackupDecryptionKey.fromBase64(
@@ -267,14 +277,13 @@ export const openSecretStorage = async (session: Session, secret: string) => {
   const keyInfo = keyId ? await getAccountData<SecretStorageKeyInfo>(session, `m.secret_storage.key.${keyId}`) : null;
   if (!keyInfo) throw backupError("no_secret");
   if (keyInfo.algorithm !== SECRET_STORAGE_ALGORITHM) throw backupError("unsupported");
-  const key = decodeKey(secret);
-  if (!(await matchesKeyInfo(key, keyInfo))) throw backupError("wrong_key");
+  const key = await unlockKey(secret, keyInfo);
   const read = async (name: string) => {
     const payload = (await getAccountData<EncryptedSecret>(session, name))?.encrypted?.[keyId];
     return payload ? decryptAESSecretStorageItem(payload, key, name).catch(() => undefined) : undefined;
   };
-  const [master, selfSigning, userSigning] = await Promise.all(CROSS_SIGNING_SECRETS.map(read));
-  return { master, selfSigning, userSigning };
+  const [master, selfSigning, userSigning, backup] = await Promise.all([...CROSS_SIGNING_SECRETS, BACKUP_SECRET].map(read));
+  return { master, selfSigning, userSigning, backup };
 };
 
 export const crossSigningSecrets = (keys: { master?: string; selfSigning?: string; userSigning?: string }) =>

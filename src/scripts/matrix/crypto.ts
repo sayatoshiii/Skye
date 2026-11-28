@@ -587,7 +587,8 @@ export const createCrypto = (context: CryptoContext) => {
     const device = await machine.getDevice(new WasmUserId(session.userId), new WasmDeviceId(session.deviceId));
     device && keys.selfSigning && (await sendAndMark(machine, await device.verify()));
     processOutgoing();
-    return (await hasBackup()) ? restoreFromBackup(secret, false, onProgress) : null;
+    const backup = await getBackupInfo(session);
+    return !backup ? null : keys.backup ? restoreWithKey(assertBackupKey(BackupDecryptionKey.fromBase64(keys.backup), backup), onProgress, backup) : restoreFromBackup(secret, false, onProgress).catch(() => null);
   };
 
   const close = async () => {
