@@ -284,9 +284,13 @@ export const messageUser = (userId: string) => {
   userMenu.confirm = { kind: "direct", userId };
 };
 
-export const roomSettings = $state<{ roomId: string | null }>({ roomId: null });
+export const roomSettings = $state<{ roomId: string | null; section?: string }>({ roomId: null });
 
-export const openRoomSettings = (roomId: string) => (roomSettings.roomId = roomId);
+export const openRoomSettings = (roomId: string, section?: string) => Object.assign(roomSettings, { roomId, section });
+
+export const roomCreator = $state<{ parentId: string | null }>({ parentId: null });
+
+export const openRoomCreator = (parentId: string) => (roomCreator.parentId = parentId);
 
 export const switcher = $state({ open: false, nonce: 0 });
 

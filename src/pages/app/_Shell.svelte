@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onMount, type Snippet } from "svelte";
   import BrowseChannels from "../../components/app/BrowseChannels.svelte";
+  import RoomPrompts from "../../components/app/RoomPrompts.svelte";
+  import RoomSettings from "../../components/app/RoomSettings.svelte";
   import Chat from "../../components/app/Chat.svelte";
   import IncomingCall from "../../components/app/IncomingCall.svelte";
   import MiniPlayer from "../../components/app/MiniPlayer.svelte";
@@ -19,6 +21,7 @@
   import { currentRoom, joinedMembers, selectRoom, sessionExpired, startMatrix, synced } from "../../scripts/stores/matrix";
   import {
     navigation,
+    roomSettings,
     syncFromLocation,
     type Pane,
   } from "../../scripts/stores/navigation.svelte";
@@ -211,6 +214,12 @@
 <Lightbox />
 <MiniProfile />
 <FullProfile />
+<RoomPrompts />
+{#if roomSettings.roomId}
+  {#key roomSettings.roomId}
+    <RoomSettings roomId={roomSettings.roomId} initial={roomSettings.section} onclose={() => (roomSettings.roomId = null)} />
+  {/key}
+{/if}
 
 <style>
   .shell {
