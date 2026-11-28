@@ -114,8 +114,19 @@ export const getRoomDisplayName = (
   return names.length ? names.join(", ") : room.roomId;
 };
 
+const PRIVILEGED_CREATORS = /^(1[2-9]|[2-9]\d|org\.matrix\.hydra\.11)$/;
+
+export const creatorsOf = (room: RoomSummary): UserId[] => {
+  const create = room.state["m.room.create"]?.[""];
+  return create?.sender && PRIVILEGED_CREATORS.test(String(create.content?.room_version ?? ""))
+    ? [create.sender, ...(Array.isArray(create.content?.additional_creators) ? create.content.additional_creators : [])]
+    : [];
+};
+
+const creatorLevel = (room: RoomSummary) => Math.max(100, ...Object.values(room.powerLevels?.users ?? {})) + 1;
+
 export const getPowerLevel = (room: RoomSummary, userId: UserId) =>
-  room.powerLevels?.users?.[userId] ?? room.powerLevels?.users_default ?? 0;
+  creatorsOf(room).includes(userId) ? creatorLevel(room) : (room.powerLevels?.users?.[userId] ?? room.powerLevels?.users_default ?? 0);
 
 export const canSendEvent = (
   room: RoomSummary,
@@ -247,6 +258,8 @@ export const createRoomStore = (ownUserId: UserId) => {
     delete rooms[roomId];
   };
 
+  const touch = (roomId: RoomId) => rooms[roomId] && (rooms[roomId] = { ...rooms[roomId] });
+
   const applySync = (response: SyncResponse) => {
     const direct = response.account_data?.events.find(
       (event) => event.type === "m.direct",
@@ -259,10 +272,10 @@ export const createRoomStore = (ownUserId: UserId) => {
     if (pushRules) [mutedRooms, mentionRooms] = getQuietRooms(pushRules.content);
 
     Object.entries(response.rooms?.join ?? {}).forEach(([id, sync]) =>
-      applyJoined(id, sync),
+      (applyJoined(id, sync), touch(id)),
     );
     Object.entries(response.rooms?.invite ?? {}).forEach(([id, sync]) =>
-      applyInvited(id, sync),
+      (applyInvited(id, sync), touch(id)),
     );
     Object.entries(response.rooms?.leave ?? {}).forEach(([id, sync]) =>
       applyLeft(id, sync),
@@ -285,6 +298,7 @@ export const createRoomStore = (ownUserId: UserId) => {
       room.readTs = room.latestForeign.ts;
       room.readEventId = room.latestForeign.eventId;
     }
+    touch(roomId);
     emitter.emit("change", { ...rooms });
   };
 
@@ -294,6 +308,7 @@ export const createRoomStore = (ownUserId: UserId) => {
     if (!room || seen.has(eventId)) return;
     seen.add(eventId);
     room.highlightCount = Math.max(room.highlightCount, seen.size);
+    touch(roomId);
     emitter.emit("change", { ...rooms });
   };
 
@@ -301,6 +316,7 @@ export const createRoomStore = (ownUserId: UserId) => {
     const room = rooms[roomId];
     if (!room || room.localUnread === count) return;
     room.localUnread = count;
+    touch(roomId);
     emitter.emit("change", { ...rooms });
   };
 
@@ -314,6 +330,7 @@ export const createRoomStore = (ownUserId: UserId) => {
       content: { pinned },
     } as StateEvent;
     deriveFromState(room);
+    touch(roomId);
     emitter.emit("change", { ...rooms });
   };
 

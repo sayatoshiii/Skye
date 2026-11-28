@@ -1,15 +1,17 @@
-import { sessionRequest } from "../session";
+import { sendState } from "./state";
+import { getPowerLevel } from "../rooms";
 import type { PowerLevels, RoomId, RoomSummary, Session } from "../types";
 
 export const ROLES_EVENT = "chat.skye.roles";
 
 export type RoleMeta = { level: number; name: string; color?: string; icon?: string };
-export type RolesContent = { roles: RoleMeta[] };
+export type RolesContent = { roles: RoleMeta[]; sync?: boolean };
 export type Role = RoleMeta & { members: string[] };
 
 export type Permission = {
   key: string;
   group: "general" | "members" | "messages" | "advanced";
+  space?: boolean;
   read: (levels: PowerLevels) => number;
   write: (levels: PowerLevels, value: number) => void;
 };
@@ -32,6 +34,7 @@ export const PERMISSIONS: Permission[] = [
   stateEvent("avatar", "general", "m.room.avatar"),
   stateEvent("alias", "general", "m.room.canonical_alias"),
   stateEvent("pinned", "general", "m.room.pinned_events"),
+  { ...stateEvent("rooms", "general", "m.space.child"), space: true },
   { key: "state", group: "general", read: (levels) => levels.state_default ?? 50, write: (levels, value) => (levels.state_default = value) },
   field("invite", "members", 0),
   field("kick", "members", 50),
@@ -48,6 +51,10 @@ export const PERMISSIONS: Permission[] = [
   stateEvent("server_acl", "advanced", "m.room.server_acl"),
   stateEvent("upgrade", "advanced", "m.room.tombstone"),
 ];
+
+export const permissionsFor = (room: RoomSummary | undefined | null) => PERMISSIONS.filter((permission) => !permission.space || !!room?.isSpace);
+
+export const canManageRooms = (room: RoomSummary | undefined | null, userId: string) => !!room && levelOf(room, userId) >= stateRead("m.space.child")(room.powerLevels ?? {});
 
 export const PERMISSION_GROUPS: Permission["group"][] = ["general", "members", "messages", "advanced"];
 
@@ -74,22 +81,11 @@ export const buildRoles = (levels: PowerLevels, meta: RoleMeta[], members: strin
 
 export const grant = (levels: PowerLevels, permission: Permission, level: number, on: boolean) => permission.write(levels, level + Number(!on));
 
-export const setPowerLevels = (session: Session, roomId: RoomId, content: PowerLevels) =>
-  sessionRequest<{ event_id: string }>(session, {
-    endpoint: `rooms/${encodeURIComponent(roomId)}/state/m.room.power_levels`,
-    method: "PUT",
-    body: content,
-  });
+export const setPowerLevels = (session: Session, roomId: RoomId, content: PowerLevels) => sendState(session, roomId, "m.room.power_levels", content);
 
-export const setRoles = (session: Session, roomId: RoomId, content: RolesContent) =>
-  sessionRequest<{ event_id: string }>(session, {
-    endpoint: `rooms/${encodeURIComponent(roomId)}/state/${ROLES_EVENT}/`,
-    method: "PUT",
-    body: content,
-  });
+export const setRoles = (session: Session, roomId: RoomId, content: RolesContent) => sendState(session, roomId, ROLES_EVENT, content);
 
-export const levelOf = (room: RoomSummary | undefined | null, userId: string) =>
-  room?.powerLevels?.users?.[userId] ?? room?.powerLevels?.users_default ?? 0;
+export const levelOf = (room: RoomSummary | undefined | null, userId: string) => (room ? getPowerLevel(room, userId) : 0);
 
 export const roleIndex = (room: RoomSummary | undefined | null) =>
   new Map(readRoles(room ?? undefined).filter((role) => role.name).map((role) => [role.level, role]));

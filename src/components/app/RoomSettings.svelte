@@ -4,24 +4,39 @@
   import Avatar from "../ui/Avatar.svelte";
   import EmojiText from "../ui/EmojiText.svelte";
   import Toggle from "../ui/Toggle.svelte";
+  import Button from "../ui/Button.svelte";
+  import { fromAction } from "svelte/attachments";
+  import ImageInput from "../ui/ImageInput.svelte";
+  import UnsavedBar from "../settings/UnsavedBar.svelte";
+  import SettingsRow from "../settings/SettingsRow.svelte";
+  import SettingsSection from "../settings/SettingsSection.svelte";
+  import SettingsShell, { type ShellAction, type ShellGroup } from "../settings/SettingsShell.svelte";
+  import { SETTINGS_ICONS } from "../settings/icons";
+  import { ROOM_ICONS } from "../../scripts/misc/icons";
+  import { ask, askLeave, prompt } from "../../scripts/menus/prompts.svelte";
+  import { haze } from "../../scripts/misc/haze";
+  import LoadingDots from "../ui/LoadingDots.svelte";
+  import { openRoomSettings } from "../../scripts/stores/navigation.svelte";
+  import { closureOf } from "../../scripts/menus/room";
+  import { creatorsOf } from "../../scripts/matrix/rooms";
+  import { announceSync, canOfferSync, childRooms, inSync, sourceOf, syncEnabled, syncingSpace, syncRoom, syncSpace, type RoleSource } from "../../scripts/matrix/utilities/rolesync";
   import Icon from "../settings/Icon.svelte";
   import { untrack } from "svelte";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { menu, openEntityMenu } from "../../scripts/misc/entitymenu.svelte";
-  import { dismissible } from "../../scripts/misc/dismiss.svelte";
-  import { portal } from "../../scripts/misc/portal";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { copied, toastKey } from "../../scripts/stores/toast";
   import { rooms, session } from "../../scripts/stores/matrix";
   import { getPowerLevel } from "../../scripts/matrix/rooms";
   import { uploadImage } from "../../scripts/matrix/utilities/account";
+  import { sendState } from "../../scripts/matrix/utilities/state";
   import {
     DEFAULT_NAMES,
-    PERMISSIONS,
     PERMISSION_GROUPS,
     ROLES_EVENT,
     buildRoles,
     grant,
+    permissionsFor,
     powerRead,
     readRoles,
     setPowerLevels,
@@ -30,13 +45,20 @@
     type Role,
     type RoleMeta,
   } from "../../scripts/matrix/utilities/power";
-  import type { PowerLevels } from "../../scripts/matrix/types";
+  import { hueOf } from "../../scripts/matrix/utilities/profile";
+  import { profileTint } from "../../scripts/misc/palette.svelte";
+  import type { PowerLevels, RoomSummary } from "../../scripts/matrix/types";
   import type { MenuItem } from "./MessageMenu.svelte";
 
   let colourAnchor: HTMLElement | null = $state(null);
-  let { roomId, onclose }: { roomId: string; onclose: () => void } = $props();
+  let { roomId, initial, onclose }: { roomId: string; initial?: string; onclose: () => void } = $props();
 
   type Tab = "display" | "permissions" | "members";
+  type Section = "general" | "roles" | "access" | "advanced";
+  type JoinRule = "invite" | "restricted" | "knock" | "public";
+  type History = "shared" | "invited" | "joined" | "world_readable";
+
+  const HISTORY: History[] = ["shared", "invited", "joined", "world_readable"];
   type Selection = number | "everyone";
 
   const TABS: Tab[] = ["display", "permissions", "members"];
@@ -46,7 +68,7 @@
   ];
 
   const text = (...path: string[]) => getLocalisedText(undefined, "room_settings", ...path) as string;
-  const fill = (key: string, values: Record<string, string | number>) => Object.entries(values).reduce((out, [name, value]) => out.replaceAll(`{${name}}`, String(value)), text(key));
+  const fill = (key: string, values: Record<string, string | number>) => Object.entries(values).reduce((out, [name, value]) => out.replaceAll(`{${name}}`, String(value)), text(...key.split(".")));
 
   const curveX = (s: number) => 0.96 * (1 - s) ** 2 * s + s ** 3;
   const curveDX = (s: number) => 0.96 * (1 - s) * (1 - 3 * s) + 3 * s ** 2;
@@ -60,11 +82,31 @@
   const originalMeta = $derived(readRoles(room));
   const own = $derived(room ? getPowerLevel(room, me) : 0);
   const editable = $derived(own >= powerRead("m.room.power_levels")(original));
-  const metaEditable = $derived(own >= powerRead(ROLES_EVENT)(original));
+  const syncSource = $derived(room?.isSpace ? undefined : syncingSpace($rooms, room));
+  const managed = $derived(!!syncSource);
+  const metaEditable = $derived(own >= powerRead(ROLES_EVENT)(original) && !managed);
+  const spaceSynced = $derived(syncEnabled(room));
+  const spaceRooms = $derived(room?.isSpace ? childRooms($rooms, room) : []);
+  const behind = $derived(spaceSynced && room ? spaceRooms.filter((child) => !inSync(sourceOf(room), child, me)).length : 0);
+  const spaceRolesEditable = $derived(!!syncSource && getPowerLevel(syncSource, me) >= powerRead(ROLES_EVENT)(syncSource.powerLevels ?? {}));
+  const openSpaceRoles = () => syncSource && openRoomSettings(syncSource.roomId, "roles");
+  const roomBehind = $derived(!!syncSource && !!room && !inSync(sourceOf(syncSource), room, me));
+  let syncing = $state(false);
 
   let draft: PowerLevels = $state(untrack(() => structuredClone(($rooms[roomId]?.powerLevels ?? {}) as PowerLevels)));
   let meta: RoleMeta[] = $state(untrack(() => structuredClone(readRoles($rooms[roomId]))));
   let editing = $state(false);
+  const stateOf = (type: string) => $rooms[roomId]?.state[type]?.[""]?.content ?? {};
+  let named = $state(untrack(() => $rooms[roomId]?.name ?? ""));
+  let joinRule = $state<JoinRule>(untrack(() => (stateOf("m.room.join_rules").join_rule as JoinRule) ?? "invite"));
+  let history = $state<History>(untrack(() => (stateOf("m.room.history_visibility").history_visibility as History) ?? "shared"));
+  let encrypted = $state(untrack(() => !!$rooms[roomId]?.encryption));
+  let pictureUrl = $state<string | null>(null);
+  let unpictured = $state(false);
+  let topic = $state(untrack(() => $rooms[roomId]?.topic ?? ""));
+  let picture: { blob: Blob; file: File } | null = $state.raw(null);
+  let pictureInput: { open: () => void; forget: () => void } | undefined = $state();
+  let savedDetails = $state<string | null>(null);
   let selected = $state<Selection>("everyone");
   let tab = $state<Tab>("display");
   let query = $state("");
@@ -81,7 +123,8 @@
   let levelError = $state(false);
   let picker: HTMLInputElement | undefined = $state();
 
-  const exit = dismissible(() => onclose());
+  let section = $state<Section>(untrack(() => (["general", "roles", "access", "advanced"].includes(initial ?? "") ? (initial as Section) : "general")));
+  let shell: { close: () => void } | undefined = $state();
 
   const base = $derived(draft.users_default ?? 0);
   const joined = $derived(Object.values(room?.members ?? {}).filter((member) => member.membership === "join").map((member) => member.userId));
@@ -105,10 +148,11 @@
   const canCreate = $derived(editable && metaEditable && free !== undefined);
 
   const permNeedle = $derived(permQuery.trim().toLowerCase());
+  const available = $derived(permissionsFor(room));
   const permGroups = $derived(
     PERMISSION_GROUPS.map((group) => ({
       group,
-      items: PERMISSIONS.filter((permission) => permission.group === group && `${text("perm", permission.key, "label")} ${text("perm", permission.key, "hint")}`.toLowerCase().includes(permNeedle)),
+      items: available.filter((permission) => permission.group === group && `${text("perm", permission.key, "label")} ${text("perm", permission.key, "hint")}`.toLowerCase().includes(permNeedle)),
     })),
   );
   const permOn = (permission: Permission) => permission.read(draft) <= level;
@@ -116,7 +160,7 @@
 
   const memberNeedle = $derived(memberQuery.trim().toLowerCase());
   const roleMembers = $derived((role?.members ?? []).filter((userId) => `${nameOf(userId)} ${userId}`.toLowerCase().includes(memberNeedle)));
-  const memberAllowed = (userId: string) => editable && level <= own && (userId === me || userLevel(userId) < own);
+  const memberAllowed = (userId: string) => !managed && editable && level <= own && (userId === me || userLevel(userId) < own);
   const pickNeedle = $derived(pickQuery.trim().toLowerCase());
   const candidates = $derived(joined.filter((userId) => userLevel(userId) !== level && userLevel(userId) < own && `${nameOf(userId)} ${userId}`.toLowerCase().includes(pickNeedle)));
 
@@ -133,10 +177,19 @@
   $effect(() => void (snapshotMeta(originalMeta), (savedMeta = null)));
   const powerChanged = $derived(canon($state.snapshot(draft)) !== (savedPower ?? canon(original)));
   const metaChanged = $derived(snapshotMeta($state.snapshot(meta) as RoleMeta[]) !== (savedMeta ?? snapshotMeta(originalMeta)));
-  let bar: HTMLDivElement | undefined = $state();
-  const nudge = () => bar && (bar.classList.remove("nudged"), void bar.offsetWidth, bar.classList.add("nudged"));
-  const changed = $derived(powerChanged || metaChanged);
-  const ownNext = $derived(draft.users?.[me] ?? base);
+  let bar: { nudge: () => void } | undefined = $state();
+  const nudge = () => bar?.nudge();
+  const originalJoin = $derived((room?.state["m.room.join_rules"]?.[""]?.content?.join_rule as JoinRule) ?? "invite");
+  const originalHistory = $derived((room?.state["m.room.history_visibility"]?.[""]?.content?.history_visibility as History) ?? "shared");
+  const parents = $derived(room?.parents ?? []);
+  const joinRules = $derived<JoinRule[]>(["invite", ...(parents.length ? (["restricted"] as const) : []), "knock", "public"]);
+  const detailsOriginal = $derived(JSON.stringify([room?.name ?? "", room?.topic ?? "", originalJoin, originalHistory, !!room?.encryption]));
+  $effect(() => void (detailsOriginal, (savedDetails = null)));
+  const textChanged = $derived(JSON.stringify([named.trim(), topic.trim(), joinRule, history, encrypted]) !== (savedDetails ?? detailsOriginal));
+  const detailsChanged = $derived(textChanged || !!picture || unpictured);
+  const can = (type: string) => own >= powerRead(type)(original);
+  const changed = $derived(powerChanged || metaChanged || detailsChanged);
+  const ownNext = $derived(room && creatorsOf(room).includes(me) ? own : (draft.users?.[me] ?? base));
 
   const open = (next: Selection, nextTab: Tab = "display") => ((selected = next), (tab = nextTab), (editing = true), (levelError = false), (memberQuery = ""), (permQuery = ""));
   const back = () => (editing = false);
@@ -172,7 +225,7 @@
   };
 
   const toggle = (permission: Permission, on: boolean) => grant(draft, permission, level, on);
-  const clearPermissions = () => PERMISSIONS.filter((permission) => permAllowed(permission) && permOn(permission)).forEach((permission) => grant(draft, permission, level, false));
+  const clearPermissions = () => available.filter((permission) => permAllowed(permission) && permOn(permission)).forEach((permission) => grant(draft, permission, level, false));
 
   const upload = (file: File | undefined) =>
     file &&
@@ -186,21 +239,95 @@
   const addPicked = () => (picked.forEach((userId) => setUser(userId, level)), (picked = []), (picking = false));
   const pick = (userId: string) => (picked = picked.includes(userId) ? picked.filter((id) => id !== userId) : [...picked, userId]);
 
-  const reset = () => ((draft = structuredClone($state.snapshot(original) as PowerLevels)), (meta = structuredClone(originalMeta)), (failed = false), (levelError = false));
+  const reset = () => (
+    (draft = structuredClone($state.snapshot(original) as PowerLevels)),
+    (meta = structuredClone(originalMeta)),
+    (named = room?.name ?? ""),
+    (topic = room?.topic ?? ""),
+    (joinRule = originalJoin),
+    (history = originalHistory),
+    (encrypted = !!room?.encryption),
+    (picture = null),
+    (unpictured = false),
+    (pictureUrl && URL.revokeObjectURL(pictureUrl)),
+    (pictureUrl = null),
+    pictureInput?.forget(),
+    (failed = false),
+    (levelError = false)
+  );
+
+  const saveDetails = async () => {
+    const [nextName, nextTopic] = [named.trim(), topic.trim()];
+    await Promise.all([
+      nextName !== (room?.name ?? "") && sendState($session!, roomId, "m.room.name", { name: nextName }),
+      nextTopic !== (room?.topic ?? "") && sendState($session!, roomId, "m.room.topic", { topic: nextTopic }),
+      picture && uploadImage($session!, picture.blob, picture.file.name).then((url) => sendState($session!, roomId, "m.room.avatar", { url })),
+      unpictured && !picture && sendState($session!, roomId, "m.room.avatar", {}),
+      joinRule !== originalJoin && sendState($session!, roomId, "m.room.join_rules", joinRule === "restricted" ? { join_rule: joinRule, allow: parents.map((id) => ({ type: "m.room_membership", room_id: id })) } : { join_rule: joinRule }),
+      history !== originalHistory && sendState($session!, roomId, "m.room.history_visibility", { history_visibility: history }),
+      encrypted && !room?.encryption && sendState($session!, roomId, "m.room.encryption", { algorithm: "m.megolm.v1.aes-sha2" }),
+    ]);
+    savedDetails = JSON.stringify([nextName, nextTopic, joinRule, history, encrypted]);
+    unpictured = false;
+    picture = null;
+  };
 
   const commit = () => {
     busy = true;
     failed = false;
+    const notice = detailsChanged ? "settings_saved" : "power_saved";
+    const spread: RoleSource | null = spaceSynced && room && (powerChanged || metaChanged) ? { levels: $state.snapshot(draft) as PowerLevels, roles: $state.snapshot(meta) as RoleMeta[], creators: creatorsOf(room) } : null;
     Promise.all([
       powerChanged && setPowerLevels($session!, roomId, $state.snapshot(draft) as PowerLevels),
-      metaChanged && setRoles($session!, roomId, { roles: [...($state.snapshot(meta) as RoleMeta[])].sort((a, b) => b.level - a.level) }),
+      metaChanged && setRoles($session!, roomId, { ...stateOf(ROLES_EVENT), roles: [...($state.snapshot(meta) as RoleMeta[])].sort((a, b) => b.level - a.level) }),
+      detailsChanged && saveDetails(),
     ])
-      .then(() => ((savedPower = canon($state.snapshot(draft))), (savedMeta = snapshotMeta($state.snapshot(meta) as RoleMeta[])), (busy = false), (demoting = false), toastKey("power_saved", { icon: "check", tone: "success" })))
+      .then(() => ((savedPower = canon($state.snapshot(draft))), (savedMeta = snapshotMeta($state.snapshot(meta) as RoleMeta[])), (busy = false), (demoting = false), toastKey(notice, { icon: "check", tone: "success" }), spread && void spreadRoles(spread)))
       .catch(() => ((busy = false), (demoting = false), (failed = true)));
   };
 
-  const save = () => !busy && changed && $session && (ownNext < own ? (demoting = true) : commit());
-  const close = () => !busy && (changed ? nudge() : exit.close());
+  const spreadRoles = (source: RoleSource) => ((syncing = true), syncSpace($session!, source, spaceRooms).then(announceSync).finally(() => (syncing = false)));
+  const offerSpace = $derived(room && !room.isSpace && !syncSource ? [...new Set(room.parents)].map((id) => $rooms[id]).find((space) => canOfferSync(space, me)) : undefined);
+  const syncHere = () =>
+    syncSource && room && $session && ((syncing = true), syncRoom($session, sourceOf(syncSource), room).then((done) => announceSync({ synced: Number(done), skipped: Number(!done) })).finally(() => (syncing = false)));
+
+  const save = () => !busy && changed && $session && (powerChanged && ownNext < own ? (demoting = true) : commit());
+  const guard = () => busy || (changed && (nudge(), true));
+  const kind = $derived(room?.isSpace ? "space" : "room");
+  const created = $derived(room?.state["m.room.create"]?.[""]);
+  const alias = $derived(room?.state["m.room.canonical_alias"]?.[""]?.content?.alias as string | undefined);
+  const facts = $derived([
+    { id: "id", value: roomId, copy: true },
+    { id: "version", value: String(created?.content?.room_version ?? "1"), copy: false },
+    { id: "creator", value: (room ? creatorsOf(room)[0] : undefined) ?? created?.sender ?? "", copy: true },
+    { id: "created", value: created?.origin_server_ts ? new Date(created.origin_server_ts).toLocaleString() : "", copy: false },
+  ].filter((fact) => fact.value));
+  const groups = $derived<ShellGroup<Section>[]>([
+    {
+      id: "settings",
+      entries: [
+        { id: "general", label: text("sections", "general"), icon: MENU_ICONS.info, parts: ["name", "picture", "topic", ...(alias ? ["address"] : [])].map((id) => ({ id, label: text("parts", id) })) },
+        { id: "roles", label: text("sections", "roles"), icon: SETTINGS_ICONS.shield },
+        { id: "access", label: text("sections", "access"), icon: SETTINGS_ICONS.privacy, parts: ["join", "history", ...(room?.isSpace ? [] : ["encryption"])].map((id) => ({ id, label: text("parts", id) })) },
+        { id: "advanced", label: text("sections", "advanced"), icon: SETTINGS_ICONS.gear, parts: [{ id: "details", label: text("parts", "details") }] },
+      ],
+    },
+  ]);
+  const actions = $derived<ShellAction[]>([
+    { id: "leave", label: text("leave", kind), icon: MENU_ICONS.leave, run: () => (shell?.close(), room?.isSpace ? ask("leave-space", roomId) : askLeave(roomId)) },
+    ...(!room?.isSpace && closureOf(roomId).allowed ? [{ id: "delete", label: text("delete_room"), icon: ROOM_ICONS.remove, run: () => (shell?.close(), ask("delete", roomId)) }] : []),
+  ]);
+  const choosePicture = (blob: Blob, file: File) => (pictureUrl && URL.revokeObjectURL(pictureUrl), (pictureUrl = URL.createObjectURL(blob)), (picture = { blob, file }), (unpictured = false));
+  const removePicture = () => (pictureInput?.forget(), pictureUrl && URL.revokeObjectURL(pictureUrl), (pictureUrl = null), (picture = null), (unpictured = !!room?.avatarUrl));
+  const shownPicture = $derived(pictureUrl ?? (unpictured ? undefined : room?.avatarUrl));
+  const editors: [string, () => unknown][] = [
+    [".preview-face", () => can("m.room.avatar") && pictureInput?.open()],
+    [".preview-title", () => document.getElementById("room-name")?.focus()],
+    [".preview-topic", () => document.getElementById("room-topic")?.focus()],
+  ];
+  const editFrom = (event: MouseEvent) => editors.find(([selector]) => (event.target as Element).closest(selector))?.[1]();
+  const tint = profileTint(() => ({ avatar: shownPicture }));
+  $effect(() => () => void (pictureUrl && URL.revokeObjectURL(pictureUrl)));
 
   const openMore = (event: MouseEvent, items: MenuItem[]) => {
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
@@ -233,7 +360,6 @@
     ...(value ? [{ id: "copy", label: text("copy_colour"), icon: MENU_ICONS.copy, run: () => copied(value) }] : []),
   ];
   const tabItems = (id: Tab): MenuItem[] => [{ id, label: text("tabs", id), icon: MENU_ICONS.open, selected: activeTab === id, run: () => (tab = id) }];
-  const closeItems = (): MenuItem[] => [{ id: "close", label: text("close"), icon: MENU_ICONS.close, run: close }];
   const backItems = (): MenuItem[] => [{ id: "back", label: text("back"), icon: MENU_ICONS.collapse, run: back }];
   const saveItems = (): MenuItem[] => [
     { id: "save", label: text("save"), icon: MENU_ICONS.save, disabled: busy, run: save },
@@ -262,19 +388,137 @@
   </span>
 {/snippet}
 
-<span class="portal-anchor" hidden></span>
-<div class="roles-layer set-surface" class:closing={exit.closing} role="presentation" use:portal>
-  <button type="button" class="roles-scrim ghost" tabindex="-1" aria-hidden="true" onclick={close}></button>
-  <div class="roles-card col" role="dialog" aria-modal="true" aria-label={text("title")} tabindex="-1" inert={exit.closing} onanimationend={exit.onanimationend} onkeydown={(event) => event.key === "Escape" && close()}>
-    <header class="head row-nw align-centre gap-sm">
-      <h2 class="head-title flex-max truncate">{text("title")}<span class="faint"> · <EmojiText text={room?.name ?? ""} /></span></h2>
-      <button type="button" class="round ghost press" aria-label={text("close")} onclick={close} use:menu={closeItems}><Icon name="close" /></button>
-    </header>
+{#snippet offer(space: RoomSummary, body: string)}
+  <div class="sync-offer row align-centre gap-lg" role="note">
+    <span class="col gap-xs flex-max min-0">
+      <span class="md option-name">{text("sync", "offer_title")}</span>
+      <span class="sm faint">{body}</span>
+    </span>
+    <Button variant="link" disabled={syncing} onclick={() => ask("sync-roles", space.roomId)}>{text("sync", syncing ? "syncing" : "enable")}</Button>
+  </div>
+{/snippet}
 
+{#snippet top()}
+  <div class="identity row-nw align-centre gap-sm">
+    <Avatar name={room?.name ?? ""} url={shownPicture} size="40px" radius={room?.isSpace ? "28%" : "50%"} fade />
+    <span class="col min-0">
+      <span class="md truncate identity-name"><EmojiText text={named || room?.name || ""} live /></span>
+      <span class="sm faint">{text(room?.isSpace ? "title_space" : "title_room")}</span>
+    </span>
+  </div>
+{/snippet}
+
+{#snippet preview()}
+  <h3 class="set-label">{text("preview")}</h3>
+  {#key shownPicture}
+  <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+  <div class="preview-card col blur-swap" style:--swap-blur="12px" style:--swap-scale="0.98" onclick={editFrom} style:--hue={hueOf(roomId)} style:--profile-tint={tint.colour} style:--profile-glow={tint.glow}>
+    <span class="preview-banner"></span>
+    <span class="preview-face editable" class:squircle={room?.isSpace}><Avatar name={named || room?.name || ""} url={shownPicture} size="80px" radius={room?.isSpace ? "28%" : "50%"} /></span>
+    <span class="preview-body col gap-xs">
+      <span class="preview-title editable truncate"><EmojiText text={named || room?.name || ""} live /></span>
+      {#if topic}<span class="sm preview-topic editable clamp">{topic}</span>{/if}
+      <span class="sm preview-meta">{fill(joined.length === 1 ? "members_one" : "members_count", { count: joined.length })}{#if created?.origin_server_ts} · {fill("since", { date: new Date(created.origin_server_ts).toLocaleDateString(undefined, { month: "short", year: "numeric" }) })}{/if}</span>
+    </span>
+  </div>
+  {/key}
+{/snippet}
+
+<SettingsShell
+  bind:this={shell}
+  label={text(room?.isSpace ? "title_space" : "title_room")}
+  {groups}
+  bind:section
+  searchable
+  {guard}
+  {onclose}
+  {top}
+  {actions}
+  wide={section === "roles"}
+  aside={section === "general" ? preview : undefined}
+>
+  {#snippet children()}
+    <UnsavedBar
+      bind:this={bar}
+      open={changed}
+      {busy}
+      message={text(failed ? "failed" : "unsaved")}
+      resetLabel={text("reset_changes")}
+      saveLabel={text(busy ? "saving" : "save")}
+      disabled={!(editable || metaEditable || detailsChanged)}
+      items={saveItems}
+      onreset={reset}
+      onsave={save}
+    />
+    {#if section === "general"}
+      <section class="set-form col">
+        <section class="set-section col gap-sm" data-part="name">
+          <label class="set-heading" for="room-name">{text("details_name")}</label>
+          <div class="set-input"><input id="room-name" bind:value={named} placeholder={text("details_name")} disabled={!can("m.room.name") || busy} maxlength="255" /></div>
+        </section>
+        <section class="set-section col gap-sm" data-part="picture">
+          <h3 class="set-heading">{text("picture")}</h3>
+          <ImageInput bind:this={pictureInput} shape={room?.isSpace ? "squircle" : "circle"} disabled={!can("m.room.avatar") || busy} onpick={choosePicture} />
+          <div class="row gap-sm">
+            <Button variant="outline" icon={MENU_ICONS.image} disabled={!can("m.room.avatar") || busy} onclick={() => pictureInput?.open()}>{text("change_picture")}</Button>
+            {#if shownPicture}
+              <button type="button" class="set-button quiet-danger ghost press" disabled={!can("m.room.avatar") || busy} onclick={removePicture}>{text("remove_picture")}</button>
+            {/if}
+          </div>
+        </section>
+        <section class="set-section col gap-sm" data-part="topic">
+          <label class="set-heading" for="room-topic">{text("details_topic")}</label>
+          <div class="set-input"><input id="room-topic" bind:value={topic} placeholder={text("details_topic_placeholder")} disabled={!can("m.room.topic") || busy} /></div>
+        </section>
+        {#if alias}
+          <div class="set-section col" data-part="address">
+            <h3 class="set-heading">{text("address")}</h3>
+            <div class="set-panel row-nw align-centre gap-md">
+              <span class="md flex-max truncate">{alias}</span>
+              <button type="button" class="button" onclick={() => copied(alias)}>{text("copy")}</button>
+            </div>
+            <p class="set-hint">{text("address_hint")}</p>
+          </div>
+        {/if}
+      </section>
+    {:else if section === "roles"}
     <div class="pages" class:editing>
       <section class="page list-page col" inert={editing} aria-hidden={editing}>
         <div class="list-body col">
           <p class="set-hint">{text("intro")}</p>
+          {#if room?.isSpace && editable && own >= powerRead(ROLES_EVENT)(original)}
+            {#if spaceSynced}
+              <div class="set-panel row-nw align-centre gap-md">
+                <span class="col flex-max min-0">
+                  <span class="md option-name">{text("sync", "title")}</span>
+                  <span class="sm faint">{behind ? fill("sync.behind", { count: behind }) : fill("sync.on", { count: spaceRooms.length })}</span>
+                </span>
+                {#if behind}<Button variant="link" outlined disabled={syncing} onclick={() => spreadRoles(sourceOf(room!))}>{text("sync", "now")}</Button>{/if}
+                <span class="sync-switch">
+                  {#if prompt.busy && prompt.current?.id === room?.roomId}
+                    <span class="sync-state" transition:haze={{ blur: 4, scale: 0.6, duration: 360 }}><LoadingDots label={text("sync", "syncing")} /></span>
+                  {:else}
+                    {#key prompt.current}
+                      <span class="sync-state" transition:haze={{ blur: 4, scale: 0.6, duration: 360 }}><Toggle checked label={text("sync", "title")} disabled={syncing || !!prompt.current} onchange={(on) => room && ask(on ? "sync-roles" : "unsync-roles", room.roomId)} /></span>
+                    {/key}
+                  {/if}
+                </span>
+              </div>
+            {:else}
+              {@render offer(room, text("sync", "offer_body"))}
+            {/if}
+          {:else if syncSource}
+            <div class="set-panel row-nw align-centre gap-md">
+              <span class="col flex-max min-0">
+                <span class="md option-name">{fill("sync.managed_title", { space: syncSource.name ?? "" })}</span>
+                <span class="sm faint">{text("sync", roomBehind ? "managed_behind" : "managed_body")}</span>
+              </span>
+              {#if roomBehind && editable}<Button variant="link" outlined disabled={syncing} onclick={syncHere}>{text("sync", "now")}</Button>{/if}
+              {#if spaceRolesEditable}<Button variant="link" onclick={openSpaceRoles}>{text("sync", "open_space")}</Button>{/if}
+            </div>
+          {:else if offerSpace}
+            {@render offer(offerSpace, fill("sync.offer_room", { space: offerSpace.name ?? "" }))}
+          {/if}
           <div class="reveal" class:open={!editable}>
             <p class="clip set-hint warn">{text("read_only")}</p>
           </div>
@@ -292,7 +536,7 @@
             <div class="clip">
               <div class="toolbar row-nw align-centre gap-sm">
                 {@render search(query, text("search_roles"), (next) => (query = next))}
-                <button type="button" class="set-button primary press" disabled={!canCreate} onclick={create} use:menu={createItems}>{text("create")}</button>
+                {#if !managed}<Button variant="primary" disabled={!canCreate} onclick={create} {@attach fromAction(menu, () => createItems)}>{text("create")}</Button>{/if}
               </div>
             </div>
           </div>
@@ -340,9 +584,13 @@
             <div class="clip">
               <div class="empty col align-centre gap-md">
                 <span class="empty-art"><Icon name="shield" size={40} /></span>
-                <h3 class="set-heading">{text("empty_title")}</h3>
-                <p class="set-hint">{text("empty_body")}</p>
-                <button type="button" class="set-button primary press" disabled={!canCreate} onclick={create} use:menu={createItems}>{text("create")}</button>
+                <h3 class="set-heading">{managed ? text("sync", "empty_title") : text("empty_title")}</h3>
+                <p class="set-hint">{managed ? fill("sync.empty_body", { space: syncSource?.name ?? "" }) : text("empty_body")}</p>
+                {#if !managed}
+                  <Button variant="primary" disabled={!canCreate} onclick={create} {@attach fromAction(menu, () => createItems)}>{text("create")}</Button>
+                {:else if spaceRolesEditable}
+                  <Button variant="primary" icon={SETTINGS_ICONS.shield} onclick={openSpaceRoles}>{text("sync", "open_space")}</Button>
+                {/if}
               </div>
             </div>
           </div>
@@ -439,8 +687,8 @@
                     <span class="sm faint">{text("icon_hint")}</span>
                     <div class="row-nw align-centre gap-md">
                       <span class="set-tile icon-tile" use:menu={iconItems}>{@render badge(role, 24)}</span>
-                      <button type="button" class="set-button press" disabled={!displayEditable || uploading} onclick={() => picker?.click()} use:menu={iconItems}>{text(uploading ? "icon_uploading" : "icon_upload")}</button>
-                      <button type="button" class="set-button outline-danger press fade" class:gone={!role?.icon} disabled={!displayEditable || !role?.icon} onclick={() => setMeta(level, { icon: undefined })} use:menu={iconItems}>{text("icon_remove")}</button>
+                      <Button disabled={!displayEditable || uploading} onclick={() => picker?.click()} {@attach fromAction(menu, () => iconItems)}>{text(uploading ? "icon_uploading" : "icon_upload")}</Button>
+                      <Button variant="quiet-danger" class={["fade", { gone: !role?.icon }]} disabled={!displayEditable || !role?.icon} onclick={() => setMeta(level, { icon: undefined })} {@attach fromAction(menu, () => iconItems)}>{text("icon_remove")}</Button>
                       <input class="file" type="file" accept="image/*" bind:this={picker} onchange={(event) => upload(event.currentTarget.files?.[0])} />
                     </div>
                   </div>
@@ -467,7 +715,7 @@
                 <div class="panel col">
                   <div class="row-nw align-centre gap-sm">
                     {@render search(permQuery, text("search_permissions"), (next) => (permQuery = next))}
-                    <button type="button" class="set-button press" disabled={!roleEditable} onclick={clearPermissions} use:menu={() => [{ id: "clear", label: text("clear_permissions"), icon: MENU_ICONS.retry, disabled: !roleEditable, run: clearPermissions }]}>{text("clear_permissions")}</button>
+                    <Button disabled={!roleEditable} onclick={clearPermissions} {@attach fromAction(menu, () => () => [{ id: "clear", label: text("clear_permissions"), icon: MENU_ICONS.retry, disabled: !roleEditable, run: clearPermissions }])}>{text("clear_permissions")}</Button>
                   </div>
                   {#each permGroups as { group, items } (group)}
                     <div class="reveal" class:open={items.length > 0}>
@@ -503,7 +751,7 @@
                 <div class="panel col">
                   <div class="row-nw align-centre gap-sm">
                     {@render search(memberQuery, text("search_members"), (next) => (memberQuery = next))}
-                    <button type="button" class="set-button primary press" disabled={!roleEditable} onclick={() => ((picked = []), (pickQuery = ""), (picking = true))} use:menu={() => [{ id: "add", label: text("add_members"), icon: MENU_ICONS.add, disabled: !roleEditable, run: () => (picking = true) }]}>{text("add_members")}</button>
+                    <Button variant="primary" disabled={!roleEditable || managed} onclick={() => ((picked = []), (pickQuery = ""), (picking = true))} {@attach fromAction(menu, () => () => [{ id: "add", label: text("add_members"), icon: MENU_ICONS.add, disabled: !roleEditable, run: () => (picking = true) }])}>{text("add_members")}</Button>
                   </div>
                   <div class="col">
                     {#each roleMembers as userId (userId)}
@@ -531,15 +779,65 @@
         </main>
       </section>
     </div>
-
-    <div class="savebar row-nw align-centre gap-sm" class:open={changed || busy} inert={!(changed || busy)} bind:this={bar} role="status" use:menu={saveItems} onanimationend={(event) => event.animationName.includes("flash") && bar?.classList.remove("nudged")}>
-      <span class="unsaved-text truncate">{text(failed ? "failed" : "unsaved")}</span>
-      <button type="button" class="unsaved-reset ghost press" disabled={busy} onclick={reset}>{text("reset_changes")}</button>
-      <button type="button" class="unsaved-save ghost press" disabled={busy || !(editable || metaEditable)} onclick={save}>{text(busy ? "saving" : "save")}</button>
-    </div>
-  </div>
-</div>
-<span class="portal-anchor" hidden></span>
+    {:else if section === "access"}
+      <section class="set-form col">
+        <div class="set-section col" data-part="join">
+          <h3 class="set-heading">{text("join_title")}</h3>
+          <p class="set-hint">{text("join_hint", kind)}</p>
+          <div class="set-panel col options">
+            {#each joinRules as rule (rule)}
+              <button type="button" class="option ghost press row-nw align-start gap-md" class:selected={joinRule === rule} disabled={!can("m.room.join_rules") || busy} onclick={() => (joinRule = rule)}>
+                <span class="radio" aria-hidden="true"></span>
+                <span class="col">
+                  <span class="md option-name">{text("join", rule, "name")}</span>
+                  <span class="sm faint">{text("join", rule, "hint")}</span>
+                </span>
+              </button>
+            {/each}
+          </div>
+        </div>
+        <div class="set-section col" data-part="history">
+          <h3 class="set-heading">{text("history_title")}</h3>
+          <p class="set-hint">{text("history_hint")}</p>
+          <div class="set-choice" role="radiogroup" aria-label={text("history_title")} style:--index={HISTORY.indexOf(history)} style:--count={HISTORY.length}>
+            <span class="set-thumb" aria-hidden="true"></span>
+            {#each HISTORY as option (option)}
+              <button type="button" class="set-choice-option ghost press sm bold" role="radio" aria-checked={history === option} disabled={!can("m.room.history_visibility") || busy} onclick={() => (history = option)}>{text("history", option)}</button>
+            {/each}
+          </div>
+        </div>
+        {#if !room?.isSpace}
+          <div class="set-section col" data-part="encryption">
+            <h3 class="set-heading">{text("parts", "encryption")}</h3>
+            <div class="set-panel row-nw align-centre gap-lg">
+              <span class="col flex-max">
+                <span class="md option-name">{text("encryption_title")}</span>
+                <span class="sm faint">{text(room?.encryption ? "encryption_on" : "encryption_hint")}</span>
+              </span>
+              <Toggle checked={encrypted} label={text("encryption_title")} disabled={!!room?.encryption || !can("m.room.encryption") || busy} onchange={(value) => (encrypted = value)} />
+            </div>
+          </div>
+        {/if}
+      </section>
+    {:else}
+      <SettingsSection id="details" title={text("parts", "details")}>
+        <div class="set-rows">
+          {#each facts as fact (fact.id)}
+            <SettingsRow
+              label={text("facts", fact.id)}
+              value={fact.value}
+              mono={fact.copy}
+              action={fact.copy ? text("copy") : undefined}
+              icon={MENU_ICONS.copy}
+              onaction={() => copied(fact.value)}
+              items={fact.copy ? () => [{ id: "copy", label: text("copy"), icon: MENU_ICONS.copy, run: () => copied(fact.value) }] : undefined}
+            />
+          {/each}
+        </div>
+      </SettingsSection>
+    {/if}
+  {/snippet}
+</SettingsShell>
 
 {#if picking}
   <ConfirmDialog title={fill("add_title", { name: role?.name ?? "" })} cancelLabel={text("cancel")} tone="primary" onclose={() => (picking = false)}>
@@ -561,7 +859,7 @@
       </div>
     </div>
     {#snippet actions()}
-      <button type="button" class="dialog-button ghost press sm bold primary" disabled={!picked.length} onclick={addPicked}>{text("add")}</button>
+      <button type="button" class="button primary" disabled={!picked.length} onclick={addPicked}>{text("add")}</button>
     {/snippet}
   </ConfirmDialog>
 {/if}
@@ -576,61 +874,110 @@
 {/if}
 
 <style>
-  .roles-layer {
-    position: fixed;
-    inset: 0;
-    z-index: var(--azure-z-overlay);
-    display: grid;
-    place-items: center;
-    interpolate-size: allow-keywords;
+  .identity {
+    width: 100%;
+    min-height: 56px;
+    padding: 4px 8px;
   }
 
-  .roles-layer :global(:is(input, button, label, [role="button"]):is(:focus, :focus-visible)) {
-    outline: none;
+  .identity-name,
+  .option-name,
+  .options {
+    padding: var(--azure-spacing-xs);
   }
 
-  .roles-scrim {
-    position: absolute;
-    inset: 0;
+  .option {
+    padding: var(--azure-spacing-md);
+    border-radius: var(--azure-radius-sm);
+    text-align: left;
+  }
+
+  .option:hover:not(:disabled) {
+    background-color: var(--colours-surface-hover);
+  }
+
+  .option:disabled {
     cursor: default;
-    background-color: var(--colours-scrim);
-    backdrop-filter: blur(6px);
-    animation: roles-fade var(--azure-duration-slow) var(--sheet);
   }
 
-  .roles-card {
-    position: relative;
-    width: min(1100px, calc(100vw - 72px));
-    height: min(820px, calc(100dvh - 28px));
-    overflow: hidden;
-    border-radius: 10px;
-    border: 1px solid var(--line);
-    background-color: var(--card);
-    box-shadow: 0 24px 64px -16px black;
-    outline: none;
-    animation: roles-pop var(--azure-duration-slow) var(--sheet);
-  }
-
-  .closing .roles-scrim {
-    animation: exit-fade var(--azure-duration-md) var(--sheet) forwards;
-  }
-
-  .closing .roles-card {
-    animation: roles-out var(--azure-duration-md) var(--sheet) forwards;
-  }
-
-  .head {
+  .radio {
     flex: none;
-    min-height: 52px;
-    padding: 0 12px 0 20px;
-    border-bottom: 1px solid var(--line);
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 2px var(--colours-text-muted);
+    transition: box-shadow var(--azure-duration-md) var(--azure-ease-spring);
   }
 
-  .head-title {
-    margin: 0;
-    font-size: var(--text-md);
+  .option.selected .radio {
+    box-shadow: inset 0 0 0 2px var(--colours-accent), inset 0 0 0 5px var(--card), inset 0 0 0 10px var(--colours-accent);
+  }
+
+  .clamp {
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  .preview-card {
+    --tint: var(--profile-tint, oklch(0.62 0.13 var(--hue)));
+    margin-top: var(--azure-spacing-sm);
+    overflow: hidden;
+    border-radius: var(--azure-radius-lg);
+    border: 1px solid var(--colours-outline-hairline);
+    background-color: var(--colours-foreground);
+    box-shadow: 0 16px 40px -18px black;
+  }
+
+  .preview-banner {
+    height: 88px;
+    background:
+      radial-gradient(120% 140% at 0% 0%, color-mix(in oklab, var(--tint) 70%, transparent), transparent 60%),
+      linear-gradient(135deg, oklch(0.62 0.13 var(--hue)), color-mix(in oklab, oklch(0.45 0.1 calc(var(--hue) + 40)) 80%, var(--colours-foreground)));
+    border-bottom: 1px solid var(--colours-outline-hairline);
+  }
+
+  .preview-face {
+    display: flex;
+    width: fit-content;
+    margin: -40px 0 var(--azure-spacing-xs) var(--azure-spacing-md);
+    border: 5px solid var(--colours-foreground);
+    border-radius: 50%;
+    background-color: var(--colours-foreground);
+    box-shadow: 0 0 24px var(--profile-glow, color-mix(in oklab, oklch(0.62 0.13 var(--hue)) 55%, transparent));
+  }
+
+  .preview-face.squircle {
+    border-radius: 32%;
+  }
+
+  .preview-body {
+    padding: 0 var(--azure-spacing-md) var(--azure-spacing-md);
+  }
+
+  .editable {
+    cursor: pointer;
+    transition: filter 200ms cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  .editable:hover {
+    filter: brightness(1.15);
+  }
+
+  .preview-title {
+    font-size: var(--text-lg);
     font-weight: 500;
     color: var(--colours-text-strong);
+  }
+
+  .preview-topic {
+    color: var(--colours-text);
+  }
+
+  .preview-meta {
+    color: var(--colours-text-muted);
   }
 
   .round {
@@ -665,14 +1012,17 @@
   .pages {
     position: relative;
     flex: 1;
+    min-width: 0;
     min-height: 0;
     display: grid;
     grid-template-columns: 100% 100%;
+    grid-template-rows: minmax(0, 1fr);
     overflow: hidden;
   }
 
   .page {
     grid-row: 1;
+    min-width: 0;
     min-height: 0;
     transition:
       transform 520ms cubic-bezier(0.32, 0.72, 0, 1),
@@ -705,6 +1055,24 @@
     margin: 0 auto;
     gap: 20px;
     padding: 32px 24px 112px;
+  }
+
+  .sync-switch {
+    display: grid;
+    place-items: center;
+    min-width: 44px;
+  }
+
+  .sync-state {
+    grid-area: 1 / 1;
+    display: flex;
+  }
+
+  .sync-offer {
+    padding: var(--azure-spacing-md) var(--azure-spacing-md) var(--azure-spacing-md) var(--azure-spacing-lg);
+    border-radius: var(--azure-radius-md);
+    border: 1px solid color-mix(in oklab, var(--colours-accent) 35%, transparent);
+    background-color: var(--colours-accent-faint);
   }
 
   .warn {
@@ -1019,11 +1387,11 @@
     display: none;
   }
 
-  .fade {
+  .pages :global(.fade) {
     transition: opacity 320ms var(--sheet);
   }
 
-  .fade.gone {
+  .pages :global(.fade.gone) {
     opacity: 0;
     pointer-events: none;
   }
@@ -1083,154 +1451,6 @@
     overflow: hidden;
   }
 
-  .savebar {
-    position: absolute;
-    left: 50%;
-    bottom: 20px;
-    max-width: calc(100% - 32px);
-    padding: 6px 6px 6px 16px;
-    border-radius: var(--azure-radius-pill);
-    background-color: var(--colours-foreground);
-    border: 1px solid var(--colours-outline-hairline);
-    box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
-    color: var(--colours-text);
-    font-size: var(--text-sm);
-    font-weight: 500;
-    white-space: nowrap;
-    opacity: 0;
-    translate: -50% 24px;
-    scale: 0.92;
-    transition:
-      translate 460ms cubic-bezier(0.32, 0.72, 0, 1),
-      scale 460ms cubic-bezier(0.32, 0.72, 0, 1),
-      opacity 460ms cubic-bezier(0.32, 0.72, 0, 1);
-  }
-
-  .savebar.open {
-    opacity: 1;
-    translate: -50% 0;
-    scale: 1;
-  }
-
-  .unsaved-reset,
-  .unsaved-save {
-    flex: none;
-    min-height: 30px;
-    border-color: transparent;
-    font-size: var(--text-sm);
-  }
-
-  .unsaved-reset {
-    margin: 0 10px 0 20px;
-    color: var(--colours-text-muted);
-  }
-
-  .unsaved-reset:hover:not(:disabled) {
-    color: var(--colours-text-strong);
-    text-decoration: underline;
-  }
-
-  .unsaved-save {
-    padding: 0 16px;
-    border-radius: var(--azure-radius-pill);
-    font-weight: 600;
-    color: var(--colours-on-accent);
-    background-color: color-mix(in oklab, var(--colours-accent) 78%, var(--colours-surface-raised));
-    transition: background-color 240ms cubic-bezier(0.32, 0.72, 0, 1);
-  }
-
-  .unsaved-save:hover:not(:disabled) {
-    background-color: var(--colours-accent);
-  }
-
-  .savebar button:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-
-  .savebar:global(.nudged) {
-    animation:
-      unsaved-shake 500ms linear,
-      unsaved-flash 600ms var(--azure-ease-out);
-  }
-
-  .savebar:global(.nudged) .unsaved-text {
-    animation: unsaved-bold 600ms var(--azure-ease-out);
-  }
-
-  .savebar:global(.nudged) .unsaved-reset {
-    animation: unsaved-reset-flash 600ms var(--azure-ease-out);
-  }
-
-  .savebar:global(.nudged) .unsaved-save {
-    animation: unsaved-save-flash 600ms var(--azure-ease-out);
-  }
-
-  @keyframes unsaved-bold {
-    0%,
-    35% {
-      font-weight: 700;
-    }
-  }
-
-  @keyframes unsaved-reset-flash {
-    0%,
-    35% {
-      color: white;
-    }
-  }
-
-  @keyframes unsaved-save-flash {
-    0%,
-    35% {
-      color: var(--colours-danger);
-      background-color: white;
-    }
-  }
-
-  @keyframes unsaved-shake {
-    10% {
-      transform: translateX(-10px) scale(1.03);
-    }
-    22% {
-      transform: translateX(9px) scale(1.02);
-    }
-    34% {
-      transform: translateX(-7px) scale(1.01);
-    }
-    46% {
-      transform: translateX(6px);
-    }
-    58% {
-      transform: translateX(-4px);
-    }
-    70% {
-      transform: translateX(3px);
-    }
-    84% {
-      transform: translateX(-1px);
-    }
-  }
-
-  @keyframes unsaved-flash {
-    0%,
-    35% {
-      background-color: color-mix(in oklab, var(--colours-danger) 85%, var(--colours-surface-raised));
-      border-color: var(--colours-danger);
-      color: white;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .savebar:global(.nudged) {
-      animation: unsaved-flash 600ms var(--azure-ease-out);
-    }
-  }
-
-  :global(:root[data-motion="reduce"]) .savebar:global(.nudged) {
-    animation: unsaved-flash 600ms var(--azure-ease-out);
-  }
-
   .dialog-link {
     min-height: 36px;
     padding: 0 12px;
@@ -1282,39 +1502,7 @@
     background-color: var(--colours-accent);
   }
 
-  @keyframes roles-fade {
-    from {
-      opacity: 0;
-    }
-  }
-
-  @keyframes roles-pop {
-    from {
-      opacity: 0;
-      transform: scale(0.96);
-    }
-  }
-
-  @keyframes roles-out {
-    to {
-      opacity: 0;
-      transform: scale(0.97);
-    }
-  }
-
   @media (max-width: 767px) {
-    .roles-card {
-      width: 100%;
-      height: 100dvh;
-      border: 0;
-      border-radius: 0;
-      box-shadow: none;
-    }
-
-    .head {
-      padding-top: env(safe-area-inset-top);
-      min-height: calc(52px + env(safe-area-inset-top));
-    }
 
     .round {
       width: var(--azure-touch);
