@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { haze } from "../../scripts/misc/haze";
   import { ignoredUsers } from "../../scripts/stores/ignored";
-  import { copied, toastKey, type ToastIcon } from "../../scripts/stores/toast";
+  import { copied, toastKey } from "../../scripts/stores/toast";
   import { tooltip } from "../../scripts/misc/tooltip";
   import EmojiText from "../ui/EmojiText.svelte";
   import LoadingDots from "../ui/LoadingDots.svelte";
@@ -10,25 +11,26 @@
   import type { RoomSummary } from "../../scripts/matrix/types";
   import { toEntity } from "../../scripts/stores/entities";
   import { dismissNotificationPrompt, enableNotifications, formatCount, notificationPrompt } from "../../scripts/stores/unread";
-  import { directMessages, markAsRead, markUnread, rooms, session, spaces } from "../../scripts/stores/matrix";
-  import { HOME, navigateAwayFrom, navigation, openBrowse, openRoom, openRoomMenu, openRoomSettings, openSpaceMenu, openSwitcher, roomMenu } from "../../scripts/stores/navigation.svelte";
-  import { hiddenRooms, setRoomsHidden } from "../../scripts/stores/hidden";
-  import { serverNameFromUserId } from "../../scripts/matrix/discovery";
-  import { toMatrixTo } from "../../scripts/matrix/utilities/links";
+  import { directMessages, markAsRead, rooms, session, spaces } from "../../scripts/stores/matrix";
+  import { HOME, navigation, openBrowse, openRoom, openRoomCreator, openRoomMenu, openSpaceMenu, openSwitcher, roomCreator, roomMenu } from "../../scripts/stores/navigation.svelte";
+  import { canManageRooms } from "../../scripts/matrix/utilities/power";
+  import CreateRoomDialog from "../app/CreateRoomDialog.svelte";
+  import { roomActions } from "../../scripts/menus/room";
+  import { hiddenRooms } from "../../scripts/stores/hidden";
   import { joinRoom } from "../../scripts/matrix/utilities/hierarchy";
-  import { addDirectRoom, describeMembershipError, forgetRoom, leaveRoom, type MembershipError } from "../../scripts/matrix/utilities/membership";
+  import { addDirectRoom, leaveRoom } from "../../scripts/matrix/utilities/membership";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { SETTINGS_ICONS } from "../settings/icons";
-  import { pushRules, roomLevel, setRoomLevel } from "../../scripts/stores/pushrules";
   import { longpress } from "../../scripts/misc/longpress";
   import { entityText, menu as entityMenu } from "../../scripts/misc/entitymenu.svelte";
-  import { userMenuItems } from "../../scripts/misc/usermenu";
   import type { RoomEntity } from "../../scripts/stores/entities";
   import MessageMenu, { type MenuItem } from "../app/MessageMenu.svelte";
   import Avatar from "../ui/Avatar.svelte";
+  import RoomGlyph from "../ui/RoomGlyph.svelte";
+  import { canOfferSync } from "../../scripts/matrix/utilities/rolesync";
+  import { ask } from "../../scripts/menus/prompts.svelte";
   import PresenceDot from "../ui/PresenceDot.svelte";
   import { statusTextOf } from "../../scripts/stores/presence";
-  import ConfirmDialog from "../ui/ConfirmDialog.svelte";
   import { callMembers, joinable, joinVoice, voice } from "../../scripts/stores/voice";
   import { placeCall } from "../../scripts/stores/calls";
   import VoiceMembers from "./VoiceMembers.svelte";
@@ -118,7 +120,6 @@
     requestAnimationFrame(measure);
     return { destroy: () => observer.disconnect() };
   };
-  const swapIcon = (_node: Element) => ({ duration: reducesMotion() ? 0 : 360, css: (t: number) => `opacity: ${t}; scale: ${0.4 + 0.6 * t}; translate: 0 ${(1 - t) * 4}px; filter: blur(${(1 - t) * 3}px);` });
   const joined = (node: HTMLElement) => {
     const space = node.offsetWidth + 4 + (parseFloat(getComputedStyle(node.parentElement!).columnGap) || 0);
     return {
@@ -153,6 +154,13 @@
       .map((room) => toEntity(room, $session?.userId));
 
   const tree = $derived($spaces.find(({ space }) => space.roomId === navigation.spaceId));
+
+  const SYNC_DISMISSED = "skye.role-sync.dismissed";
+  let syncDismissed = $state<string[]>(JSON.parse(localStorage.getItem(SYNC_DISMISSED) ?? "[]"));
+  const syncSpaceRoom = $derived(tree && $rooms[tree.space.roomId]);
+  const syncOffer = $derived(!!syncSpaceRoom && !syncDismissed.includes(syncSpaceRoom.roomId) && canOfferSync(syncSpaceRoom, $session?.userId ?? ""));
+  const dismissSync = (spaceId: string) => ((syncDismissed = [...syncDismissed, spaceId]), localStorage.setItem(SYNC_DISMISSED, JSON.stringify(syncDismissed)));
+  const acceptSync = () => syncSpaceRoom && ask("sync-roles", syncSpaceRoom.roomId);
   const space = $derived(tree && toEntity(tree.space, $session?.userId));
 
   const categories = $derived.by(() => {
@@ -165,6 +173,7 @@
           name: text("navigation", "direct_messages"),
           rooms: resolveRooms($directMessages),
           collapsible: false,
+          parent: undefined as string | undefined,
         },
         ...(orphans.length
           ? [
@@ -173,6 +182,7 @@
                 name: text("navigation", "rooms"),
                 rooms: orphans,
                 collapsible: true,
+                parent: undefined as string | undefined,
               },
             ]
           : []),
@@ -187,6 +197,7 @@
               name: text("navigation", "uncategorised"),
               rooms: resolveRooms(tree.rooms),
               collapsible: true,
+              parent: tree.space.roomId,
             },
           ]
         : []),
@@ -195,6 +206,7 @@
         name: toEntity(category.space, $session?.userId).name,
         rooms: resolveRooms(category.rooms),
         collapsible: true,
+        parent: category.space.roomId,
       })),
     ];
   });
@@ -248,69 +260,8 @@
     const summary = request && $rooms[request.roomId];
     return request && summary ? { room: toEntity(summary, $session?.userId), x: request.x, y: request.y } : null;
   });
-  let confirming: { room: RoomEntity; forget: boolean } | null = $state(null);
-  let leavingBusy = $state(false);
-  let confirmDialog: ConfirmDialog | undefined = $state();
-  let leaveError: MembershipError | null = $state(null);
-
-  const copy = (value: string, key: string, icon: ToastIcon) => copied(value, key, icon);
-
   const openMenu = (room: RoomEntity, x: number, y: number) => openRoomMenu(room.id, x, y);
 
-  const leave = async (room: RoomEntity, forget: boolean) => {
-    if (!$session || leavingBusy) return;
-    leavingBusy = true;
-    leaveError = null;
-
-    try {
-      await leaveRoom($session, room.id);
-      if (forget) await forgetRoom($session, room.id).catch((error) => console.warn("Skye could not forget the room", error));
-      navigateAwayFrom([room.id]);
-      confirmDialog?.dismiss();
-    } catch (error) {
-      leaveError = describeMembershipError(error);
-      if (!confirming) confirming = { room, forget };
-    } finally {
-      leavingBusy = false;
-    }
-  };
-
-  const askLeave = (room: RoomEntity, event: MouseEvent | KeyboardEvent) => {
-    leaveError = null;
-    if (event.shiftKey) return void leave(room, false);
-    confirming = { room, forget: false };
-  };
-
-  const NOTIFY_ICONS = { all: SETTINGS_ICONS.notifications, mentions: MENU_ICONS.mention, mute: MENU_ICONS.mute };
-
-  const menuItems = (room: RoomEntity): MenuItem[] => {
-    const via = $session ? [serverNameFromUserId($session.userId)] : [];
-    const inSpace = navigation.spaceId !== HOME;
-
-    const user = room.isDirect && room.directUserId ? userMenuItems(room.directUserId, room.id).filter((item) => !item.separated && !item.danger) : [];
-
-    const live = !!$callMembers[room.id]?.length;
-    const here = $voice?.roomId === room.id;
-    const voiceItems: MenuItem[] = here
-      ? []
-      : [{ id: "voice", label: text("voice", live ? "join" : room.isDirect ? "call" : "start"), icon: room.isDirect ? SETTINGS_ICONS.call : SETTINGS_ICONS.headphones, separated: user.length > 0, run: () => (room.isDirect ? placeCall(room.id) : joinVoice(room.id)) }];
-
-    return [
-      ...user,
-      ...voiceItems,
-      { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, separated: user.length > 0, run: () => (markAsRead(room.id), toastKey("marked_read", { icon: "check", tone: "success" })) },
-      { id: "unread", label: text("room_menu", "mark_unread"), icon: MENU_ICONS.unread, run: () => markUnread(room.id) && toastKey("marked_unread", { icon: "unread", tone: "accent" }) },
-      ...(["all", "mentions"] as const).map((level, index) => ({ id: `notify-${level}`, label: text("room_menu", `notify_${level}`), icon: NOTIFY_ICONS[level], selected: roomLevel($pushRules, room.id) === level, separated: index === 0, run: () => setRoomLevel(room.id, level) })),
-      ...[roomLevel($pushRules, room.id) === "mute"].map((muted) => ({ id: "notify-mute", label: text("room_menu", muted ? "notify_unmute" : "notify_mute"), icon: muted ? MENU_ICONS.volume : MENU_ICONS.mute, run: () => setRoomLevel(room.id, muted ? "all" : "mute") })),
-      { id: "settings", label: text("room_menu", "settings"), icon: MENU_ICONS.settings, separated: true, run: () => openRoomSettings(room.id) },
-      { id: "link", label: text("room_menu", "copy_link"), icon: MENU_ICONS.link, run: () => copy(toMatrixTo(room.alias ?? room.id, via), "link_copied", "link") },
-      { id: "id", label: text("room_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(room.id, "id_copied", "id") },
-      ...(inSpace
-        ? [{ id: "hide", label: text("room_menu", "hide"), icon: MENU_ICONS.hide, run: () => (setRoomsHidden(navigation.spaceId, [room.id], true), toastKey("hidden", { icon: "hide", tone: "danger" })) }]
-        : []),
-      { id: "leave", label: text("room_menu", "leave"), icon: MENU_ICONS.leave, danger: true, run: (event) => askLeave(room, event) },
-    ];
-  };
 
   const pick = (roomId: string) => {
     openRoom(navigation.spaceId, roomId);
@@ -356,6 +307,16 @@
         <div class="notify-actions row-nw gap-sm">
           <button type="button" class="notify-enable press xs bold" onclick={enableNotifications}>{text("notifications", "enable")}</button>
           <button type="button" class="notify-later ghost press xs" onclick={dismissNotificationPrompt}>{text("notifications", "later")}</button>
+        </div>
+      </div>
+    {/if}
+    {#if syncOffer}
+      <div class="notify-banner col gap-xs">
+        <p class="sm bold">{text("room_settings", "sync", "offer_title")}</p>
+        <p class="xs muted">{text("room_settings", "sync", "offer_short")}</p>
+        <div class="notify-actions row-nw gap-sm">
+          <button type="button" class="notify-enable press xs bold" onclick={acceptSync}>{text("room_settings", "sync", "enable")}</button>
+          <button type="button" class="notify-later ghost press xs" onclick={() => syncSpaceRoom && dismissSync(syncSpaceRoom.roomId)}>{text("notifications", "later")}</button>
         </div>
       </div>
     {/if}
@@ -414,6 +375,12 @@
           <span class="truncate">{category.name}</span>
         </button>
         {/if}
+        {#if category.parent && canManageRooms($rooms[category.parent], $session?.userId ?? "")}
+          {@const parent = category.parent}
+          <button type="button" class="category-add ghost press" aria-label={text("create_room", "add").replace("{name}", category.name)} use:tooltip={text("create_room", "title")} onclick={() => openRoomCreator(parent)}>
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="currentColor" d={SETTINGS_ICONS.add} /></svg>
+          </button>
+        {/if}
 
         <div class="rooms" class:collapsed={isCollapsed}>
           <ul class="col">
@@ -471,7 +438,7 @@
                         >
                           <span class="dm-voice-body" style:width={faceWidths[call] ? `${faceWidths[call]}px` : null}>
                             {#key face}
-                              <span class="dm-voice-face row-nw align-centre gap-xs" use:sized={call} in:swapIcon out:swapIcon>
+                              <span class="dm-voice-face row-nw align-centre gap-xs" use:sized={call} transition:haze={{ blur: 3, scale: 0.4, y: 4, duration: 360, easing: (t) => t }}>
                                 {#if face === "connecting"}
                                   <LoadingDots label={text("navigation", "in_voice_joining")} />
                                 {:else}
@@ -484,10 +451,10 @@
                         </span>
                       {/if}
                     {:else if $joinable.has(room.id) || $callMembers[room.id]?.length}
-                      <svg class="hash faint" class:live={$voice?.roomId === room.id} viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d={SETTINGS_ICONS.speaker} /></svg>
+                      <RoomGlyph name={room.name} avatar={room.avatar} voice live={$voice?.roomId === room.id} />
                       <span class="truncate flex-max"><EmojiText text={room.name} /></span>
                     {:else}
-                      <span class="hash faint" aria-hidden="true">#</span>
+                      <RoomGlyph name={room.name} avatar={room.avatar} />
                       <span class="truncate flex-max"><EmojiText text={room.name} /></span>
                     {/if}
                     <svg class="mute-icon faint" class:shown={room.muted} viewBox="0 0 24 24" width="14" height="14" aria-label={text("room_menu", "muted")} aria-hidden={!room.muted}><path fill="currentColor" d={MENU_ICONS.mute} /></svg>
@@ -508,34 +475,17 @@
 </section>
 
 {#if menu}
-  <MessageMenu items={menuItems(menu.room)} x={menu.x} y={menu.y} label={text("room_menu", "actions")} onclose={() => (roomMenu.request = null)} />
+  <MessageMenu items={roomActions(menu.room.id)} x={menu.x} y={menu.y} label={text("room_menu", "actions")} onclose={() => (roomMenu.request = null)} />
 {/if}
 
-{#if confirming}
-  {@const target = confirming}
-  <ConfirmDialog
-    bind:this={confirmDialog}
-    title={text("room_menu", "leave_title").replace("{name}", target.room.name)}
-    body={text("room_menu", "leave_body")}
-    cancelLabel={text("room_menu", "cancel")}
-    confirmLabel={leavingBusy ? text("room_menu", "leaving") : text("room_menu", "leave")}
-    busy={leavingBusy}
-    onconfirm={() => leave(target.room, target.forget)}
-    onclose={() => (confirming = null)}
-  >
-    {#if target.room.isDirect}
-      <label class="forget row-nw align-centre gap-sm sm">
-        <input type="checkbox" bind:checked={confirming.forget} disabled={leavingBusy} />
-        <span>{text("room_menu", "forget")}</span>
-      </label>
-    {/if}
-    {#if leaveError}
-      <p class="leave-error sm" role="alert">{text("room_menu", "errors", leaveError)}</p>
-    {/if}
-  </ConfirmDialog>
+{#if roomCreator.parentId}
+  {#key roomCreator.parentId}
+    <CreateRoomDialog parentId={roomCreator.parentId} onclose={() => (roomCreator.parentId = null)} />
+  {/key}
 {/if}
 
 <style>
+
   .finder {
     height: 30px;
     padding: 0 6px 0 10px;
@@ -558,7 +508,7 @@
   }
 
   .finder:active {
-    scale: 0.97;
+    scale: var(--press, 0.97);
     transition-duration: 120ms;
   }
 
@@ -577,15 +527,6 @@
     font-family: inherit;
     background-color: var(--colours-surface-hover);
     color: var(--colours-text-muted);
-  }
-
-  svg.hash {
-    flex: none;
-    transition: color 320ms cubic-bezier(0.32, 0.72, 0, 1);
-  }
-
-  .hash.live {
-    color: var(--colours-success);
   }
 
   .channels {
@@ -651,6 +592,47 @@
     letter-spacing: 0.02em;
     color: var(--colours-text-faint);
     transition: color var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .category {
+    position: relative;
+  }
+
+  .category-add {
+    position: absolute;
+    top: -2px;
+    right: var(--azure-spacing-xs);
+    display: grid;
+    place-items: center;
+    width: 22px;
+    height: 22px;
+    border-radius: var(--azure-radius-sm);
+    color: var(--colours-text-muted);
+    opacity: 0;
+    transition:
+      opacity var(--azure-duration-fast) var(--azure-ease-out),
+      color var(--azure-duration-fast) var(--azure-ease-out),
+      background-color var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .category:hover .category-add,
+  .category-add:focus-visible {
+    opacity: 1;
+  }
+
+  .category:has(.category-add) .category-toggle {
+    padding-right: 30px;
+  }
+
+  .category-add:hover {
+    color: var(--colours-text-strong);
+    background-color: var(--colours-surface-hover);
+  }
+
+  @media (hover: none) {
+    .category-add {
+      opacity: 1;
+    }
   }
 
   .category-label {
@@ -846,23 +828,6 @@
     padding: var(--azure-spacing-sm) var(--azure-spacing-md);
   }
 
-  .forget {
-    cursor: pointer;
-    color: var(--colours-text);
-  }
-
-  .forget input {
-    width: 16px;
-    height: 16px;
-    margin: 0;
-    accent-color: var(--colours-accent);
-  }
-
-  .leave-error {
-    margin: 0;
-    color: var(--colours-danger);
-  }
-
   .browse {
     margin-bottom: var(--azure-spacing-xs);
   }
@@ -884,12 +849,6 @@
   .browse-icon {
     width: 16px;
     flex: none;
-  }
-
-  .hash {
-    width: 16px;
-    text-align: center;
-    font-size: var(--text-lg);
   }
 
   .count-badge {

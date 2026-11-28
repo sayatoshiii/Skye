@@ -32,8 +32,10 @@
 
   let root: HTMLElement | undefined = $state();
 
-  const resolveRoom = (id: string) =>
-    Object.values($rooms).find((room) => room.roomId === id || room.state["m.room.canonical_alias"]?.[""]?.content?.alias === id)?.name;
+  const resolveRoom = (id: string) => {
+    const room = Object.values($rooms).find((room) => room.roomId === id || room.state["m.room.canonical_alias"]?.[""]?.content?.alias === id);
+    return room && { name: room.name, avatar: room.avatarUrl };
+  };
 
   const isHtml = $derived(content.format === HTML_FORMAT && typeof content.formatted_body === "string");
 
@@ -84,6 +86,9 @@
     rendered;
     root?.querySelectorAll<HTMLImageElement>("img[data-mxc]").forEach((image) => {
       getMediaLink(image.dataset.mxc!, image.hasAttribute("data-mx-emoticon") ? 64 : 256).then((link) => link && (image.src = link));
+    });
+    root?.querySelectorAll<HTMLImageElement>("img[data-avatar-mxc]").forEach((image) => {
+      getMediaLink(image.dataset.avatarMxc!, 64).then((link) => link && (image.src = link));
     });
   });
 
@@ -275,6 +280,16 @@
     color: var(--colours-accent-strong);
     background-color: var(--colours-accent-soft);
     transition: background-color var(--azure-duration-fast) var(--azure-ease-out);
+  }
+
+  .rich :global(.mention-icon) {
+    width: 1.1em;
+    height: 1.1em;
+    margin-right: 3px;
+    vertical-align: -0.18em;
+    border-radius: 30%;
+    object-fit: cover;
+    background-color: var(--colours-surface-hover);
   }
 
   .rich :global(a.mention.me),

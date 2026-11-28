@@ -1,6 +1,7 @@
 <script lang="ts">
+  import { haze } from "../../scripts/misc/haze";
   import { reducesMotion } from "../../scripts/settings/motion";
-  import { blur, fade, fly, scale, slide } from "svelte/transition";
+  import { fade, fly, scale, slide } from "svelte/transition";
   import { flip } from "svelte/animate";
   import { backOut, cubicOut } from "svelte/easing";
   import KeyText from "../ui/KeyText.svelte";
@@ -10,6 +11,7 @@
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { canCopyMedia, copyMedia } from "../../scripts/misc/clipboard";
   import { portal } from "../../scripts/misc/portal";
+  import RoomGlyph from "../ui/RoomGlyph.svelte";
   import EmojiText from "../ui/EmojiText.svelte";
   import ReactionKey from "../ui/ReactionKey.svelte";
   import EditorField from "./EditorField.svelte";
@@ -20,7 +22,6 @@
   import { canPin, canRedact, getPowerLevel, getPredecessor, getTombstone } from "../../scripts/matrix/rooms";
   import { joinRoom } from "../../scripts/matrix/utilities/hierarchy";
   import { serverNameFromUserId } from "../../scripts/matrix/discovery";
-  import RoomSettings from "./RoomSettings.svelte";
   import type { TimelineEvent } from "../../scripts/matrix/types";
   import { formatBytes, getUploadLimit, isInline, prepareAttachment, sanitiseFilename, typeOf, uploadAttachment, type PreparedAttachment } from "../../scripts/matrix/utilities/attachments";
   import { seedMedia } from "../../scripts/matrix/utilities/media";
@@ -105,7 +106,7 @@
   import PollDialog from "./PollDialog.svelte";
   import { BEACON, CALL_MEMBER, BEACON_INFO, LOCATION_KEYS, POLL_END, POLL_START, formatCoordinates, getLocation, getPoll, locationContent, osmLink, pollEndContent, pollStartContent, relatedTo, type GeoLocation } from "../../scripts/matrix/utilities/content";
   import { SYSTEM_ICONS, SYSTEM_TYPES, describeSystem, type MemberVerb, type SystemLine } from "../../scripts/matrix/utilities/system";
-  import { handoff, navigation, openJoined, openRoom, openRoomMenu, openRoomSettings, openUserMenu, roomSettings } from "../../scripts/stores/navigation.svelte";
+  import { handoff, navigation, openJoined, openRoom, openRoomMenu, openRoomSettings, openUserMenu } from "../../scripts/stores/navigation.svelte";
   import { openFullProfile, openMiniProfile } from "../../scripts/stores/profile";
   import Skeleton from "../ui/Skeleton.svelte";
   import { clock, exactDate, isFancy, plainDates, whenLabel } from "../../scripts/misc/when";
@@ -223,7 +224,7 @@
   ] as MenuItem[]).concat(([
     { id: "more-pins", label: pinnedIds.length ? `${text("chat", "pins")} (${pinnedIds.length})` : text("chat", "pins"), icon: MENU_ICONS.pin, run: () => (pinsOpen = true) },
     { id: "more-threads", label: text("chat", "threads"), icon: MENU_ICONS.thread, run: () => (threadView = threadView ? null : { rootId: null }) },
-    { id: "more-settings", label: text("chat", "room_settings"), icon: MENU_ICONS.settings, separated: true, run: () => openRoomSettings(roomId) },
+    ...(room?.isDirect ? [] : [{ id: "more-settings", label: text("chat", "room_settings"), icon: MENU_ICONS.settings, separated: true, run: () => openRoomSettings(roomId) }]),
   ] as MenuItem[]).filter((item) => folded.has(item.id.replace("more-", ""))));
   let chatWidth = $state(0);
   let searchQuery: SearchQuery = $state({ term: "", ...emptyFilters() });
@@ -1734,7 +1735,7 @@
               event.preventDefault();
               openRoomMenu(roomId, event.clientX, event.clientY);
             }}
-          >{#if room.isDirect}<span class="faint">@</span>{:else}<svg class="room-hash" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16" /></svg>{/if}<EmojiText text={room.isDirect ? room.name.replace(/^@/, "") : room.name} fade={false} /></button>
+          >{#if room.isDirect}<span class="faint">@</span>{:else if room.avatar}<span class="room-hash"><RoomGlyph name={room.name} avatar={room.avatar} size={24} /></span>{:else}<svg class="room-hash" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M5 9h14M5 15h14M10 4 8 20M16 4l-2 16" /></svg>{/if}<EmojiText text={room.isDirect ? room.name.replace(/^@/, "") : room.name} fade={false} /></button>
         </h2>
       {/if}
       {#if room.topic}
@@ -1789,7 +1790,7 @@
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d={MENU_ICONS.thread} /></svg>
       </button>
     {/if}
-    {#if room}
+    {#if room && !room.isDirect}
       {@const settingsId = room.id}
       <button
         class="icon ghost press"
@@ -1993,7 +1994,7 @@
             {:else if message.plain}
               <div class="body-swap">
                 {#key `${message.content.body ?? ""}\u0000${message.content.formatted_body ?? ""}`}
-                  <p class="body selectable {message.kind}" in:blur|global={{ amount: 6, duration: bodyChanged(message.eventId, `${message.content.body ?? ""}\u0000${message.content.formatted_body ?? ""}`) || returning(message.eventId) ? motion(300) : 0, easing: sheet }} out:blur={{ amount: 6, duration: motion(180), easing: cubicOut }}>{#if message.kind === "emote"}<span class="emote-sender">* <EmojiText text={sender.name} /></span> {/if}<MessageBody content={message.content} {ownUserId} {resolveName} onreact={canReact(message) ? (key) => reactedWith(message.eventId, key) || toggleReaction(message.eventId, key) : undefined} jumbo={message.kind !== "emote"} />{#if message.edited}<span class="edited xs faint"> {text("chat", "edited")}</span>{/if}</p>
+                  <p class="body selectable {message.kind}" in:haze|global={{ blur: 6, duration: bodyChanged(message.eventId, `${message.content.body ?? ""}\u0000${message.content.formatted_body ?? ""}`) || returning(message.eventId) ? motion(300) : 0, easing: sheet, scale: 1 }} out:haze={{ blur: 6, duration: motion(180), easing: cubicOut, scale: 1 }}>{#if message.kind === "emote"}<span class="emote-sender">* <EmojiText text={sender.name} /></span> {/if}<MessageBody content={message.content} {ownUserId} {resolveName} onreact={canReact(message) ? (key) => reactedWith(message.eventId, key) || toggleReaction(message.eventId, key) : undefined} jumbo={message.kind !== "emote"} />{#if message.edited}<span class="edited xs faint"> {text("chat", "edited")}</span>{/if}</p>
                 {/key}
               </div>
             {:else}
@@ -2317,12 +2318,6 @@
     />
   {/if}
 
-  {#if roomSettings.roomId}
-    {#key roomSettings.roomId}
-      <RoomSettings roomId={roomSettings.roomId} onclose={() => (roomSettings.roomId = null)} />
-    {/key}
-  {/if}
-
   {#if pollOpen}
     <PollDialog onsubmit={createPoll} onclose={() => (pollOpen = false)} />
   {/if}
@@ -2576,6 +2571,10 @@
     color: var(--colours-text-faint);
   }
 
+  span.room-hash {
+    vertical-align: -7px;
+  }
+
   .name-button:hover,
   .name-button:focus-visible {
     text-decoration: underline;
@@ -2755,7 +2754,7 @@
   }
 
   .banner-action:active {
-    scale: 0.95;
+    scale: var(--press, 0.97);
     transition-duration: 120ms;
   }
 
@@ -2801,7 +2800,7 @@
   }
 
   .banner-later:active {
-    scale: 0.95;
+    scale: var(--press, 0.97);
     transition-duration: 120ms;
   }
 

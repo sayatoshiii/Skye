@@ -111,7 +111,7 @@ const hardenLink = (anchor: HTMLAnchorElement) => {
 export type RenderOptions = {
   ownUserId?: string;
   resolveName?: (userId: string) => string | undefined;
-  resolveRoom?: (roomIdOrAlias: string) => string | undefined;
+  resolveRoom?: (roomIdOrAlias: string) => { name?: string; avatar?: string } | undefined;
   everyone?: boolean;
 };
 
@@ -165,7 +165,11 @@ const decorate = (root: DocumentFragment | HTMLElement, options: RenderOptions) 
       anchor.classList.add("mention", "room");
       anchor.dataset.roomId = roomId;
       anchor.removeAttribute("target");
-      anchor.textContent = `#${options.resolveRoom?.(roomId) ?? anchor.textContent?.replace(/^#/, "") ?? roomId}`;
+      const target = options.resolveRoom?.(roomId);
+      const label = target?.name ?? anchor.textContent?.replace(/^#/, "") ?? roomId;
+      const icon = Object.assign(document.createElement("img"), { alt: "", className: "mention-icon" });
+      target?.avatar && (icon.dataset.avatarMxc = target.avatar);
+      anchor.replaceChildren(...(target?.avatar ? [icon, label] : [`#${label}`]));
       return;
     }
 
@@ -183,7 +187,7 @@ const decorate = (root: DocumentFragment | HTMLElement, options: RenderOptions) 
 
   if (options.everyone) markEveryone(root);
 
-  root.querySelectorAll("img").forEach((image) => {
+  root.querySelectorAll("img:not(.mention-icon)").forEach((image) => {
     const src = image.getAttribute("src") ?? "";
     if (!src.startsWith("mxc://")) return image.replaceWith(document.createTextNode(image.getAttribute("alt") ?? ""));
     image.removeAttribute("src");
