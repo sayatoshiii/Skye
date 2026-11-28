@@ -1,15 +1,13 @@
 <script lang="ts">
-  import { copied, toastKey, type ToastIcon } from "../../scripts/stores/toast";
   import { tooltip } from "../../scripts/misc/tooltip";
   import EmojiText from "../ui/EmojiText.svelte";
   import Avatar from "../ui/Avatar.svelte";
   import Toggle from "../ui/Toggle.svelte";
-  import ConfirmDialog from "../ui/ConfirmDialog.svelte";
   import MessageMenu, { type MenuItem } from "./MessageMenu.svelte";
+  import { roomActions } from "../../scripts/menus/room";
+  import { askLeave } from "../../scripts/menus/prompts.svelte";
   import { MENU_ICONS } from "../../scripts/misc/icons";
   import { longpress } from "../../scripts/misc/longpress";
-  import { toMatrixTo } from "../../scripts/matrix/utilities/links";
-  import { describeMembershipError, leaveRoom, type MembershipError } from "../../scripts/matrix/utilities/membership";
   import { getLocalisedText } from "../../scripts/accessibility/language/translation";
   import { formatAgo } from "../../scripts/misc/time";
   import { getHierarchy, joinRoom, knockRoom, type HierarchyRoom } from "../../scripts/matrix/utilities/hierarchy";
@@ -17,7 +15,7 @@
   import type { RoomSummary, Session } from "../../scripts/matrix/types";
   import { browseSettings, dismissBrowseIntro, type BrowseSettings } from "../../scripts/settings/browse";
   import { hiddenRooms, isRoomHidden, setRoomsHidden } from "../../scripts/stores/hidden";
-  import { markAsRead, rooms, session } from "../../scripts/stores/matrix";
+  import { rooms, session } from "../../scripts/stores/matrix";
   import { navigation, openRoom } from "../../scripts/stores/navigation.svelte";
   import { toEntity } from "../../scripts/stores/entities";
 
@@ -67,8 +65,8 @@
 
   const spaceId = $derived(navigation.spaceId);
 
-  const load = async (target: string, current: Session, refresh = false) => {
-    status = "loading";
+  const load = async (target: string, current: Session, refresh = false, quiet = false) => {
+    quiet || (status = "loading");
     try {
       const result = await getHierarchy(current, target, refresh);
       if (navigation.spaceId !== target) return;
@@ -87,6 +85,18 @@
     const current = activeSession;
     if (!current) return;
     queueMicrotask(() => load(target, current));
+  });
+
+  const links = $derived(Object.entries(roomMap[spaceId]?.state["m.space.child"] ?? {}));
+  const unlisted = $derived(new Set(links.filter(([, event]) => !Array.isArray(event?.content?.via) || !event.content.via.length).map(([roomId]) => roomId)));
+  const listed = $derived(links.map(([roomId]) => roomId).filter((roomId) => !unlisted.has(roomId)).sort().join());
+  let lastListed: string | undefined;
+
+  $effect(() => {
+    const [key, target, current] = [listed, spaceId, activeSession];
+    const changed = lastListed !== undefined && lastListed !== key;
+    lastListed = key;
+    changed && current && load(target, current, true, true);
   });
 
   const isJoined = (roomId: string) => roomMap[roomId]?.membership === "join";
@@ -144,7 +154,7 @@
       return walk(space, 0, new Set([spaceId]));
     }
 
-    const byId = new Map(hierarchy.map((room) => [room.roomId, room]));
+    const byId = new Map(hierarchy.filter((room) => !unlisted.has(room.roomId)).map((room) => [room.roomId, room]));
     const root = byId.get(spaceId);
     if (!root) return [];
 
@@ -250,61 +260,20 @@
 
   const open = (roomId: string) => openRoom(spaceId, roomId);
 
-  let leaving: Item | null = $state(null);
-  let leavingBusy = $state(false);
-  let confirmDialog: ConfirmDialog | undefined = $state();
-  let leaveError: MembershipError | null = $state(null);
-
-  const leave = async (item: Item) => {
-    if (!activeSession) return;
-    leavingBusy = true;
-    leaveError = null;
-    try {
-      await leaveRoom(activeSession, item.roomId);
-      confirmDialog?.dismiss();
-    } catch (error) {
-      leaveError = describeMembershipError(error);
-    } finally {
-      leavingBusy = false;
-    }
-  };
-
   let menu: { item: Item; x: number; y: number } | null = $state.raw(null);
 
   const openMenu = (item: Item, x: number, y: number) => {
     if (!menu) menu = { item, x, y };
   };
 
-  const copy = (value: string, key: string, icon: ToastIcon) => copied(value, key, icon);
 
   const menuItems = (item: Item): MenuItem[] => {
-    const joined = isJoined(item.roomId);
-    const shared = [
-      { id: "link", label: text("room_menu", "copy_link"), icon: MENU_ICONS.link, run: () => copy(toMatrixTo(item.roomId, viaFor(item)), "link_copied", "link") },
-      { id: "id", label: text("room_menu", "copy_id"), icon: MENU_ICONS.id, run: () => copy(item.roomId, "id_copied", "id") },
-    ];
-    if (!joined) {
-      const entry: MenuItem[] = canJoin(item)
-        ? [{ id: "join", label: text("browse", "join"), icon: MENU_ICONS.add, run: () => act(item, "join") }]
-        : canKnock(item) && !requested[item.roomId]
-          ? [{ id: "knock", label: text("browse", "knock"), icon: MENU_ICONS.add, run: () => act(item, "knock") }]
-          : [];
-      return [...entry, ...shared];
-    }
-    const shown = !isRoomHidden(hidden, spaceId, item.roomId);
-    return [
-      { id: "open", label: text("room_menu", "open"), icon: MENU_ICONS.open, run: () => open(item.roomId) },
-      { id: "read", label: text("room_menu", "mark_read"), icon: MENU_ICONS.read, run: () => (markAsRead(item.roomId), toastKey("marked_read", { icon: "check", tone: "success" })) },
-      { id: "hide", label: text("room_menu", shown ? "hide" : "show"), icon: MENU_ICONS.hide, run: () => (setRoomsHidden(spaceId, [item.roomId], shown), toastKey(shown ? "hidden" : "shown", shown ? { icon: "hide", tone: "danger" } : { icon: "show", tone: "accent" })) },
-      ...shared,
-      { id: "leave", label: text("room_menu", "leave"), icon: MENU_ICONS.leave, danger: true, run: (event) => (event instanceof MouseEvent && event.shiftKey ? void leave(item) : ((leaveError = null), (leaving = item))) },
-    ];
-  };
-
-  const askLeave = (item: Item, event: MouseEvent) => {
-    if (event.shiftKey) return void leave(item);
-    leaveError = null;
-    leaving = item;
+    const entry: MenuItem[] = canJoin(item)
+      ? [{ id: "join", label: text("browse", "join"), icon: MENU_ICONS.add, run: () => act(item, "join") }]
+      : canKnock(item) && !requested[item.roomId]
+        ? [{ id: "knock", label: text("browse", "knock"), icon: MENU_ICONS.add, run: () => act(item, "knock") }]
+        : [];
+    return roomActions(item.roomId, { via: viaFor(item), enable: ["open"], extra: isJoined(item.roomId) ? [] : [{ after: "start", items: entry }] });
   };
 </script>
 
@@ -321,7 +290,7 @@
           onchange={(event) => setRoomsHidden(spaceId, [item.roomId], !event.currentTarget.checked)}
         />
       </label>
-      <button type="button" class="leave-action ghost press sm" onclick={(event) => askLeave(item, event)}>{text("room_menu", "leave")}</button>
+      <button type="button" class="leave-action ghost press sm" onclick={(event) => askLeave(item.roomId, event)}>{text("room_menu", "leave")}</button>
     {/if}
   {:else if joining(item.roomId)}
     <button type="button" class="action press sm bold row-nw align-centre gap-sm" disabled aria-busy="true">
@@ -494,24 +463,6 @@
   <MessageMenu items={menuItems(menu.item)} x={menu.x} y={menu.y} label={text("room_menu", "actions")} onclose={() => (menu = null)} />
 {/if}
 
-{#if leaving}
-  {@const target = leaving}
-  <ConfirmDialog
-    bind:this={confirmDialog}
-    title={text("room_menu", "leave_title").replace("{name}", target.name)}
-    body={text("room_menu", "leave_body")}
-    cancelLabel={text("room_menu", "cancel")}
-    confirmLabel={leavingBusy ? text("room_menu", "leaving") : text("room_menu", "leave")}
-    busy={leavingBusy}
-    onconfirm={() => leave(target)}
-    onclose={() => (leaving = null)}
-  >
-    {#if leaveError}
-      <p class="leave-error sm" role="alert">{text("room_menu", "errors", leaveError)}</p>
-    {/if}
-  </ConfirmDialog>
-{/if}
-
 <style>
   .leave-action {
     flex: none;
@@ -526,10 +477,6 @@
     color: var(--colours-danger);
   }
 
-  .leave-error {
-    margin: 0;
-    color: var(--colours-danger);
-  }
 
   .browse {
     height: 100%;
